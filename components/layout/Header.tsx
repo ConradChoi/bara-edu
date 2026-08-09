@@ -1,50 +1,29 @@
-"use client";
+'use client';
 
-import Link from "next/link";
+import Link from 'next/link';
 
 type HeaderProps = {
   showNav?: boolean;
 };
 
+// Coming Soon 전용 최소 헤더. 강좌목록/로그인 등 실제 라우트가 열리기 전까지는
+// AppHeader(로그인 링크·강좌안내 nav 포함) 대신 이 로고 전용 버전을 쓴다.
 export default function Header({ showNav = true }: HeaderProps) {
   return (
-    <header
-      className="relative z-10 w-full flex items-center justify-between px-6 md:px-16 lg:px-[120px]"
-      style={{
-        backgroundColor: "#ffffff",
-        borderBottom: "1px solid #e5e7eb",
-        height: 64,
-      }}
-    >
-      {/* 로고 */}
-      <Link
-        href="/"
-        className="flex items-center gap-2 font-bold"
-        style={{ textDecoration: "none" }}
-      >
-        <span style={{ fontSize: 18, color: "#1a1a1a", fontWeight: 700 }}>
-          BARA LIFELONG EDUCATION
-        </span>
+    <header className="relative z-10 flex h-16 w-full items-center justify-between border-b border-n-3 bg-n-0 px-6 md:px-16 lg:px-[120px]">
+      <Link href="/" className="font-bold" style={{ textDecoration: 'none' }}>
+        <span className="text-[18px] font-bold text-n-9">바라 평생교육원</span>
       </Link>
 
-      {/* 네비게이션 (메인 오픈 후 표시) */}
       {showNav && (
         <nav>
-          <ul className="flex gap-6" style={{ listStyle: "none", margin: 0, padding: 0 }}>
+          <ul className="m-0 flex list-none gap-6 p-0">
             {[
-              { label: "강좌 안내", href: "/courses" },
-              { label: "수강 신청", href: "/courses" },
+              { label: '강좌 안내', href: '/courses' },
+              { label: '수강 신청', href: '/courses' },
             ].map(({ label, href }) => (
               <li key={label}>
-                <Link
-                  href={href}
-                  style={{
-                    fontSize: 14,
-                    fontWeight: 500,
-                    color: "#4b5563",
-                    textDecoration: "none",
-                  }}
-                >
+                <Link href={href} className="text-[14px] font-medium text-n-6" style={{ textDecoration: 'none' }}>
                   {label}
                 </Link>
               </li>

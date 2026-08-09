@@ -1,10 +1,52 @@
 @import "tailwindcss";
 
+/*
+ * 디자인 토큰 — YLIA_UX_Pattern_Guide.html에서 그대로 이식 (신규 정의 아님).
+ * 근거: docs/02-design/features/bara-edu-lms.design.md 4.0
+ * Figma "Foundations" 페이지의 Colors/Radius 변수와 1:1 대응된다.
+ * Spacing은 별도 토큰 없이 Tailwind 기본 스케일을 그대로 쓴다 —
+ * 기본 spacing 단위(4px)가 YLIA 스케일(sp-1=4px, sp-2=8px, sp-3=12px, sp-4=16px,
+ * sp-6=24px, sp-8=32px, sp-10=40px, sp-16=64px)과 이미 정확히 일치한다.
+ */
+@theme {
+  --color-indigo: #3c1e87;
+  --color-pink: #e11e87;
+  --color-sky: #4bc3f0;
+  --color-arc-1: #6450a0;
+  --color-arc-2: #8c50a0;
+  --color-arc-3: #f06450;
+  --color-arc-4: #f08c3c;
+  --color-arc-5: #14a0b4;
+  --color-success: #1da463;
+  --color-warning: #f0963c;
+  --color-danger: #e14b3c;
+  --color-info: #4bc3f0;
+
+  --color-n-0: #ffffff;
+  --color-n-1: #f7f7f9;
+  --color-n-2: #eeeef2;
+  --color-n-3: #dcdce3;
+  --color-n-4: #b8b8c4;
+  --color-n-5: #8e8e9e;
+  --color-n-6: #6b6b7c;
+  --color-n-7: #4a4a58;
+  --color-n-8: #2e2e38;
+  --color-n-9: #17171c;
+
+  --radius-xs: 4px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+  --radius-pill: 999px;
+
+  --shadow-sm: 0 1px 2px rgba(60, 30, 135, 0.06), 0 1px 1px rgba(60, 30, 135, 0.04);
+  --shadow-md: 0 4px 12px rgba(60, 30, 135, 0.1), 0 1px 2px rgba(60, 30, 135, 0.06);
+  --shadow-lg: 0 10px 30px rgba(60, 30, 135, 0.14), 0 2px 6px rgba(60, 30, 135, 0.08);
+}
+
 :root {
-  --color-primary: #E67E22;
-  --color-secondary: #1B5E8A;
-  --background: #ffffff;
-  --foreground: #1a1a1a;
+  --background: var(--color-n-0);
+  --foreground: var(--color-n-9);
 }
 
 body {
