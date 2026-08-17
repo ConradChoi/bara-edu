@@ -1,9 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import Header from "@/components/layout/Header";
-import Footer from "@/components/layout/Footer";
 
+// Header/Footer는 더 이상 여기서 직접 렌더링하지 않는다 — 이 컴포넌트를 감싸는
+// app/(public)/page.tsx가 이제 (public)/layout.tsx 안에 있어 AppHeader와 전역 Footer를
+// 자동으로 상속받는다(design.md 4.5.8). 예전처럼 여기서도 그리면 Footer가 두 번
+// 나오게 된다(홈 화면 작업 중 발견, 2026-08-10).
 export default function ComingSoon() {
   const [email, setEmail] = useState("");
   const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
@@ -53,8 +55,6 @@ export default function ComingSoon() {
       className="min-h-screen flex flex-col overflow-x-hidden"
       style={{ backgroundColor: "#ffffff" }}
     >
-      <Header showNav={false} />
-
       {/* 메인 콘텐츠 */}
       <main className="flex-1 flex flex-col items-center justify-center px-5 py-16 gap-6">
 
@@ -197,8 +197,6 @@ export default function ComingSoon() {
           )}
         </div>
       </main>
-
-      <Footer />
     </div>
   );
 }

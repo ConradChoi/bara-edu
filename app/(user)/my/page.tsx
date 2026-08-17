@@ -37,9 +37,9 @@ const STATUS_TONE: Record<EnrollmentStatus, string> = {
 export default async function MyPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tab?: string; withdrawError?: string }>;
+  searchParams: Promise<{ tab?: string; withdrawError?: string; welcome?: string }>;
 }) {
-  const { tab = 'applications', withdrawError } = await searchParams;
+  const { tab = 'applications', withdrawError, welcome } = await searchParams;
   const supabase = await createClient();
   const {
     data: { user },
@@ -59,6 +59,11 @@ export default async function MyPage({
     <div className="mx-auto max-w-[800px] px-6 py-10">
       <h1 className="text-[24px] font-semibold text-n-9">마이페이지</h1>
 
+      {welcome === '1' && (
+        <div className="mt-4 rounded-md border border-success bg-success/10 px-3.5 py-3">
+          <p className="text-[13px] font-semibold text-success">이메일 인증이 완료됐어요. 가입을 환영해요!</p>
+        </div>
+      )}
       {withdrawError === 'active-enrollment' && (
         <div className="mt-4 rounded-md border border-warning bg-warning/10 px-3.5 py-3">
           <p className="text-[13px] font-semibold text-warning">진행 중인 강좌가 있어 탈퇴할 수 없어요.</p>

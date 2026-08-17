@@ -1,10 +1,11 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
+import Badge from '@/components/courses/Badge';
 import PaymentGuide from '@/components/enrollment/PaymentGuide';
 import {
+  getActiveCategoryTree,
   getApprovedSeatsTaken,
-  getCategoryTree,
   getCourseBySlug,
   getMyEnrollmentForCourse,
 } from '@/lib/supabase/queries';
@@ -35,7 +36,7 @@ export default async function CourseDetailPage({
   } = await supabase.auth.getUser();
 
   const [categories, seatsTaken, myEnrollment] = await Promise.all([
-    getCategoryTree(),
+    getActiveCategoryTree(),
     getApprovedSeatsTaken([course.id]),
     user ? getMyEnrollmentForCourse(user.id, course.id) : Promise.resolve(null),
   ]);
@@ -47,20 +48,10 @@ export default async function CourseDetailPage({
   return (
     <div className="mx-auto max-w-[720px] px-6 py-10">
       <div className="flex items-center gap-2">
-        {categoryName && (
-          <span className="rounded-pill bg-n-2 px-2.5 py-1 text-[11px] font-semibold text-n-7">{categoryName}</span>
-        )}
-        {course.governmentSupport && (
-          <span className="rounded-pill bg-info/15 px-2.5 py-1 text-[11px] font-semibold text-info">정부지원</span>
-        )}
-        {course.status === 'upcoming' && (
-          <span className="rounded-pill bg-warning/15 px-2.5 py-1 text-[11px] font-semibold text-warning">
-            개강예정
-          </span>
-        )}
-        {isFull && (
-          <span className="rounded-pill bg-danger/15 px-2.5 py-1 text-[11px] font-semibold text-danger">마감</span>
-        )}
+        {categoryName && <Badge tone="neutral">{categoryName}</Badge>}
+        {course.governmentSupport && <Badge tone="info">정부지원</Badge>}
+        {course.status === 'upcoming' && <Badge tone="warning">개강예정</Badge>}
+        {isFull && <Badge tone="danger">마감</Badge>}
       </div>
 
       <h1 className="mt-4 text-[24px] font-semibold text-n-9">{course.title}</h1>

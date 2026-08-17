@@ -61,6 +61,15 @@ export async function getCategoryTree(): Promise<Category[]> {
   return (data as CategoryRow[]).map(mapCategory);
 }
 
+// 방문자에게 카테고리 칩/배지로 노출할 때만 쓴다. getCategoryTree()는 Admin이 비활성
+// 카테고리도 계속 관리(과거 강좌 재배정 등)할 수 있어야 해서 일부러 필터링하지 않는다
+// — 공개 화면(홈, /courses)에서 비활성 카테고리가 그대로 새어나가던 걸 홈 화면 작업 중
+// 발견했다(service-planner 점검, 2026-08-10).
+export async function getActiveCategoryTree(): Promise<Category[]> {
+  const categories = await getCategoryTree();
+  return categories.filter((c) => c.isActive);
+}
+
 // 상위 카테고리 선택 시 하위 전체 포함 (F-PUB-2). Admin 카테고리 삭제/비활성화 시
 // "본인+하위가 쓰이고 있는지" 판정에도 재사용한다(module-lms-6).
 export function collectDescendantIds(categoryId: string, categories: Category[]): string[] {

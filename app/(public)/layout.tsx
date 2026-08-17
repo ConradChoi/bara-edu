@@ -1,4 +1,5 @@
 import AppHeader from '@/components/layout/AppHeader';
+import Footer from '@/components/layout/Footer';
 import { createClient } from '@/lib/supabase/server';
 
 // (public) 그룹은 비로그인 방문자와 로그인한 회원이 모두 드나든다(홈/강좌목록/강좌상세).
@@ -14,6 +15,7 @@ export default async function PublicLayout({ children }: { children: React.React
     <>
       <AppHeader kind={user ? 'user' : 'public'} />
       <main>{children}</main>
+      <Footer />
     </>
   );
 }

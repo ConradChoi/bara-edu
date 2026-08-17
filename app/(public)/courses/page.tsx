@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
-import { getApprovedSeatsTaken, getCategoryTree, getPublicCourses } from '@/lib/supabase/queries';
+import CourseCard from '@/components/courses/CourseCard';
+import FilterChip from '@/components/courses/FilterChip';
+import { getActiveCategoryTree, getApprovedSeatsTaken, getPublicCourses } from '@/lib/supabase/queries';
 
 export const metadata: Metadata = { title: '강좌안내 | 바라 평생교육원' };
 
@@ -10,7 +11,7 @@ export default async function CoursesPage({
   searchParams: Promise<{ category?: string }>;
 }) {
   const { category } = await searchParams;
-  const categories = await getCategoryTree();
+  const categories = await getActiveCategoryTree();
   const topCategories = categories.filter((c) => c.depth === 1);
   const courses = await getPublicCourses(category);
   const seatsTaken = await getApprovedSeatsTaken(courses.map((c) => c.id));
@@ -34,51 +35,10 @@ export default async function CoursesPage({
             const categoryName = categories.find((c) => c.id === course.categoryId)?.name;
             const isFull = (seatsTaken[course.id] ?? 0) >= course.seats;
 
-            return (
-              <Link
-                key={course.id}
-                href={`/courses/${course.slug}`}
-                className="flex flex-col gap-3 rounded-lg border border-n-3 bg-n-0 p-5 shadow-sm transition hover:shadow-md"
-              >
-                <div className="flex items-center gap-2">
-                  {categoryName && <Badge tone="neutral">{categoryName}</Badge>}
-                  {course.governmentSupport && <Badge tone="info">정부지원</Badge>}
-                  {isFull && <Badge tone="danger">마감</Badge>}
-                </div>
-                <h2 className="text-[16px] font-semibold text-n-9">{course.title}</h2>
-                <p className="line-clamp-2 text-[13px] text-n-6">{course.description}</p>
-                <div className="mt-auto flex items-center justify-between text-[13px] text-n-7">
-                  <span>{course.instructor}</span>
-                  <span className="font-semibold text-indigo">{course.fee.toLocaleString('ko-KR')}원</span>
-                </div>
-              </Link>
-            );
+            return <CourseCard key={course.id} course={course} categoryName={categoryName} isFull={isFull} />;
           })}
         </div>
       )}
     </div>
   );
-}
-
-function FilterChip({ label, href, active }: { label: string; href: string; active: boolean }) {
-  return (
-    <Link
-      href={href}
-      className={`rounded-pill border px-3.5 py-1.5 text-[12.5px] font-medium transition ${
-        active ? 'border-pink bg-pink text-white' : 'border-n-3 bg-n-0 text-n-7 hover:border-pink hover:text-pink'
-      }`}
-    >
-      {label}
-    </Link>
-  );
-}
-
-function Badge({ tone, children }: { tone: 'neutral' | 'info' | 'danger'; children: React.ReactNode }) {
-  const toneClass = {
-    neutral: 'bg-n-2 text-n-7',
-    info: 'bg-info/15 text-info',
-    danger: 'bg-danger/15 text-danger',
-  }[tone];
-
-  return <span className={`rounded-pill px-2.5 py-1 text-[11px] font-semibold ${toneClass}`}>{children}</span>;
 }

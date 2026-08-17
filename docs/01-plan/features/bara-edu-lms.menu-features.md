@@ -76,7 +76,8 @@ graph TD
 
 | ID | 메뉴/화면 | 기능명 | 설명 | 우선순위 | 관련 데이터 |
 |---|---|---|---|:---:|---|
-| F-PUB-1 | 홈 | Coming Soon ↔ 메인 토글 | `NEXT_PUBLIC_IS_OPEN` 환경변수로 분기 (기존 MVP 구현 유지) | Must | site-config |
+| F-PUB-1a | 홈 | Coming Soon ↔ 메인 토글 | `NEXT_PUBLIC_IS_OPEN` 환경변수로 `<ComingSoon />`/`<HomePage />` 분기. 롤백 스위치로 유지 | Must | site-config |
+| F-PUB-1b | 홈 | 메인 홈 섹션 | 히어로·카테고리 바로가기·강좌 섹션·신청 방법(`#apply-guide`)·(Should)브랜드소개·문의, 전 페이지 공통 `AppHeader`/`Footer` 적용. 상세 요구사항·화면 정의서·카피는 [bara-edu-lms.home.md](./bara-edu-lms.home.md) 3절·10~13절 참조 | Must | `categories`, `courses`, site-config |
 | F-PUB-2 | 강좌 목록 | 카테고리 트리 필터 | 최대 3Depth 카테고리 트리(예: IT·디지털 > 개발 > 프론트엔드)에서 선택, 상위 선택 시 하위 전체 포함 | Must | `categories`, `courses` |
 | F-PUB-3 | 강좌 목록 | 강좌 카드 그리드 | 3열(PC)/2열(태블릿)/1열(모바일) | Must | `courses` |
 | F-PUB-4 | 강좌 상세 | 강좌 정보 노출 | 썸네일/배지/강사/일정/수강료/정원 | Must | `courses` |
@@ -88,7 +89,7 @@ graph TD
 
 | ID | 메뉴/화면 | 기능명 | 설명 | 우선순위 | 관련 데이터 |
 |---|---|---|---|:---:|---|
-| F-AUTH-1 | 회원가입 | 이메일/비밀번호 가입 | 이메일 인증은 1차 생략(Q1) | Must | Supabase Auth, `profiles` |
+| F-AUTH-1 | 회원가입 | 이메일/비밀번호 가입 | 이메일 인증 필수(2026-08-17부터, Q1 변경). 인증 전에는 세션 없음 → "이메일을 확인해주세요" 안내, 인증 메일 링크 클릭 시 `/my?welcome=1`로 이동 | Must | Supabase Auth, `profiles` |
 | F-AUTH-2 | 로그인 | 이메일/비밀번호 로그인 | 세션 발급, 원래 목적지로 복귀 | Must | Supabase Auth |
 | F-AUTH-3 | 공통 | 세션 만료 처리 | 보호 페이지 접근 시 로그인으로 리다이렉트 후 복귀 | Must | Supabase Auth |
 

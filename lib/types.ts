@@ -130,6 +130,10 @@ export interface LegalDocument {
 
 export interface SiteConfig {
   name: string;
+  operator: string;
+  representative: string;
+  businessRegistrationNumber: string;
+  mailOrderLicenseNumber: string;
   phone: string;
   email: string;
   address: string;

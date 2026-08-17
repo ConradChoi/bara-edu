@@ -3,7 +3,7 @@
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 
-export type AuthFormState = { error: string } | undefined;
+export type AuthFormState = { error: string } | { pendingConfirmation: true; email: string } | undefined;
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -52,13 +52,42 @@ export async function signup(
     return { error: '가입 중 문제가 발생했어요. 잠시 후 다시 시도해주세요' };
   }
 
-  // 이메일 인증을 끈 프로젝트에서는 이미 가입된 이메일로 다시 가입 시도하면
-  // 에러 없이 성공한 것처럼 응답하되 identities가 빈 배열로 온다 (Supabase anti-enumeration).
+  // 이미 가입된 이메일로 다시 가입 시도하면 에러 없이 성공한 것처럼 응답하되
+  // identities가 빈 배열로 온다 (Supabase anti-enumeration, Confirm email 설정과 무관).
   if (data.user && data.user.identities && data.user.identities.length === 0) {
     return { error: '이미 가입된 이메일이에요. 로그인해 주세요' };
   }
 
+  // Confirm email이 켜진 프로젝트에서는 signUp() 직후 session이 없다 — 이메일의 인증
+  // 링크를 눌러야 세션이 생긴다(RecoveryRedirect가 그 링크의 #access_token 해시를
+  // 처리한다). 꺼져 있으면(과거 기본값) 이 시점에 이미 세션이 있으므로 바로 이동한다
+  // (Confirm email을 켠 2026-08-17 이후에도 두 설정 모두 안전하게 동작하도록 분기).
+  if (!data.session) {
+    return { pendingConfirmation: true, email };
+  }
+
   redirect('/my');
+}
+
+// 인증 메일 링크가 만료됐거나(기본 24시간) 이미 사용된 경우를 위한 재전송. 존재하지
+// 않는/이미 인증된 이메일이어도 Supabase가 반환하는 에러를 그대로 노출하지 않고 같은
+// 문구로 응답한다 — signup()의 "이미 가입된 이메일이에요"처럼 계정 존재 여부를 이
+// 화면에서까지 세밀하게 구분해 알려주지 않는다(이메일 열거 방지, security-officer 관점).
+export async function resendConfirmation(
+  _prevState: AuthFormState,
+  formData: FormData
+): Promise<AuthFormState> {
+  const email = (formData.get('email') as string | null)?.trim() ?? '';
+  if (!EMAIL_RE.test(email)) return { error: '올바른 이메일 형식이 아니에요' };
+
+  const supabase = await createClient();
+  const { error } = await supabase.auth.resend({ type: 'signup', email });
+
+  if (error) {
+    return { error: '인증 메일을 다시 보내지 못했어요. 잠시 후 다시 시도해주세요' };
+  }
+
+  return { pendingConfirmation: true, email };
 }
 
 export async function login(

@@ -3,6 +3,7 @@
 import { useActionState } from 'react';
 import Link from 'next/link';
 import { signup, login, type AuthFormState } from '@/app/actions/auth';
+import ResendConfirmationForm from '@/components/auth/ResendConfirmationForm';
 
 const initialState: AuthFormState = undefined;
 
@@ -14,6 +15,24 @@ type AuthFormProps = {
 export default function AuthForm({ mode, redirectTo }: AuthFormProps) {
   const action = mode === 'signup' ? signup : login;
   const [state, formAction, pending] = useActionState(action, initialState);
+
+  if (mode === 'signup' && state && 'pendingConfirmation' in state) {
+    return (
+      <div className="flex flex-col gap-5">
+        <p className="text-[14px] leading-relaxed text-n-7">
+          <span className="font-semibold text-n-9">{state.email}</span>로 인증 메일을 보내드렸어요. 메일함에서 링크를 눌러
+          가입을 완료해주세요.
+        </p>
+        <div className="flex flex-col gap-2 border-t border-n-3 pt-4">
+          <p className="text-[12.5px] text-n-6">메일이 안 왔거나 링크가 만료됐다면 다시 보낼 수 있어요.</p>
+          <ResendConfirmationForm defaultEmail={state.email} />
+        </div>
+        <Link href="/sign-in" className="text-center text-[13px] font-medium text-pink">
+          로그인 화면으로
+        </Link>
+      </div>
+    );
+  }
 
   return (
     <form action={formAction} className="flex flex-col gap-5">
@@ -57,7 +76,7 @@ export default function AuthForm({ mode, redirectTo }: AuthFormProps) {
         <input type="hidden" name="redirect" value={redirectTo} />
       )}
 
-      {state?.error && <p className="text-[12.5px] text-danger">{state.error}</p>}
+      {state && 'error' in state && <p className="text-[12.5px] text-danger">{state.error}</p>}
 
       <button
         type="submit"
