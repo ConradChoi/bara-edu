@@ -75,7 +75,7 @@ export default function CourseForm({
         </label>
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-3 gap-4">
         <label className="flex flex-col gap-1 text-[12.5px] text-n-7">
           수강료(원)
           <input
@@ -95,6 +95,17 @@ export default function CourseForm({
             min={0}
             required
             defaultValue={defaultValues?.seats}
+            className="h-10 rounded-md border border-n-3 bg-n-1 px-2.5 text-[13px]"
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-[12.5px] text-n-7">
+          총 강좌 시간(시간, 선택)
+          <input
+            name="totalHours"
+            type="number"
+            min={0}
+            defaultValue={defaultValues?.totalHours ?? undefined}
+            placeholder="예: 20"
             className="h-10 rounded-md border border-n-3 bg-n-1 px-2.5 text-[13px]"
           />
         </label>

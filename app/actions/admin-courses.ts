@@ -23,6 +23,15 @@ function readCourseFields(formData: FormData) {
   // fee/seats는 DB에서 integer 컬럼이라 정수인지까지 확인한다(qa-reviewer 점검, 2026-08-08).
   if (!Number.isInteger(fee) || fee < 0 || !Number.isInteger(seats) || seats < 0) return null;
 
+  // 총 강좌 시간은 선택 입력 — 비워두면 null(표시 생략), 입력하면 fee/seats와 같은 기준으로 검증한다.
+  const totalHoursRaw = (formData.get('totalHours') as string | null)?.trim();
+  let totalHours: number | null = null;
+  if (totalHoursRaw) {
+    const parsed = Number(totalHoursRaw);
+    if (!Number.isInteger(parsed) || parsed < 0) return null;
+    totalHours = parsed;
+  }
+
   return {
     title,
     slug,
@@ -31,6 +40,7 @@ function readCourseFields(formData: FormData) {
     instructor: ((formData.get('instructor') as string | null) ?? '').trim(),
     fee,
     seats,
+    total_hours: totalHours,
     government_support: formData.get('governmentSupport') === 'on',
     status,
   };

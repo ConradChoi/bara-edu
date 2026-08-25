@@ -36,6 +36,7 @@ export interface Course {
   instructor: string;
   fee: number;
   seats: number;
+  totalHours: number | null; // 총 강좌 시간(단위: 시간), 미입력 시 null
   governmentSupport: boolean;
   status: CourseStatus;
 }

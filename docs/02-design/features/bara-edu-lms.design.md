@@ -188,6 +188,7 @@ export interface Course {
   instructor: string;
   fee: number;
   seats: number;
+  totalHours: number | null;  // 총 강좌 시간(시간 단위), 선택 입력 — 관리자 요청으로 2026-08-17 추가
   governmentSupport: boolean;
   status: 'active' | 'upcoming' | 'closed';
 }

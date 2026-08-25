@@ -24,7 +24,10 @@ export default function CourseCard({
       <h2 className="text-[16px] font-semibold text-n-9">{course.title}</h2>
       <p className="line-clamp-2 text-[13px] text-n-6">{course.description}</p>
       <div className="mt-auto flex items-center justify-between text-[13px] text-n-7">
-        <span>{course.instructor}</span>
+        <span>
+          {course.instructor}
+          {course.totalHours != null && ` · 총 ${course.totalHours}시간`}
+        </span>
         <span className="font-semibold text-indigo">{course.fee.toLocaleString('ko-KR')}원</span>
       </div>
     </Link>

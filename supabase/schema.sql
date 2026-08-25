@@ -763,3 +763,10 @@ $$;
 -- 유도"). 원래 스키마에 이 값을 저장할 컬럼이 없었다(module-lms-5 Phase 4.5 설계 중 발견,
 -- 2026-08-09) — enrollments.rejection_reason과 동일한 패턴으로 추가한다.
 alter table assignment_submissions add column if not exists review_note text;
+
+-- courses.total_hours: 총 강좌 시간(단위: 시간). 강좌 등록 시 선택 입력 — 기존 강좌는
+-- null(미입력)로 남고, 공개 화면(/courses, /courses/[slug])은 null이면 표시를 생략한다.
+-- 음수 방지는 fee/seats와 동일하게 앱 레벨(admin-courses.ts readCourseFields)에서 검증한다
+-- — 이 스키마 전체가 재실행 가능(idempotent)해야 하는데 check 제약은 그렇게 걸기 번거롭다
+-- (관리자 요청, 2026-08-17).
+alter table courses add column if not exists total_hours integer;

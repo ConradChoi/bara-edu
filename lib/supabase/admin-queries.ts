@@ -29,6 +29,7 @@ type CourseRow = {
   instructor: string;
   fee: number;
   seats: number;
+  total_hours: number | null;
   government_support: boolean;
   status: CourseStatus;
 };
@@ -43,6 +44,7 @@ function mapCourseRow(row: CourseRow): Course {
     instructor: row.instructor,
     fee: row.fee,
     seats: row.seats,
+    totalHours: row.total_hours,
     governmentSupport: row.government_support,
     status: row.status,
   };
@@ -375,7 +377,7 @@ export async function getAdminCourseById(id: string): Promise<AdminCourseDetail 
   const { data, error } = await supabase
     .from('courses')
     .select(
-      'id, slug, title, category_id, description, instructor, fee, seats, government_support, status, lessons(id, course_id, title, video_url, order, has_quiz, has_assignment, assignment_due_at)'
+      'id, slug, title, category_id, description, instructor, fee, seats, total_hours, government_support, status, lessons(id, course_id, title, video_url, order, has_quiz, has_assignment, assignment_due_at)'
     )
     .eq('id', id)
     .maybeSingle();

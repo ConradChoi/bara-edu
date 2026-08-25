@@ -69,6 +69,12 @@ export default async function CourseDetailPage({
           <dt className="text-n-5">정원</dt>
           <dd>{course.seats}명</dd>
         </div>
+        {course.totalHours != null && (
+          <div className="flex gap-1.5">
+            <dt className="text-n-5">총 강좌 시간</dt>
+            <dd>{course.totalHours}시간</dd>
+          </div>
+        )}
       </dl>
 
       <p className="mt-6 whitespace-pre-line text-[14px] leading-relaxed text-n-7">{course.description}</p>
