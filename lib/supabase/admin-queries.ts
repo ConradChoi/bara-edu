@@ -59,6 +59,11 @@ type LessonRow = {
   has_quiz: boolean;
   has_assignment: boolean;
   assignment_due_at: string | null;
+  lesson_mode: Lesson['lessonMode'];
+  online_meeting_url: string | null;
+  online_scheduled_at: string | null;
+  offline_location_name: string | null;
+  offline_address: string | null;
 };
 
 function mapLessonRow(row: LessonRow): Lesson {
@@ -71,6 +76,11 @@ function mapLessonRow(row: LessonRow): Lesson {
     assignmentDueAt: row.assignment_due_at,
     hasQuiz: row.has_quiz,
     hasAssignment: row.has_assignment,
+    lessonMode: row.lesson_mode,
+    onlineMeetingUrl: row.online_meeting_url,
+    onlineScheduledAt: row.online_scheduled_at,
+    offlineLocationName: row.offline_location_name,
+    offlineAddress: row.offline_address,
   };
 }
 
@@ -377,7 +387,7 @@ export async function getAdminCourseById(id: string): Promise<AdminCourseDetail 
   const { data, error } = await supabase
     .from('courses')
     .select(
-      'id, slug, title, category_id, description, instructor, fee, seats, total_hours, government_support, status, lessons(id, course_id, title, video_url, order, has_quiz, has_assignment, assignment_due_at)'
+      'id, slug, title, category_id, description, instructor, fee, seats, total_hours, government_support, status, lessons(id, course_id, title, video_url, order, has_quiz, has_assignment, assignment_due_at, lesson_mode, online_meeting_url, online_scheduled_at, offline_location_name, offline_address)'
     )
     .eq('id', id)
     .maybeSingle();

@@ -29,7 +29,7 @@ const SUCCESS_MESSAGE: Record<string, string> = {
 const ERROR_MESSAGE: Record<string, string> = {
   validation: '필수 항목을 확인해주세요 (slug는 영문 소문자·숫자·하이픈만 가능해요).',
   'slug-taken': '이미 사용 중인 slug예요.',
-  'lesson-validation': '강의명과 영상 링크를 입력해주세요.',
+  'lesson-validation': '강의명을 입력해주세요. 온라인 수업은 회의 링크(URL)가 필수예요.',
   failed: '처리 중 문제가 발생했어요.',
 };
 
@@ -83,11 +83,52 @@ export default async function AdminCourseDetailPage({
                       className="h-9 flex-1 rounded-md border border-n-3 bg-n-1 px-2.5 text-[13px]"
                     />
                   </div>
+                  <label className="flex items-center gap-1.5 text-[12px] text-n-7">
+                    강의 방식
+                    <select
+                      name="lessonMode"
+                      defaultValue={lesson.lessonMode}
+                      className="h-8 rounded-md border border-n-3 bg-n-1 px-2 text-[12.5px]"
+                    >
+                      <option value="video">영상 링크(URL)</option>
+                      <option value="online">온라인 수업</option>
+                      <option value="offline">오프라인 수업</option>
+                    </select>
+                  </label>
                   <input
                     name="videoUrl"
+                    placeholder="영상 링크(URL)"
                     defaultValue={lesson.videoUrl ?? ''}
                     className="h-9 rounded-md border border-n-3 bg-n-1 px-2.5 text-[12.5px]"
                   />
+                  <div className="flex flex-wrap gap-2">
+                    <input
+                      name="onlineMeetingUrl"
+                      placeholder="회의 링크(URL) — 온라인 수업일 때 필수"
+                      defaultValue={lesson.onlineMeetingUrl ?? ''}
+                      className="h-9 flex-1 rounded-md border border-n-3 bg-n-1 px-2.5 text-[12.5px]"
+                    />
+                    <input
+                      type="datetime-local"
+                      name="onlineScheduledAt"
+                      defaultValue={formatKstDatetimeLocal(lesson.onlineScheduledAt)}
+                      className="h-9 rounded-md border border-n-3 bg-n-1 px-2 text-[12.5px]"
+                    />
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <input
+                      name="offlineLocationName"
+                      placeholder="장소명(선택)"
+                      defaultValue={lesson.offlineLocationName ?? ''}
+                      className="h-9 flex-1 rounded-md border border-n-3 bg-n-1 px-2.5 text-[12.5px]"
+                    />
+                    <input
+                      name="offlineAddress"
+                      placeholder="주소(선택)"
+                      defaultValue={lesson.offlineAddress ?? ''}
+                      className="h-9 flex-1 rounded-md border border-n-3 bg-n-1 px-2.5 text-[12.5px]"
+                    />
+                  </div>
                   <div className="flex flex-wrap items-center gap-3">
                     <label className="flex items-center gap-1.5 text-[12px] text-n-7">
                       <input type="checkbox" name="hasQuiz" defaultChecked={lesson.hasQuiz} className="h-3.5 w-3.5" />
@@ -149,7 +190,39 @@ export default async function AdminCourseDetailPage({
         <form action={addLesson.bind(null, id)} className="flex flex-col gap-2 rounded-lg border border-n-3 bg-n-1 p-3">
           <p className="text-[12.5px] font-medium text-n-7">강의 추가</p>
           <input name="title" placeholder="강의명" className="h-9 rounded-md border border-n-3 bg-n-0 px-2.5 text-[13px]" />
+          <label className="flex items-center gap-1.5 text-[12px] text-n-7">
+            강의 방식
+            <select name="lessonMode" defaultValue="video" className="h-8 rounded-md border border-n-3 bg-n-0 px-2 text-[12.5px]">
+              <option value="video">영상 링크(URL)</option>
+              <option value="online">온라인 수업</option>
+              <option value="offline">오프라인 수업</option>
+            </select>
+          </label>
           <input name="videoUrl" placeholder="영상 링크 (URL)" className="h-9 rounded-md border border-n-3 bg-n-0 px-2.5 text-[13px]" />
+          <div className="flex flex-wrap gap-2">
+            <input
+              name="onlineMeetingUrl"
+              placeholder="회의 링크(URL) — 온라인 수업일 때 필수"
+              className="h-9 flex-1 rounded-md border border-n-3 bg-n-0 px-2.5 text-[13px]"
+            />
+            <input
+              type="datetime-local"
+              name="onlineScheduledAt"
+              className="h-9 rounded-md border border-n-3 bg-n-0 px-2 text-[12.5px]"
+            />
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <input
+              name="offlineLocationName"
+              placeholder="장소명(선택)"
+              className="h-9 flex-1 rounded-md border border-n-3 bg-n-0 px-2.5 text-[13px]"
+            />
+            <input
+              name="offlineAddress"
+              placeholder="주소(선택)"
+              className="h-9 flex-1 rounded-md border border-n-3 bg-n-0 px-2.5 text-[13px]"
+            />
+          </div>
           <div className="flex items-center gap-3">
             <label className="flex items-center gap-1.5 text-[12px] text-n-7">
               <input type="checkbox" name="hasQuiz" className="h-3.5 w-3.5" />

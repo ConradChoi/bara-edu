@@ -28,6 +28,10 @@ do $$ begin
   create type legal_doc_type as enum ('terms', 'privacy', 'refund_policy', 'etc');
 exception when duplicate_object then null; end $$;
 
+do $$ begin
+  create type lesson_mode as enum ('video', 'online', 'offline');
+exception when duplicate_object then null; end $$;
+
 -- ===================== Tables =====================
 
 -- 회원 프로필 (auth.users 1:1)
@@ -770,3 +774,13 @@ alter table assignment_submissions add column if not exists review_note text;
 -- — 이 스키마 전체가 재실행 가능(idempotent)해야 하는데 check 제약은 그렇게 걸기 번거롭다
 -- (관리자 요청, 2026-08-17).
 alter table courses add column if not exists total_hours integer;
+
+-- lessons.lesson_mode: 강의 방식(영상 링크/온라인 수업/오프라인 수업). 기존 강의는 전부
+-- 'video'(기존 동작 그대로)로 마이그레이션된다. online/offline 전용 필드는 앱 레벨에서
+-- 모드에 맞게만 채우도록 검증한다(admin-courses.ts) — video_url처럼 전부 nullable로 두고
+-- DB check 제약은 스키마 재실행 편의를 위해 걸지 않는다(관리자 요청, 2026-08-25).
+alter table lessons add column if not exists lesson_mode lesson_mode not null default 'video';
+alter table lessons add column if not exists online_meeting_url text;
+alter table lessons add column if not exists online_scheduled_at timestamptz;
+alter table lessons add column if not exists offline_location_name text;
+alter table lessons add column if not exists offline_address text;

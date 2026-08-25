@@ -110,7 +110,14 @@ export default async function ClassroomLessonPage({
           </div>
         )}
 
-        <LessonPlayer videoUrl={currentLesson.videoUrl} />
+        <LessonPlayer
+          lessonMode={currentLesson.lessonMode}
+          videoUrl={currentLesson.videoUrl}
+          onlineMeetingUrl={currentLesson.onlineMeetingUrl}
+          onlineScheduledAt={currentLesson.onlineScheduledAt}
+          offlineLocationName={currentLesson.offlineLocationName}
+          offlineAddress={currentLesson.offlineAddress}
+        />
         <MarkCompleteButton
           lessonId={currentLesson.id}
           courseId={courseId}

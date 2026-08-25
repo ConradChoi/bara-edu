@@ -197,10 +197,15 @@ export interface Lesson {
   id: string;
   courseId: string;
   title: string;
-  videoUrl: string;      // 외부 링크 (업로드 아님)
+  videoUrl: string | null;      // 외부 링크 (업로드 아님). lessonMode='video'일 때만 사용
   order: number;
   hasQuiz: boolean;
   hasAssignment: boolean;
+  lessonMode: 'video' | 'online' | 'offline';  // 강의 방식(2026-08-25 추가, 관리자 요청)
+  onlineMeetingUrl: string | null;   // lessonMode='online' 필수(Zoom/Meet 등 참여 링크)
+  onlineScheduledAt: string | null;  // lessonMode='online' 선택(실시간 수업 일시)
+  offlineLocationName: string | null; // lessonMode='offline' 선택
+  offlineAddress: string | null;      // lessonMode='offline' 선택
 }
 
 export type EnrollmentStatus = 'pending' | 'approved' | 'rejected' | 'expired';

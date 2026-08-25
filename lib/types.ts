@@ -41,6 +41,8 @@ export interface Course {
   status: CourseStatus;
 }
 
+export type LessonMode = 'video' | 'online' | 'offline';
+
 export interface Lesson {
   id: string;
   courseId: string;
@@ -50,6 +52,11 @@ export interface Lesson {
   hasQuiz: boolean;
   hasAssignment: boolean;
   assignmentDueAt: string | null; // 과제 마감기한. null이면 마감 없음(module-lms-5)
+  lessonMode: LessonMode; // 강의 방식(2026-08-25 추가). 기존 강의는 전부 'video'로 마이그레이션됨
+  onlineMeetingUrl: string | null; // lessonMode='online'일 때만 사용. 회의 참여 링크
+  onlineScheduledAt: string | null; // lessonMode='online'일 때 선택 입력. 실시간 수업 일시
+  offlineLocationName: string | null; // lessonMode='offline'일 때 선택 입력
+  offlineAddress: string | null; // lessonMode='offline'일 때 선택 입력
 }
 
 // 학습자 화면용 퀴즈 타입 — is_correct 필드가 없다(정답 유출 방지).

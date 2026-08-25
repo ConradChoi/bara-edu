@@ -52,6 +52,11 @@ type LessonRow = {
   has_quiz: boolean;
   has_assignment: boolean;
   assignment_due_at: string | null;
+  lesson_mode: Lesson['lessonMode'];
+  online_meeting_url: string | null;
+  online_scheduled_at: string | null;
+  offline_location_name: string | null;
+  offline_address: string | null;
 };
 
 function mapLessonRow(row: LessonRow): Lesson {
@@ -64,11 +69,17 @@ function mapLessonRow(row: LessonRow): Lesson {
     hasQuiz: row.has_quiz,
     hasAssignment: row.has_assignment,
     assignmentDueAt: row.assignment_due_at,
+    lessonMode: row.lesson_mode,
+    onlineMeetingUrl: row.online_meeting_url,
+    onlineScheduledAt: row.online_scheduled_at,
+    offlineLocationName: row.offline_location_name,
+    offlineAddress: row.offline_address,
   };
 }
 
 const COURSE_COLUMNS = 'id, slug, title, category_id, description, instructor, fee, seats, total_hours, government_support, status';
-const LESSON_COLUMNS = 'id, course_id, title, video_url, order, has_quiz, has_assignment, assignment_due_at';
+const LESSON_COLUMNS =
+  'id, course_id, title, video_url, order, has_quiz, has_assignment, assignment_due_at, lesson_mode, online_meeting_url, online_scheduled_at, offline_location_name, offline_address';
 
 // 강의실은 공개 목록(getCourseBySlug 등)과 달리 status in ('active','upcoming') 필터를
 // 걸지 않는다 — 강좌가 closed로 바뀌어도 승인된 학습자는 계속 접근해야 한다

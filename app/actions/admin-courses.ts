@@ -101,43 +101,67 @@ export async function deleteCourse(courseId: string) {
 // videoUrl은 선택값이다 — Lesson.videoUrl이 nullable이고 LessonPlayer도 "등록된 영상이
 // 없어요" 빈 상태를 지원하므로, 관리자가 영상 링크를 나중에 등록할 수 있게 허용한다
 // (qa-reviewer 점검, 2026-08-09: 필수로 막아두면 그 빈 상태가 죽은 코드가 됨).
-export async function addLesson(courseId: string, formData: FormData) {
+//
+// 강의 방식(lessonMode)별로 관련 없는 필드는 저장하지 않고 null로 비운다 — 관리자가
+// 온라인→영상으로 모드를 바꿔도 예전 회의 링크가 DB에 남아있지 않게 하기 위함
+// (관리자 요청, 2026-08-25: 강의 방식 select 신규 추가).
+const LESSON_MODES = ['video', 'online', 'offline'] as const;
+
+function readLessonFields(formData: FormData) {
   const title = (formData.get('title') as string | null)?.trim();
+  if (!title) return null;
+
+  const rawMode = formData.get('lessonMode') as string | null;
+  const lessonMode = LESSON_MODES.includes(rawMode as (typeof LESSON_MODES)[number])
+    ? (rawMode as (typeof LESSON_MODES)[number])
+    : 'video';
+
   const videoUrl = (formData.get('videoUrl') as string | null)?.trim() || null;
-  if (!title) redirect(`/admin/courses/${courseId}?error=lesson-validation`);
+  const onlineMeetingUrl = (formData.get('onlineMeetingUrl') as string | null)?.trim() || null;
+  const onlineScheduledAt = parseKstDatetimeLocal(formData.get('onlineScheduledAt') as string | null);
+  const offlineLocationName = (formData.get('offlineLocationName') as string | null)?.trim() || null;
+  const offlineAddress = (formData.get('offlineAddress') as string | null)?.trim() || null;
+
+  // 온라인 수업은 회의 참여 링크가 없으면 학습자가 아무것도 할 수 없어 필수로 막는다
+  // (관리자 확정, 2026-08-25). 오프라인 수업의 장소명/주소는 선택 입력.
+  if (lessonMode === 'online' && !onlineMeetingUrl) return null;
+
+  return {
+    title,
+    video_url: lessonMode === 'video' ? videoUrl : null,
+    lesson_mode: lessonMode,
+    online_meeting_url: lessonMode === 'online' ? onlineMeetingUrl : null,
+    online_scheduled_at: lessonMode === 'online' ? onlineScheduledAt : null,
+    offline_location_name: lessonMode === 'offline' ? offlineLocationName : null,
+    offline_address: lessonMode === 'offline' ? offlineAddress : null,
+    has_quiz: formData.get('hasQuiz') === 'on',
+    has_assignment: formData.get('hasAssignment') === 'on',
+    assignment_due_at: parseKstDatetimeLocal(formData.get('assignmentDueAt') as string | null),
+  };
+}
+
+export async function addLesson(courseId: string, formData: FormData) {
+  const fields = readLessonFields(formData);
+  if (!fields) redirect(`/admin/courses/${courseId}?error=lesson-validation`);
 
   const supabase = await requireAdminClient();
   const { count } = await supabase.from('lessons').select('id', { count: 'exact', head: true }).eq('course_id', courseId);
 
   const { error } = await supabase.from('lessons').insert({
     course_id: courseId,
-    title,
-    video_url: videoUrl,
     order: (count ?? 0) + 1,
-    has_quiz: formData.get('hasQuiz') === 'on',
-    has_assignment: formData.get('hasAssignment') === 'on',
-    assignment_due_at: parseKstDatetimeLocal(formData.get('assignmentDueAt') as string | null),
+    ...fields!,
   });
   if (error) redirect(`/admin/courses/${courseId}?error=failed`);
   redirect(`/admin/courses/${courseId}?lessonAdded=1`);
 }
 
 export async function updateLesson(lessonId: string, courseId: string, formData: FormData) {
-  const title = (formData.get('title') as string | null)?.trim();
-  const videoUrl = (formData.get('videoUrl') as string | null)?.trim() || null;
-  if (!title) redirect(`/admin/courses/${courseId}?error=lesson-validation`);
+  const fields = readLessonFields(formData);
+  if (!fields) redirect(`/admin/courses/${courseId}?error=lesson-validation`);
 
   const supabase = await requireAdminClient();
-  const { error } = await supabase
-    .from('lessons')
-    .update({
-      title,
-      video_url: videoUrl,
-      has_quiz: formData.get('hasQuiz') === 'on',
-      has_assignment: formData.get('hasAssignment') === 'on',
-      assignment_due_at: parseKstDatetimeLocal(formData.get('assignmentDueAt') as string | null),
-    })
-    .eq('id', lessonId);
+  const { error } = await supabase.from('lessons').update(fields!).eq('id', lessonId);
   if (error) redirect(`/admin/courses/${courseId}?error=failed`);
   redirect(`/admin/courses/${courseId}?lessonUpdated=1`);
 }
