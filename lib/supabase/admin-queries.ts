@@ -433,7 +433,11 @@ export type AdminMemberListItem = {
   createdAt: string;
 };
 
-export async function getAdminMembers(params?: { q?: string; status?: ProfileStatus | 'all' }): Promise<AdminMemberListItem[]> {
+export async function getAdminMembers(params?: {
+  q?: string;
+  status?: ProfileStatus | 'all';
+  role?: UserRole | 'all';
+}): Promise<AdminMemberListItem[]> {
   const supabase = await createClient();
   let query = supabase
     .from('profiles')
@@ -441,6 +445,10 @@ export async function getAdminMembers(params?: { q?: string; status?: ProfileSta
     .order('created_at', { ascending: false });
 
   if (params?.status && params.status !== 'all') query = query.eq('status', params.status);
+  // 회원 관리(/admin/members)는 role='learner'만, 운영자 관리(/admin/operators)는
+  // role='admin'만 보도록 분리한다 — 이전에는 이 필터가 없어 두 목록이 한 화면에
+  // 섞여 있었다(관리자 요청, 2026-08-25).
+  if (params?.role && params.role !== 'all') query = query.eq('role', params.role);
   if (params?.q) {
     // PostgREST의 or= 필터 문법은 ','와 '()'가 구조적 의미를 가진다 — 검색어에 그대로
     // 두면 의도하지 않은 조건이 주입될 수 있어 제거한다(security-officer 점검, 2026-08-08).

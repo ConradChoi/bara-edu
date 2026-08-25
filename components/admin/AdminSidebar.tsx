@@ -9,6 +9,7 @@ const NAV_ITEMS = [
   { href: '/admin/courses', label: '강좌 관리' },
   { href: '/admin/categories', label: '카테고리 관리' },
   { href: '/admin/members', label: '회원 관리' },
+  { href: '/admin/operators', label: '운영자 관리' },
   { href: '/admin/assignments', label: '과제 검토' },
   { href: '/admin/certificates', label: '수료 관리' },
   { href: '/admin/cms', label: '약관·정책 CMS' },

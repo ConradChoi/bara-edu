@@ -5,25 +5,31 @@ import StatusBadge from '@/components/admin/StatusBadge';
 import { getAdminMembers } from '@/lib/supabase/admin-queries';
 import type { ProfileStatus } from '@/lib/types';
 
-export const metadata: Metadata = { title: '회원 관리 | 관리자' };
+export const metadata: Metadata = { title: '운영자 관리 | 관리자' };
 
 const STATUS_LABEL: Record<ProfileStatus, string> = { active: '활동중', withdrawn: '탈퇴' };
 
-export default async function AdminMembersPage({
+// 회원 관리(/admin/members)에 운영자(role='admin')와 일반 회원이 섞여 있던 걸 분리한
+// 읽기 전용 화면이다(관리자 요청, 2026-08-25). 권한 부여/해제는 이 화면에서 하지 않으며
+// 지금과 동일하게 Supabase 대시보드에서 profiles.role을 직접 바꾸는 방식을 유지한다.
+export default async function AdminOperatorsPage({
   searchParams,
 }: {
   searchParams: Promise<{ q?: string; status?: string }>;
 }) {
   const { q, status } = await searchParams;
-  const members = await getAdminMembers({
+  const operators = await getAdminMembers({
     q,
     status: status === 'withdrawn' ? 'withdrawn' : status === 'active' ? 'active' : 'all',
-    role: 'learner',
+    role: 'admin',
   });
 
   return (
     <div className="flex flex-col gap-4">
-      <h1 className="text-[20px] font-semibold text-n-9">회원 관리</h1>
+      <h1 className="text-[20px] font-semibold text-n-9">운영자 관리</h1>
+      <p className="text-[12.5px] text-n-6">
+        운영자(관리자 권한) 계정 목록이에요. 권한 부여·해제는 Supabase 대시보드에서 처리해요.
+      </p>
 
       <form className="flex gap-2" method="get">
         <input
@@ -53,19 +59,19 @@ export default async function AdminMembersPage({
             <th>이름</th>
             <th>이메일</th>
             <th>연락처</th>
-            <th>가입일</th>
+            <th>등록일</th>
             <th>상태</th>
           </tr>
         </thead>
         <tbody>
-          {members.length === 0 ? (
+          {operators.length === 0 ? (
             <tr>
               <td colSpan={5} className="py-10 text-center text-n-6">
                 검색 결과가 없어요
               </td>
             </tr>
           ) : (
-            members.map((m) => (
+            operators.map((m) => (
               <tr key={m.id}>
                 <td>
                   <Link href={`/admin/members/${m.id}`} className="font-medium text-n-9">
