@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server';
-import type { Category, Course, EnrollmentStatus } from '@/lib/types';
+import type { Category, Course, EnrollmentStatus, LessonMode } from '@/lib/types';
 
 type CategoryRow = {
   id: string;
@@ -119,6 +119,38 @@ export async function getCourseBySlug(slug: string): Promise<Course | null> {
 
 export async function getCategoryById(id: string, categories: Category[]): Promise<Category | undefined> {
   return categories.find((c) => c.id === id);
+}
+
+// 강좌 상세(/courses/[slug])에 노출할 커리큘럼 미리보기. 강의실(learn/*) 전용 필드인
+// online_meeting_url/online_scheduled_at/offline_location_name/offline_address는 일부러
+// select하지 않는다 — 신청·승인 전 방문자에게 회의 참여 링크나 오프라인 수업 장소까지
+// 미리 노출할 이유가 없다(관리자 요청, 2026-08-26: 강좌 상세에 커리큘럼 노출).
+export type PublicLessonPreview = {
+  id: string;
+  title: string;
+  lessonMode: LessonMode;
+  hasQuiz: boolean;
+  hasAssignment: boolean;
+};
+
+export async function getPublicLessonsForCourse(courseId: string): Promise<PublicLessonPreview[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('lessons')
+    .select('id, title, lesson_mode, has_quiz, has_assignment')
+    .eq('course_id', courseId)
+    .order('order', { ascending: true });
+
+  if (error) throw new Error(error.message);
+  return (data as { id: string; title: string; lesson_mode: PublicLessonPreview['lessonMode']; has_quiz: boolean; has_assignment: boolean }[]).map(
+    (row) => ({
+      id: row.id,
+      title: row.title,
+      lessonMode: row.lesson_mode,
+      hasQuiz: row.has_quiz,
+      hasAssignment: row.has_assignment,
+    })
+  );
 }
 
 // 정원 마감 판정 기준: 승인된(approved) 신청 건수 (flows.md Q3 — 정원 마감은 승인 시점 기준)

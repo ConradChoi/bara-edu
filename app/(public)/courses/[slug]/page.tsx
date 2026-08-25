@@ -8,7 +8,11 @@ import {
   getApprovedSeatsTaken,
   getCourseBySlug,
   getMyEnrollmentForCourse,
+  getPublicLessonsForCourse,
 } from '@/lib/supabase/queries';
+import type { LessonMode } from '@/lib/types';
+
+const LESSON_MODE_LABEL: Record<LessonMode, string> = { video: '영상', online: '온라인', offline: '오프라인' };
 import { createClient } from '@/lib/supabase/server';
 
 export async function generateMetadata({
@@ -35,10 +39,11 @@ export default async function CourseDetailPage({
     data: { user },
   } = await supabase.auth.getUser();
 
-  const [categories, seatsTaken, myEnrollment] = await Promise.all([
+  const [categories, seatsTaken, myEnrollment, lessons] = await Promise.all([
     getActiveCategoryTree(),
     getApprovedSeatsTaken([course.id]),
     user ? getMyEnrollmentForCourse(user.id, course.id) : Promise.resolve(null),
+    getPublicLessonsForCourse(course.id),
   ]);
 
   const categoryName = categories.find((c) => c.id === course.categoryId)?.name;
@@ -78,6 +83,26 @@ export default async function CourseDetailPage({
       </dl>
 
       <p className="mt-6 whitespace-pre-line text-[14px] leading-relaxed text-n-7">{course.description}</p>
+
+      {lessons.length > 0 && (
+        <div className="mt-8 flex flex-col gap-2">
+          <h2 className="text-[15px] font-semibold text-n-9">커리큘럼</h2>
+          <ul className="flex flex-col gap-2">
+            {lessons.map((lesson, index) => (
+              <li
+                key={lesson.id}
+                className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-n-3 bg-n-0 p-3 text-[13px]"
+              >
+                <span className="text-n-5">{index + 1}강</span>
+                <span className="flex-1 font-medium text-n-9">{lesson.title}</span>
+                <Badge tone="neutral">{LESSON_MODE_LABEL[lesson.lessonMode]}</Badge>
+                {lesson.hasQuiz && <Badge tone="info">퀴즈</Badge>}
+                {lesson.hasAssignment && <Badge tone="info">과제</Badge>}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <div className="mt-10 flex flex-col gap-2 border-t border-n-3 pt-6">
         {myEnrollment?.status === 'approved' ? (
