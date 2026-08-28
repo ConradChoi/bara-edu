@@ -37,6 +37,7 @@ export interface Course {
   fee: number;
   seats: number;
   totalHours: number | null; // 총 강좌 시간(단위: 시간), 미입력 시 null
+  startDate: string | null; // 강좌 시작 년월일("YYYY-MM-DD"), 미입력 시 null
   governmentSupport: boolean;
   status: CourseStatus;
 }

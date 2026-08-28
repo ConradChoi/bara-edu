@@ -784,3 +784,8 @@ alter table lessons add column if not exists online_meeting_url text;
 alter table lessons add column if not exists online_scheduled_at timestamptz;
 alter table lessons add column if not exists offline_location_name text;
 alter table lessons add column if not exists offline_address text;
+
+-- courses.start_date: 강좌 시작 년월일(달력 날짜, 시간 없음). total_hours와 동일하게
+-- 선택 입력 — 기존 강좌는 null(미입력)로 남고, 공개 화면은 null이면 표시를 생략한다
+-- (관리자 요청, 2026-08-26).
+alter table courses add column if not exists start_date date;

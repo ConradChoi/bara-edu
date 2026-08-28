@@ -32,6 +32,15 @@ function readCourseFields(formData: FormData) {
     totalHours = parsed;
   }
 
+  // 시작일도 선택 입력. <input type="date">는 시간 정보가 없는 순수 달력 날짜
+  // ("YYYY-MM-DD")라 KST 변환이 필요 없다(assignment_due_at의 datetime-local과 다름).
+  const startDateRaw = (formData.get('startDate') as string | null)?.trim();
+  let startDate: string | null = null;
+  if (startDateRaw) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(startDateRaw) || Number.isNaN(Date.parse(startDateRaw))) return null;
+    startDate = startDateRaw;
+  }
+
   return {
     title,
     slug,
@@ -41,6 +50,7 @@ function readCourseFields(formData: FormData) {
     fee,
     seats,
     total_hours: totalHours,
+    start_date: startDate,
     government_support: formData.get('governmentSupport') === 'on',
     status,
   };

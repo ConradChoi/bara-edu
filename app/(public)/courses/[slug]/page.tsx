@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import Badge from '@/components/courses/Badge';
 import PaymentGuide from '@/components/enrollment/PaymentGuide';
+import { formatDateOnlyDisplay } from '@/lib/kst';
 import {
   getActiveCategoryTree,
   getApprovedSeatsTaken,
@@ -10,10 +11,10 @@ import {
   getMyEnrollmentForCourse,
   getPublicLessonsForCourse,
 } from '@/lib/supabase/queries';
+import { createClient } from '@/lib/supabase/server';
 import type { LessonMode } from '@/lib/types';
 
 const LESSON_MODE_LABEL: Record<LessonMode, string> = { video: '영상', online: '온라인', offline: '오프라인' };
-import { createClient } from '@/lib/supabase/server';
 
 export async function generateMetadata({
   params,
@@ -78,6 +79,12 @@ export default async function CourseDetailPage({
           <div className="flex gap-1.5">
             <dt className="text-n-5">총 강좌 시간</dt>
             <dd>{course.totalHours}시간</dd>
+          </div>
+        )}
+        {formatDateOnlyDisplay(course.startDate) && (
+          <div className="flex gap-1.5">
+            <dt className="text-n-5">시작일</dt>
+            <dd>{formatDateOnlyDisplay(course.startDate)}</dd>
           </div>
         )}
       </dl>

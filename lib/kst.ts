@@ -29,3 +29,14 @@ export function formatKstDisplay(iso: string | null | undefined): string | null 
   if (Number.isNaN(date.getTime())) return null;
   return date.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', dateStyle: 'medium', timeStyle: 'short' });
 }
+
+// courses.start_date 같은 순수 날짜("YYYY-MM-DD", 시간 없음) 표시용. new Date(str)로
+// 파싱하면 UTC 자정으로 해석되어 toLocaleDateString()이 서버 타임존에 따라 하루
+// 밀려 보일 수 있다 — Date 객체를 아예 거치지 않고 문자열만 잘라 조립한다
+// (강좌 시작일 노출, 2026-08-28).
+export function formatDateOnlyDisplay(dateStr: string | null | undefined): string | null {
+  const match = dateStr?.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  const [, y, m, d] = match;
+  return `${y}년 ${Number(m)}월 ${Number(d)}일`;
+}
