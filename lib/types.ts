@@ -13,6 +13,17 @@ export interface Profile {
   role: UserRole;
   status: ProfileStatus;
   withdrawnAt: string | null;
+  address: string | null; // 수강신청 확인 화면에서 회원당 1회 입력받아 재사용(자격증 발급용). 탈퇴 시 익명화됨.
+  photoPath: string | null; // private 버킷(member-photos) 안의 객체 경로. 공개 URL 아님 — Admin은 서명 URL로만 조회.
+}
+
+// 입금 계좌(무통장입금 안내, Admin 관리 최대 3개)
+export interface BankAccount {
+  id: string;
+  bankName: string;
+  accountNumber: string;
+  accountHolder: string;
+  order: number;
 }
 
 // 카테고리: 최대 3Depth 트리 (예: IT·디지털 > 개발 > 프론트엔드)

@@ -27,6 +27,12 @@ export async function withdraw() {
     redirect('/my?withdrawError=active-enrollment');
   }
 
+  // 탈퇴 후 profiles.photo_path를 null로 비우면 이 값을 잃어버리므로, 스토리지에서
+  // 실제 파일을 지우기 전에 미리 읽어둔다(주소/사진도 이름·이메일과 동일하게 즉시
+  // 파기 대상이다 — 2026-08-28, 자격증 발급용 사진/주소 수집 추가에 따른 확장).
+  const { data: contactRow } = await supabase.from('profiles').select('photo_path').eq('id', user.id).maybeSingle();
+  const photoPathToDelete = contactRow?.photo_path ?? null;
+
   // 다른 기기/탭에 이미 발급된 세션의 access_token을 미리 확보해둔다 — 이메일/비밀번호를
   // 바꿔도 이미 발급된 토큰은 자동으로 무효화되지 않으므로, 아래에서 전역 로그아웃에 쓴다
   // (security-officer 점검, 2026-08-08: 탈퇴 후에도 다른 기기 세션이 남아있던 문제).
@@ -54,6 +60,8 @@ export async function withdraw() {
       name: '탈퇴한 회원',
       phone: null,
       email: anonymizedEmail,
+      address: null,
+      photo_path: null,
       status: 'withdrawn',
       withdrawn_at: new Date().toISOString(),
     })
@@ -64,6 +72,12 @@ export async function withdraw() {
   const { error: quizError } = await admin.from('quiz_submissions').delete().eq('user_id', user.id);
   const { error: assignmentError } = await admin.from('assignment_submissions').delete().eq('user_id', user.id);
   if (progressError || quizError || assignmentError) redirect('/my?withdrawError=failed');
+
+  if (photoPathToDelete) {
+    // 실패해도 탈퇴 자체를 막지는 않는다 — profiles.photo_path는 이미 null로 비워졌으니
+    // 개인정보 조회 경로는 차단됐고, 스토리지에 파일이 남는 것은 별도 정리(운영) 대상이다.
+    await admin.storage.from('member-photos').remove([photoPathToDelete]);
+  }
 
   // 전역 로그아웃: 이메일/비밀번호를 바꿔도 이미 발급된 세션의 refresh token은 자동으로
   // 무효화되지 않아, 다른 기기/탭에 남아있던 세션이 계속 유효할 수 있었다

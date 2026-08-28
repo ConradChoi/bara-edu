@@ -82,7 +82,8 @@ graph TD
 | F-PUB-3 | 강좌 목록 | 강좌 카드 그리드 | 3열(PC)/2열(태블릿)/1열(모바일) | Must | `courses` |
 | F-PUB-4 | 강좌 상세 | 강좌 정보 노출 | 썸네일/배지/강사/일정/수강료/정원 | Must | `courses` |
 | F-PUB-5 | 강좌 상세 | 수강 신청 진입 | 비로그인 시 로그인 유도, 로그인 시 신청 확인 화면 | Must | `enrollments` |
-| F-PUB-6 | 강좌 상세 | 무통장입금 안내 | 계좌/입금자명/기한(3일) 노출 + 복사 | Must | `enrollments` |
+| F-PUB-5b | 신청 확인 화면 | 자격증 발급 정보 입력 | 주소·사진 1매(둘 다 필수), 회원당 1회 입력 후 재사용(2026-08-28 추가) | Must | `profiles`, storage `member-photos` |
+| F-PUB-6 | 강좌 상세·신청 확인 | 무통장입금 안내 | Admin이 등록한 계좌(최대 3개) 목록 + 입금자명 안내 + 기한(3일) 노출 + 복사. 신청 확인 화면에도 동일하게 노출(2026-08-28부터) | Must | `bank_accounts` |
 | F-PUB-7 | 약관·정책 페이지 | 공개 문서 조회 | 이용약관/개인정보처리방침/환불정책 등 CMS에서 관리하는 published 최신본 표시 | Must | `legal_documents` |
 
 ### 2.2 (auth) 인증
@@ -136,6 +137,7 @@ graph TD
 |---|---|---|---|:---:|---|
 | F-ADMM-1 | 목록 | 회원 검색/조회 | 이름/이메일 검색 | Should | `profiles` |
 | F-ADMM-2 | 상세 패널 | 신청내역·진도·수료 이력 | 회원 단위로 통합 조회 | Should | `enrollments`, `progress`, `certificates` |
+| F-ADMM-4 | 상세 패널 | 주소·자격증 사진 조회 | 사진은 매 조회마다 60초 만료 서명 URL로 열람(공개 URL 아님, 2026-08-28 추가) | Must | `profiles`, storage `member-photos` |
 | F-ADMM-3 | 목록 | 탈퇴 회원 조회 | status='withdrawn' 필터, 개인식별정보는 이미 익명화된 상태로 표시 | Should | `profiles` |
 
 ### 2.8 (admin) 신청·입금 관리 `/admin/enrollments`
@@ -170,6 +172,14 @@ graph TD
 | F-CMS-1 | 목록 | 문서 CRUD | 이용약관/개인정보처리방침/환불정책 등 타입별 관리 | Must | `legal_documents` |
 | F-CMS-2 | 편집 | 버전 관리 | 수정 시 새 버전 생성, 이전 버전 이력 보존 | Should | `legal_documents` |
 | F-CMS-3 | 편집 | 공개/비공개 전환 | isPublished 토글 — 비공개 시 공개 페이지에서 404 | Must | `legal_documents` |
+
+### 2.12 (admin) 계좌정보 관리 `/admin/bank-accounts` (2026-08-28 신규)
+
+무통장입금 안내에 노출할 계좌를 관리한다. 이전에는 환경변수로 계좌 1개만 하드코딩했는데 실제로 설정된 적이 없어 항상 "준비 중" 문구만 노출되던 것을 대체한다.
+
+| ID | 메뉴/화면 | 기능명 | 설명 | 우선순위 | 관련 데이터 |
+|---|---|---|---|:---:|---|
+| F-BANK-1 | 목록 | 계좌 CRUD | 은행명·계좌번호·예금주 등록/수정/삭제, 최대 3개 | Must | `bank_accounts` |
 
 ---
 

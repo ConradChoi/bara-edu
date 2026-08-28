@@ -241,6 +241,13 @@ create trigger on_auth_user_created
 -- 단, withdraw()(app/actions/account.ts)는 관리자 권한 없이 "본인 행"으로
 -- status를 active→withdrawn으로 바꾸면서 email도 함께 익명화하므로, 그 특정
 -- 전환 한 번만 email 변경을 허용한다(그 외의 모든 자기 업데이트는 email을 되돌린다).
+-- photo_path 보호: profiles_self_update 정책은 "본인 행"만 확인하고 컬럼 값의 형식은
+-- 확인하지 않는다. applyToCourse()가 "photo_path는 본인이 업로드한 {auth.uid()}/photo
+-- 경로만 가리킨다"고 가정하고 그 값을 그대로 서명 URL 발급(관리자 회원상세)에 쓰는데,
+-- DB가 이 가정을 강제하지 않으면 학습자가 PostgREST로 자기 photo_path를 다른 회원의
+-- uuid 경로로 바꿔치기해 관리자가 엉뚱한(타인의) 얼굴 사진을 보게 만들 수 있었다
+-- (member_photos_read storage 정책이 admin에게 버킷 내 모든 객체 read를 허용하므로,
+-- 경로 문자열만 알면 어떤 사진이든 가리킬 수 있었음 — security-officer 점검, 2026-08-28).
 create or replace function public.protect_profile_privileged_columns()
 returns trigger
 language plpgsql
@@ -256,6 +263,10 @@ begin
       new.status := old.status;
       new.withdrawn_at := old.withdrawn_at;
       new.email := old.email;
+    end if;
+
+    if new.photo_path is not null and new.photo_path <> (auth.uid()::text || '/photo') then
+      new.photo_path := old.photo_path;
     end if;
   end if;
   return new;
@@ -798,3 +809,86 @@ alter table courses add column if not exists start_date date;
 -- 동일하게 둘 다 선택 입력 — 값이 없으면 공개 화면에서 표시를 생략한다(관리자 요청, 2026-08-28).
 alter table courses add column if not exists end_date date;
 alter table courses add column if not exists schedule_type course_schedule_type;
+
+-- ===================== module: 입금 계좌 관리 + 수강신청 추가정보(주소/사진) (2026-08-28) =====================
+
+-- 입금 계좌(무통장입금 안내용). 이전에는 환경변수(NEXT_PUBLIC_BANK_NAME 등)로 계좌 1개만
+-- 하드코딩했는데 실제로는 한 번도 설정된 적이 없어 항상 "계좌 정보를 준비 중이에요"만
+-- 노출되고 있었다 — Admin에서 관리하는 정식 다중 계좌(최대 3개)로 교체한다.
+create table if not exists bank_accounts (
+  id uuid primary key default gen_random_uuid(),
+  bank_name text not null,
+  account_number text not null,
+  account_holder text not null,
+  "order" integer not null default 0,
+  created_at timestamptz not null default now()
+);
+
+alter table bank_accounts enable row level security;
+
+-- 계좌번호·예금주 실명이 결합된 정보라 비로그인 상태의 완전 공개는 두지 않는다 — 신청
+-- 확인 화면은 어차피 로그인해야 도달하므로 UX 손실 없이 로그인 회원으로만 제한한다
+-- (security-officer 점검 후 대표 확인, 2026-08-28).
+drop policy if exists "bank_accounts_public_select" on bank_accounts;
+create policy "bank_accounts_authenticated_select" on bank_accounts for select using (auth.role() = 'authenticated');
+drop policy if exists "bank_accounts_admin_write" on bank_accounts;
+create policy "bank_accounts_admin_write" on bank_accounts for insert with check (is_admin());
+drop policy if exists "bank_accounts_admin_update" on bank_accounts;
+create policy "bank_accounts_admin_update" on bank_accounts for update using (is_admin());
+drop policy if exists "bank_accounts_admin_delete" on bank_accounts;
+create policy "bank_accounts_admin_delete" on bank_accounts for delete using (is_admin());
+
+-- 최대 3개 제한을 app 레벨(count 확인 후 insert)로만 두면 동시 요청(빠른 연속 클릭,
+-- 다중 탭)에서 count 확인과 insert 사이 경쟁으로 4개 이상 생성될 수 있다 — 이 프로젝트가
+-- quiz_options_one_correct_per_question(유니크 인덱스)·enrollments 낙관적 동시성 갱신에서
+-- 이미 겪은 것과 같은 유형의 TOCTOU다. advisory lock으로 같은 트랜잭션 안에서 insert를
+-- 직렬화한 뒤 개수를 재확인해 원자적으로 강제한다(qa-reviewer 점검, 2026-08-28).
+create or replace function public.enforce_bank_accounts_limit()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  perform pg_advisory_xact_lock(hashtext('bank_accounts_limit'));
+  if (select count(*) from bank_accounts) >= 3 then
+    raise exception 'bank account limit reached (max 3)';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists enforce_bank_accounts_limit on bank_accounts;
+create trigger enforce_bank_accounts_limit
+  before insert on bank_accounts
+  for each row execute function public.enforce_bank_accounts_limit();
+
+-- profiles.address/photo_path: 수강신청 확인 화면에서 회원당 1회 입력받아 재사용한다
+-- (자격증 발급에 필요, 관리자 요청). photo_path는 공개 URL이 아니라 private 스토리지
+-- 버킷(member-photos) 안의 객체 경로("{user_id}/photo")만 저장한다 — 사람 얼굴이 담긴
+-- 민감한 개인정보라 어디서든 URL만 알면 볼 수 있는 공개 URL로 두지 않는다. Admin이 볼
+-- 때는 매번 짧은 만료시간의 서명 URL을 새로 발급한다(lib/supabase/admin-queries.ts).
+alter table profiles add column if not exists address text;
+alter table profiles add column if not exists photo_path text;
+
+insert into storage.buckets (id, name, public)
+values ('member-photos', 'member-photos', false)
+on conflict (id) do nothing;
+
+-- 본인 폴더({auth.uid()}/...)에만 read/write 가능, 관리자는 전체 read 가능.
+-- storage.foldername()은 경로를 '/'로 분리한 배열을 반환한다 — 첫 세그먼트가 업로더의 uid다.
+drop policy if exists "member_photos_owner_write" on storage.objects;
+create policy "member_photos_owner_write" on storage.objects for insert
+  with check (bucket_id = 'member-photos' and (storage.foldername(name))[1] = auth.uid()::text);
+-- with check도 함께 둬서 "수정 후에도 본인 경로"까지 대칭적으로 강제한다 — using만 있으면
+-- 변경 전 소유권만 확인하고 변경 후 값(name 등)은 검사하지 않는다(security-officer 점검, 2026-08-28).
+drop policy if exists "member_photos_owner_update" on storage.objects;
+create policy "member_photos_owner_update" on storage.objects for update
+  using (bucket_id = 'member-photos' and (storage.foldername(name))[1] = auth.uid()::text)
+  with check (bucket_id = 'member-photos' and (storage.foldername(name))[1] = auth.uid()::text);
+drop policy if exists "member_photos_read" on storage.objects;
+create policy "member_photos_read" on storage.objects for select
+  using (bucket_id = 'member-photos' and ((storage.foldername(name))[1] = auth.uid()::text or is_admin()));
+drop policy if exists "member_photos_owner_delete" on storage.objects;
+create policy "member_photos_owner_delete" on storage.objects for delete
+  using (bucket_id = 'member-photos' and ((storage.foldername(name))[1] = auth.uid()::text or is_admin()));

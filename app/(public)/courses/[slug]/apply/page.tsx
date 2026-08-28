@@ -2,10 +2,20 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 import { applyToCourse } from '@/app/actions/enrollment';
-import { getApprovedSeatsTaken, getCourseBySlug, getMyEnrollmentForCourse } from '@/lib/supabase/queries';
+import BankAccountList from '@/components/enrollment/BankAccountList';
+import { getApprovedSeatsTaken, getCourseBySlug, getMyContactInfo, getMyEnrollmentForCourse } from '@/lib/supabase/queries';
 import { createClient } from '@/lib/supabase/server';
 
 export const metadata: Metadata = { title: '신청 확인 | 바라 평생교육원' };
+
+const ERROR_MESSAGE: Record<string, string> = {
+  'agree-required': '약관에 동의해야 신청할 수 있어요',
+  conflict: '처리 중 문제가 발생했어요. 신청 현황을 확인한 뒤 다시 시도해주세요.',
+  'address-required': '주소를 입력해주세요',
+  'photo-required': '자격증 발급용 사진을 등록해주세요',
+  'photo-invalid': '이미지 파일만 등록할 수 있어요',
+  'photo-too-large': '사진 파일은 5MB 이하만 등록할 수 있어요',
+};
 
 export default async function ApplyConfirmPage({
   params,
@@ -25,9 +35,10 @@ export default async function ApplyConfirmPage({
   } = await supabase.auth.getUser();
   if (!user) redirect(`/sign-in?redirect=/courses/${slug}/apply`);
 
-  const [seatsTaken, myEnrollment] = await Promise.all([
+  const [seatsTaken, myEnrollment, contactInfo] = await Promise.all([
     getApprovedSeatsTaken([course.id]),
     getMyEnrollmentForCourse(user.id, course.id),
+    getMyContactInfo(user.id),
   ]);
   const isFull = (seatsTaken[course.id] ?? 0) >= course.seats;
   const isActive = myEnrollment?.status === 'approved' || myEnrollment?.status === 'pending';
@@ -50,14 +61,42 @@ export default async function ApplyConfirmPage({
         </div>
       </div>
 
-      {error === 'agree-required' && (
-        <p className="mt-3 text-[12.5px] text-danger">약관에 동의해야 신청할 수 있어요</p>
-      )}
-      {error === 'conflict' && (
-        <p className="mt-3 text-[12.5px] text-danger">처리 중 문제가 발생했어요. 신청 현황을 확인한 뒤 다시 시도해주세요.</p>
-      )}
+      <div className="mt-4 rounded-lg border border-n-3 bg-n-1 p-5">
+        <p className="mb-3 text-[13px] font-medium text-n-7">입금 계좌 안내</p>
+        <BankAccountList />
+      </div>
 
-      <form action={applyToCourse.bind(null, course.id, slug)} className="mt-6 flex flex-col gap-4">
+      {error && ERROR_MESSAGE[error] && <p className="mt-3 text-[12.5px] text-danger">{ERROR_MESSAGE[error]}</p>}
+
+      <form
+        action={applyToCourse.bind(null, course.id, slug)}
+        encType="multipart/form-data"
+        className="mt-6 flex flex-col gap-4"
+      >
+        <label className="flex flex-col gap-1 text-[12.5px] text-n-7">
+          주소 (자격증 발급용, 최초 1회만 입력하면 계속 재사용돼요)
+          <input
+            name="address"
+            required
+            defaultValue={contactInfo.address ?? ''}
+            placeholder="예: 경기도 광명시 오리로 362"
+            className="h-10 rounded-md border border-n-3 bg-n-1 px-3 text-[13px] text-n-9"
+          />
+        </label>
+        <label className="flex flex-col gap-1.5 text-[12.5px] text-n-7">
+          자격증 발급용 사진 1매
+          {contactInfo.hasPhoto && (
+            <span className="text-[12px] text-n-6">이미 등록된 사진이 있어요. 바꾸려면 새 파일을 선택하세요.</span>
+          )}
+          <input
+            name="photo"
+            type="file"
+            accept="image/*"
+            required={!contactInfo.hasPhoto}
+            className="text-[13px] text-n-7 file:mr-3 file:h-9 file:cursor-pointer file:rounded-pill file:border file:border-n-3 file:bg-n-0 file:px-4 file:text-[12.5px] file:font-medium file:text-n-7 hover:file:border-indigo hover:file:text-indigo"
+          />
+        </label>
+
         <label className="flex items-center gap-2 text-[12.5px] text-n-7">
           <input type="checkbox" name="agree" required className="h-4 w-4" />
           <Link href="/legal/terms" target="_blank" className="underline">

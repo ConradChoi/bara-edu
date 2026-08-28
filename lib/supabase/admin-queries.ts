@@ -490,6 +490,9 @@ export async function getAdminMembers(params?: {
 
 export type AdminMemberDetail = {
   profile: Profile;
+  // 사진은 private 버킷 경로만 저장되어 있어 직접 노출할 수 없다 — 매 조회마다 짧은
+  // 만료시간(60초)의 서명 URL을 새로 발급한다(2026-08-28, 자격증 발급용 사진 열람).
+  photoSignedUrl: string | null;
   enrollments: Awaited<ReturnType<typeof getMyEnrollments>>;
   certificates: { id: string; courseId: string; courseTitle: string; issuedAt: string; isManualOverride: boolean; note: string | null }[];
 };
@@ -498,15 +501,18 @@ export async function getAdminMemberDetail(userId: string): Promise<AdminMemberD
   const supabase = await createClient();
   const { data: profileRow, error: profileError } = await supabase
     .from('profiles')
-    .select('id, name, phone, email, role, status, withdrawn_at')
+    .select('id, name, phone, email, role, status, withdrawn_at, address, photo_path')
     .eq('id', userId)
     .maybeSingle();
   if (profileError) throw new Error(profileError.message);
   if (!profileRow) return null;
 
-  const [enrollments, certRows] = await Promise.all([
+  const [enrollments, certRows, signedUrlRes] = await Promise.all([
     getMyEnrollments(userId),
     supabase.from('certificates').select('id, course_id, issued_at, is_manual_override, note, courses(title)').eq('user_id', userId),
+    profileRow.photo_path
+      ? supabase.storage.from('member-photos').createSignedUrl(profileRow.photo_path, 60)
+      : Promise.resolve({ data: null, error: null }),
   ]);
   if (certRows.error) throw new Error(certRows.error.message);
 
@@ -519,7 +525,10 @@ export async function getAdminMemberDetail(userId: string): Promise<AdminMemberD
       role: profileRow.role,
       status: profileRow.status,
       withdrawnAt: profileRow.withdrawn_at,
+      address: profileRow.address,
+      photoPath: profileRow.photo_path,
     },
+    photoSignedUrl: signedUrlRes.data?.signedUrl ?? null,
     enrollments,
     certificates: (
       certRows.data as unknown as {

@@ -1,12 +1,9 @@
-import CopyButton from '@/components/ui/CopyButton';
+import BankAccountList from '@/components/enrollment/BankAccountList';
 
-// 무통장입금 안내 (F-PUB-6). 계좌 정보는 실제 운영 계좌를 코드에 하드코딩하지 않고
-// 환경변수로 주입한다 — 미설정 시 잘못된 계좌 안내를 보여주는 대신 문의 안내로 대체한다.
+// 무통장입금 안내 (F-PUB-6). 계좌 정보는 Admin(계좌정보 관리)에서 등록한 값을 그대로
+// 보여준다 — 예전에는 환경변수(NEXT_PUBLIC_BANK_NAME 등)로 계좌 1개만 하드코딩했는데
+// 실제로 설정된 적이 없어 항상 "준비 중" 문구만 노출되고 있었다(2026-08-28 교체).
 export default function PaymentGuide({ paymentDueAt }: { paymentDueAt: string }) {
-  const bankName = process.env.NEXT_PUBLIC_BANK_NAME;
-  const accountNumber = process.env.NEXT_PUBLIC_BANK_ACCOUNT_NUMBER;
-  const hasBankInfo = Boolean(bankName && accountNumber);
-
   const dueDate = new Date(paymentDueAt).toLocaleDateString('ko-KR', {
     year: 'numeric',
     month: 'long',
@@ -19,23 +16,7 @@ export default function PaymentGuide({ paymentDueAt }: { paymentDueAt: string })
         입금 대기 중
       </span>
 
-      {hasBankInfo ? (
-        <>
-          <div className="flex items-center justify-between text-[13px]">
-            <span className="text-n-6">입금 계좌</span>
-            <span className="flex items-center gap-2 font-medium text-n-9">
-              {bankName} {accountNumber}
-              <CopyButton value={accountNumber!} />
-            </span>
-          </div>
-          <div className="flex items-center justify-between text-[13px]">
-            <span className="text-n-6">입금자명</span>
-            <span className="text-n-9">본인 이름으로 입금해주세요</span>
-          </div>
-        </>
-      ) : (
-        <p className="text-[13px] text-n-7">계좌 정보를 준비 중이에요. 고객센터로 문의해 주세요.</p>
-      )}
+      <BankAccountList />
 
       <div className="flex items-center justify-between text-[13px]">
         <span className="text-n-6">입금 기한</span>

@@ -18,7 +18,7 @@ export default async function AdminMemberDetailPage({ params }: { params: Promis
   const detail = await getAdminMemberDetail(id);
   if (!detail) notFound();
 
-  const { profile, enrollments, certificates } = detail;
+  const { profile, photoSignedUrl, enrollments, certificates } = detail;
 
   return (
     <div className="flex max-w-[640px] flex-col gap-6">
@@ -38,6 +38,10 @@ export default async function AdminMemberDetailPage({ params }: { params: Promis
           <dt className="text-n-5">연락처</dt>
           <dd className="text-n-9">{profile.phone ?? '-'}</dd>
         </div>
+        <div className="col-span-2">
+          <dt className="text-n-5">주소</dt>
+          <dd className="text-n-9">{profile.address ?? '-'}</dd>
+        </div>
         {profile.status === 'withdrawn' && (
           <div>
             <dt className="text-n-5">탈퇴일</dt>
@@ -45,6 +49,20 @@ export default async function AdminMemberDetailPage({ params }: { params: Promis
           </div>
         )}
       </dl>
+
+      <section className="flex flex-col gap-2">
+        <h2 className="text-[15px] font-semibold text-n-9">자격증 발급용 사진</h2>
+        {photoSignedUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element -- 프로젝트 전체에 next/image 미사용 컨벤션, 외부 도메인 설정 불필요한 <img> 유지
+          <img
+            src={photoSignedUrl}
+            alt={`${profile.name}님의 자격증 발급용 사진`}
+            className="h-[160px] w-[120px] rounded-md border border-n-3 object-cover"
+          />
+        ) : (
+          <p className="text-[13px] text-n-6">등록된 사진이 없어요.</p>
+        )}
+      </section>
 
       <section className="flex flex-col gap-2">
         <h2 className="text-[15px] font-semibold text-n-9">신청 내역</h2>

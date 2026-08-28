@@ -165,9 +165,20 @@ export interface Profile {
   role: UserRole;
   status: ProfileStatus;       // 탈퇴 시 'withdrawn' (소프트 삭제)
   withdrawnAt: string | null;
-  // 탈퇴 처리 시 name/phone 등 식별정보는 즉시 파기(익명화)한다 — email은
+  address: string | null;      // 수강신청 확인 화면에서 회원당 1회 입력받아 재사용(자격증 발급용, 2026-08-28 추가)
+  photoPath: string | null;    // private 버킷(member-photos) 경로. 공개 URL 아님 — Admin은 서명 URL로만 조회
+  // 탈퇴 처리 시 name/phone/address/photoPath 등 식별정보는 즉시 파기(익명화)한다 — email은
   // Supabase Auth 쪽에서 별도 삭제(재가입 허용을 위해 auth.users만 제거,
   // profiles 행은 통계 목적의 익명 레코드로 잔존 가능 — 구현 시 재검토)
+}
+
+// 입금 계좌(무통장입금 안내, Admin > 계좌정보 관리에서 최대 3개까지 등록, 2026-08-28 추가)
+export interface BankAccount {
+  id: string;
+  bankName: string;
+  accountNumber: string;
+  accountHolder: string;
+  order: number;
 }
 
 // 카테고리: 최대 3Depth 트리 (예: IT·디지털 > 개발 > 프론트엔드)

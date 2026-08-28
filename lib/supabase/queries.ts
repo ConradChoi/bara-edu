@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server';
-import type { Category, Course, EnrollmentStatus, LessonMode } from '@/lib/types';
+import type { BankAccount, Category, Course, EnrollmentStatus, LessonMode } from '@/lib/types';
 
 type CategoryRow = {
   id: string;
@@ -159,6 +159,25 @@ export async function getPublicLessonsForCourse(courseId: string): Promise<Publi
   );
 }
 
+// 입금 계좌 목록 — RLS가 전체 공개(select using (true))이므로 관리자 화면도 이 함수를
+// 그대로 재사용한다(admin-queries.ts에 별도 함수를 두지 않음).
+export async function getBankAccounts(): Promise<BankAccount[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('bank_accounts')
+    .select('id, bank_name, account_number, account_holder, order')
+    .order('order', { ascending: true });
+
+  if (error) throw new Error(error.message);
+  return (data as { id: string; bank_name: string; account_number: string; account_holder: string; order: number }[]).map((row) => ({
+    id: row.id,
+    bankName: row.bank_name,
+    accountNumber: row.account_number,
+    accountHolder: row.account_holder,
+    order: row.order,
+  }));
+}
+
 // 정원 마감 판정 기준: 승인된(approved) 신청 건수 (flows.md Q3 — 정원 마감은 승인 시점 기준)
 export async function getApprovedSeatsTaken(courseIds: string[]): Promise<Record<string, number>> {
   if (courseIds.length === 0) return {};
@@ -255,6 +274,18 @@ export async function getMyEnrollmentForCourse(
     paymentDueAt: data.payment_due_at,
     rejectionReason: data.rejection_reason,
   };
+}
+
+// 수강신청 확인 화면에서 주소/사진 등록 여부를 미리 보여주기 위한 최소 조회.
+// 사진은 private 버킷 경로만 있으면 되고(서명 URL은 본인 신청 화면에서는 필요 없음,
+// Admin 회원상세에서만 필요), 이미 등록됐는지 여부만 boolean으로 넘긴다.
+export type MyContactInfo = { address: string | null; hasPhoto: boolean };
+
+export async function getMyContactInfo(userId: string): Promise<MyContactInfo> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.from('profiles').select('address, photo_path').eq('id', userId).maybeSingle();
+  if (error) throw new Error(error.message);
+  return { address: data?.address ?? null, hasPhoto: Boolean(data?.photo_path) };
 }
 
 export type LegalDocument = { slug: string; title: string; content: string; version: number };
