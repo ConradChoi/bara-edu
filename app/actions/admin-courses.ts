@@ -150,9 +150,11 @@ function readLessonFields(formData: FormData) {
   const offlineLocationName = (formData.get('offlineLocationName') as string | null)?.trim() || null;
   const offlineAddress = (formData.get('offlineAddress') as string | null)?.trim() || null;
 
-  // 온라인 수업은 회의 참여 링크가 없으면 학습자가 아무것도 할 수 없어 필수로 막는다
-  // (관리자 확정, 2026-08-25). 오프라인 수업의 장소명/주소는 선택 입력.
-  if (lessonMode === 'online' && !onlineMeetingUrl) return null;
+  // 온라인 수업의 회의 링크(URL)는 필수가 아니다 — 강의 방식만 먼저 정하고 실제 회의
+  // URL이나 오프라인 장소는 나중에 확정되는 경우가 있어, 값 없이도 방식만 저장할 수
+  // 있어야 한다(관리자 요청, 2026-08-28. 기존엔 온라인 선택 시 URL을 필수로 막았었음).
+  // 학습자 화면(LessonPlayer)은 이미 이 값이 없을 때 "아직 참여 링크가 등록되지
+  // 않았어요"로 안전하게 대체 표시한다.
 
   return {
     title,
