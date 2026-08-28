@@ -27,6 +27,8 @@ export interface Category {
 
 export type CourseStatus = 'active' | 'upcoming' | 'closed';
 
+export type CourseScheduleType = 'weekday' | 'weekend' | 'both';
+
 export interface Course {
   id: string;
   slug: string; // /courses/[slug] 라우트에 사용
@@ -38,6 +40,8 @@ export interface Course {
   seats: number;
   totalHours: number | null; // 총 강좌 시간(단위: 시간), 미입력 시 null
   startDate: string | null; // 강좌 시작 년월일("YYYY-MM-DD"), 미입력 시 null
+  endDate: string | null; // 강좌 종료 년월일("YYYY-MM-DD"), 미입력 시 null
+  scheduleType: CourseScheduleType | null; // 평일반/주말반/평일+주말반, 미입력 시 null
   governmentSupport: boolean;
   status: CourseStatus;
 }

@@ -32,6 +32,8 @@ type CourseRow = {
   seats: number;
   total_hours: number | null;
   start_date: string | null;
+  end_date: string | null;
+  schedule_type: Course['scheduleType'];
   government_support: boolean;
   status: Course['status'];
 };
@@ -48,6 +50,8 @@ function mapCourse(row: CourseRow): Course {
     seats: row.seats,
     totalHours: row.total_hours,
     startDate: row.start_date,
+    endDate: row.end_date,
+    scheduleType: row.schedule_type,
     governmentSupport: row.government_support,
     status: row.status,
   };
@@ -89,7 +93,7 @@ export async function getPublicCourses(categoryId?: string): Promise<Course[]> {
   const supabase = await createClient();
   let query = supabase
     .from('courses')
-    .select('id, slug, title, category_id, description, instructor, fee, seats, total_hours, start_date, government_support, status')
+    .select('id, slug, title, category_id, description, instructor, fee, seats, total_hours, start_date, end_date, schedule_type, government_support, status')
     .in('status', ['active', 'upcoming']);
 
   if (categoryId) {
@@ -111,7 +115,7 @@ export async function getCourseBySlug(slug: string): Promise<Course | null> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from('courses')
-    .select('id, slug, title, category_id, description, instructor, fee, seats, total_hours, start_date, government_support, status')
+    .select('id, slug, title, category_id, description, instructor, fee, seats, total_hours, start_date, end_date, schedule_type, government_support, status')
     .eq('slug', slug)
     .maybeSingle();
 

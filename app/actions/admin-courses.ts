@@ -4,11 +4,22 @@ import { redirect } from 'next/navigation';
 import { requireAdminClient } from '@/lib/supabase/require-admin';
 import { getCertificateCountsByCourse, getEnrollmentCountsByCourse } from '@/lib/supabase/admin-queries';
 import { parseKstDatetimeLocal } from '@/lib/kst';
-import type { CourseStatus } from '@/lib/types';
+import type { CourseScheduleType, CourseStatus } from '@/lib/types';
 
 // 강좌 관리 (F-ADMC-1~4). category_id/course_id FK에 ON DELETE 절이 없어 참조가 있는
 // 상태로 삭제를 시도하면 raw FK 에러(23503)가 난다 — 미리 참조 건수를 확인해 친절한
 // 안내로 대체한다(이게 원래 와이어프레임의 "확인 다이얼로그" 의도이기도 하다).
+
+const SCHEDULE_TYPES = ['weekday', 'weekend', 'both'] as const;
+
+// <input type="date">는 시간 정보가 없는 순수 달력 날짜("YYYY-MM-DD")라 KST 변환이
+// 필요 없다(assignment_due_at의 datetime-local과 다름). 유효하지 않은 값이면 undefined.
+function readOptionalDateField(formData: FormData, name: string): string | null | undefined {
+  const raw = (formData.get(name) as string | null)?.trim();
+  if (!raw) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw) || Number.isNaN(Date.parse(raw))) return undefined;
+  return raw;
+}
 
 function readCourseFields(formData: FormData) {
   const title = (formData.get('title') as string | null)?.trim();
@@ -32,14 +43,19 @@ function readCourseFields(formData: FormData) {
     totalHours = parsed;
   }
 
-  // 시작일도 선택 입력. <input type="date">는 시간 정보가 없는 순수 달력 날짜
-  // ("YYYY-MM-DD")라 KST 변환이 필요 없다(assignment_due_at의 datetime-local과 다름).
-  const startDateRaw = (formData.get('startDate') as string | null)?.trim();
-  let startDate: string | null = null;
-  if (startDateRaw) {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(startDateRaw) || Number.isNaN(Date.parse(startDateRaw))) return null;
-    startDate = startDateRaw;
-  }
+  // 시작일/종료일 둘 다 선택 입력.
+  const startDate = readOptionalDateField(formData, 'startDate');
+  const endDate = readOptionalDateField(formData, 'endDate');
+  if (startDate === undefined || endDate === undefined) return null;
+  if (startDate && endDate && endDate < startDate) return null;
+
+  // 평일반/주말반/평일+주말반도 선택 입력.
+  const scheduleTypeRaw = (formData.get('scheduleType') as string | null) || '';
+  const scheduleType: CourseScheduleType | null = SCHEDULE_TYPES.includes(
+    scheduleTypeRaw as (typeof SCHEDULE_TYPES)[number]
+  )
+    ? (scheduleTypeRaw as CourseScheduleType)
+    : null;
 
   return {
     title,
@@ -51,6 +67,8 @@ function readCourseFields(formData: FormData) {
     seats,
     total_hours: totalHours,
     start_date: startDate,
+    end_date: endDate,
+    schedule_type: scheduleType,
     government_support: formData.get('governmentSupport') === 'on',
     status,
   };

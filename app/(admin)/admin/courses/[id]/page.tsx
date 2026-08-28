@@ -27,7 +27,7 @@ const SUCCESS_MESSAGE: Record<string, string> = {
 };
 
 const ERROR_MESSAGE: Record<string, string> = {
-  validation: '필수 항목을 확인해주세요 (slug는 영문 소문자·숫자·하이픈만 가능해요).',
+  validation: '필수 항목을 확인해주세요 (slug는 영문 소문자·숫자·하이픈만 가능해요, 종료일은 시작일 이후여야 해요).',
   'slug-taken': '이미 사용 중인 slug예요.',
   'lesson-validation': '강의명을 입력해주세요. 온라인 수업은 회의 링크(URL)가 필수예요.',
   failed: '처리 중 문제가 발생했어요.',

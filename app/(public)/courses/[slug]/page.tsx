@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import Badge from '@/components/courses/Badge';
 import PaymentGuide from '@/components/enrollment/PaymentGuide';
-import { formatDateOnlyDisplay } from '@/lib/kst';
+import { formatDateRangeDisplay } from '@/lib/kst';
 import {
   getActiveCategoryTree,
   getApprovedSeatsTaken,
@@ -12,9 +12,10 @@ import {
   getPublicLessonsForCourse,
 } from '@/lib/supabase/queries';
 import { createClient } from '@/lib/supabase/server';
-import type { LessonMode } from '@/lib/types';
+import type { CourseScheduleType, LessonMode } from '@/lib/types';
 
 const LESSON_MODE_LABEL: Record<LessonMode, string> = { video: '영상', online: '온라인', offline: '오프라인' };
+const SCHEDULE_TYPE_LABEL: Record<CourseScheduleType, string> = { weekday: '평일반', weekend: '주말반', both: '평일+주말반' };
 
 export async function generateMetadata({
   params,
@@ -56,6 +57,7 @@ export default async function CourseDetailPage({
       <div className="flex items-center gap-2">
         {categoryName && <Badge tone="neutral">{categoryName}</Badge>}
         {course.governmentSupport && <Badge tone="info">정부지원</Badge>}
+        {course.scheduleType && <Badge tone="neutral">{SCHEDULE_TYPE_LABEL[course.scheduleType]}</Badge>}
         {course.status === 'upcoming' && <Badge tone="warning">개강예정</Badge>}
         {isFull && <Badge tone="danger">마감</Badge>}
       </div>
@@ -81,10 +83,10 @@ export default async function CourseDetailPage({
             <dd>{course.totalHours}시간</dd>
           </div>
         )}
-        {formatDateOnlyDisplay(course.startDate) && (
+        {formatDateRangeDisplay(course.startDate, course.endDate) && (
           <div className="flex gap-1.5">
-            <dt className="text-n-5">시작일</dt>
-            <dd>{formatDateOnlyDisplay(course.startDate)}</dd>
+            <dt className="text-n-5">수강 기간</dt>
+            <dd>{formatDateRangeDisplay(course.startDate, course.endDate)}</dd>
           </div>
         )}
       </dl>

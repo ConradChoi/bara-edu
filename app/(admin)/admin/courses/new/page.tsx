@@ -6,7 +6,7 @@ import { getCategoryTree } from '@/lib/supabase/queries';
 export const metadata: Metadata = { title: '강좌 등록 | 관리자' };
 
 const ERROR_MESSAGE: Record<string, string> = {
-  validation: '필수 항목을 확인해주세요 (slug는 영문 소문자·숫자·하이픈만 가능해요).',
+  validation: '필수 항목을 확인해주세요 (slug는 영문 소문자·숫자·하이픈만 가능해요, 종료일은 시작일 이후여야 해요).',
   'slug-taken': '이미 사용 중인 slug예요.',
   failed: '처리 중 문제가 발생했어요.',
 };

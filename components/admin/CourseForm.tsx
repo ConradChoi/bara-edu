@@ -111,15 +111,39 @@ export default function CourseForm({
         </label>
       </div>
 
-      <label className="flex flex-col gap-1 text-[12.5px] text-n-7">
-        시작일(선택)
-        <input
-          name="startDate"
-          type="date"
-          defaultValue={defaultValues?.startDate ?? undefined}
-          className="h-10 w-[200px] rounded-md border border-n-3 bg-n-1 px-2.5 text-[13px]"
-        />
-      </label>
+      <div className="grid grid-cols-3 gap-4">
+        <label className="flex flex-col gap-1 text-[12.5px] text-n-7">
+          시작일(선택)
+          <input
+            name="startDate"
+            type="date"
+            defaultValue={defaultValues?.startDate ?? undefined}
+            className="h-10 rounded-md border border-n-3 bg-n-1 px-2.5 text-[13px]"
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-[12.5px] text-n-7">
+          종료일(선택)
+          <input
+            name="endDate"
+            type="date"
+            defaultValue={defaultValues?.endDate ?? undefined}
+            className="h-10 rounded-md border border-n-3 bg-n-1 px-2.5 text-[13px]"
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-[12.5px] text-n-7">
+          수업 요일(선택)
+          <select
+            name="scheduleType"
+            defaultValue={defaultValues?.scheduleType ?? ''}
+            className="h-10 rounded-md border border-n-3 bg-n-1 px-2.5 text-[13px]"
+          >
+            <option value="">선택 안 함</option>
+            <option value="weekday">평일반</option>
+            <option value="weekend">주말반</option>
+            <option value="both">평일+주말반</option>
+          </select>
+        </label>
+      </div>
 
       <label className="flex items-center gap-2 text-[12.5px] text-n-7">
         <input type="checkbox" name="governmentSupport" defaultChecked={defaultValues?.governmentSupport} className="h-4 w-4" />

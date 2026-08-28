@@ -32,6 +32,10 @@ do $$ begin
   create type lesson_mode as enum ('video', 'online', 'offline');
 exception when duplicate_object then null; end $$;
 
+do $$ begin
+  create type course_schedule_type as enum ('weekday', 'weekend', 'both');
+exception when duplicate_object then null; end $$;
+
 -- ===================== Tables =====================
 
 -- 회원 프로필 (auth.users 1:1)
@@ -789,3 +793,8 @@ alter table lessons add column if not exists offline_address text;
 -- 선택 입력 — 기존 강좌는 null(미입력)로 남고, 공개 화면은 null이면 표시를 생략한다
 -- (관리자 요청, 2026-08-26).
 alter table courses add column if not exists start_date date;
+
+-- courses.end_date/schedule_type: 종료일과 평일반/주말반/평일+주말반 구분. start_date와
+-- 동일하게 둘 다 선택 입력 — 값이 없으면 공개 화면에서 표시를 생략한다(관리자 요청, 2026-08-28).
+alter table courses add column if not exists end_date date;
+alter table courses add column if not exists schedule_type course_schedule_type;

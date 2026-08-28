@@ -40,3 +40,15 @@ export function formatDateOnlyDisplay(dateStr: string | null | undefined): strin
   const [, y, m, d] = match;
   return `${y}년 ${Number(m)}월 ${Number(d)}일`;
 }
+
+// 시작일/종료일(둘 다 courses.start_date/end_date 형식)을 하나의 문구로 합친다 — 강좌
+// 목록·상세에서 둘 다 있으면 "N월 N일 ~ N월 N일", 시작일만 있으면 "N월 N일 개강"으로
+// 보여준다(종료일만 있는 경우는 실사용상 드물어 시작일과 동일하게 개강일처럼 표기한다).
+export function formatDateRangeDisplay(startDateStr: string | null | undefined, endDateStr: string | null | undefined): string | null {
+  const start = formatDateOnlyDisplay(startDateStr);
+  const end = formatDateOnlyDisplay(endDateStr);
+  if (start && end) return `${start} ~ ${end}`;
+  if (start) return `${start} 개강`;
+  if (end) return `${end} 개강`;
+  return null;
+}

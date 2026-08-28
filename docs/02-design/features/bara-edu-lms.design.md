@@ -190,6 +190,8 @@ export interface Course {
   seats: number;
   totalHours: number | null;  // 총 강좌 시간(시간 단위), 선택 입력 — 관리자 요청으로 2026-08-17 추가
   startDate: string | null;   // 강좌 시작 년월일("YYYY-MM-DD"), 선택 입력 — 관리자 요청으로 2026-08-28 추가
+  endDate: string | null;     // 강좌 종료 년월일("YYYY-MM-DD"), 선택 입력 — 관리자 요청으로 2026-08-28 추가
+  scheduleType: 'weekday' | 'weekend' | 'both' | null;  // 평일반/주말반/평일+주말반, 선택 입력
   governmentSupport: boolean;
   status: 'active' | 'upcoming' | 'closed';
 }
