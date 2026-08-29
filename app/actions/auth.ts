@@ -1,11 +1,26 @@
 'use server';
 
+import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 
 export type AuthFormState = { error: string } | { pendingConfirmation: true; email: string } | undefined;
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// signUp()/resend()에 emailRedirectTo를 안 넘기면 Supabase 대시보드에 설정된 Site URL
+// 기본값으로 인증 메일 링크가 만들어진다 — 이 프로젝트는 로컬 개발 중 Site URL이
+// http://localhost:3000으로 설정된 채 그대로 운영에 배포되어, 실제 가입자가 인증
+// 메일을 눌러도 localhost로 이동하는 문제가 있었다(2026-08-28 사용자 리포트).
+// 요청이 실제로 들어온 호스트를 기준으로 매번 절대 URL을 계산해 명시적으로 넘기면
+// 로컬/스테이징/운영 어디서나 항상 올바른 도메인으로 돌아온다 — 다만 Supabase 대시보드의
+// "Redirect URLs" 허용 목록에 해당 도메인이 등록돼 있어야 실제로 반영된다(별도 확인 필요).
+async function getSiteOrigin(): Promise<string> {
+  const headersList = await headers();
+  const host = headersList.get('x-forwarded-host') ?? headersList.get('host') ?? 'localhost:3000';
+  const proto = headersList.get('x-forwarded-proto') ?? (host.startsWith('localhost') ? 'http' : 'https');
+  return `${proto}://${host}`;
+}
 
 // ?redirect= 값을 검증 없이 그대로 redirect()에 넘기면 오픈 리다이렉트(CWE-601)로
 // 피싱에 악용될 수 있다(security-officer 점검, 2026-08-06). 사이트 내부 상대경로만 허용한다.
@@ -45,7 +60,7 @@ export async function signup(
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
-    options: { data: { name, phone } },
+    options: { data: { name, phone }, emailRedirectTo: await getSiteOrigin() },
   });
 
   if (error) {
@@ -81,7 +96,11 @@ export async function resendConfirmation(
   if (!EMAIL_RE.test(email)) return { error: '올바른 이메일 형식이 아니에요' };
 
   const supabase = await createClient();
-  const { error } = await supabase.auth.resend({ type: 'signup', email });
+  const { error } = await supabase.auth.resend({
+    type: 'signup',
+    email,
+    options: { emailRedirectTo: await getSiteOrigin() },
+  });
 
   if (error) {
     return { error: '인증 메일을 다시 보내지 못했어요. 잠시 후 다시 시도해주세요' };
