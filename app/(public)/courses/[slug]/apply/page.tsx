@@ -73,29 +73,33 @@ export default async function ApplyConfirmPage({
         encType="multipart/form-data"
         className="mt-6 flex flex-col gap-4"
       >
-        <label className="flex flex-col gap-1 text-[12.5px] text-n-7">
-          주소 (자격증 발급용, 최초 1회만 입력하면 계속 재사용돼요)
-          <input
-            name="address"
-            required
-            defaultValue={contactInfo.address ?? ''}
-            placeholder="예: 경기도 광명시 오리로 362"
-            className="h-10 rounded-md border border-n-3 bg-n-1 px-3 text-[13px] text-n-9"
-          />
-        </label>
-        <label className="flex flex-col gap-1.5 text-[12.5px] text-n-7">
-          자격증 발급용 사진 1매
-          {contactInfo.hasPhoto && (
-            <span className="text-[12px] text-n-6">이미 등록된 사진이 있어요. 바꾸려면 새 파일을 선택하세요.</span>
-          )}
-          <input
-            name="photo"
-            type="file"
-            accept="image/*"
-            required={!contactInfo.hasPhoto}
-            className="text-[13px] text-n-7 file:mr-3 file:h-9 file:cursor-pointer file:rounded-pill file:border file:border-n-3 file:bg-n-0 file:px-4 file:text-[12.5px] file:font-medium file:text-n-7 hover:file:border-indigo hover:file:text-indigo"
-          />
-        </label>
+        {course.requiresCertificateInfo && (
+          <>
+            <label className="flex flex-col gap-1 text-[12.5px] text-n-7">
+              주소 (자격증 발급용, 최초 1회만 입력하면 계속 재사용돼요)
+              <input
+                name="address"
+                required
+                defaultValue={contactInfo.address ?? ''}
+                placeholder="예: 경기도 광명시 오리로 362"
+                className="h-10 rounded-md border border-n-3 bg-n-1 px-3 text-[13px] text-n-9"
+              />
+            </label>
+            <label className="flex flex-col gap-1.5 text-[12.5px] text-n-7">
+              자격증 발급용 사진 1매
+              {contactInfo.hasPhoto && (
+                <span className="text-[12px] text-n-6">이미 등록된 사진이 있어요. 바꾸려면 새 파일을 선택하세요.</span>
+              )}
+              <input
+                name="photo"
+                type="file"
+                accept="image/*"
+                required={!contactInfo.hasPhoto}
+                className="text-[13px] text-n-7 file:mr-3 file:h-9 file:cursor-pointer file:rounded-pill file:border file:border-n-3 file:bg-n-0 file:px-4 file:text-[12.5px] file:font-medium file:text-n-7 hover:file:border-indigo hover:file:text-indigo"
+              />
+            </label>
+          </>
+        )}
 
         <label className="flex items-center gap-2 text-[12.5px] text-n-7">
           <input type="checkbox" name="agree" required className="h-4 w-4" />

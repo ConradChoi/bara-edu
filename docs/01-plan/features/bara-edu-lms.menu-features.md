@@ -82,7 +82,7 @@ graph TD
 | F-PUB-3 | 강좌 목록 | 강좌 카드 그리드 | 3열(PC)/2열(태블릿)/1열(모바일) | Must | `courses` |
 | F-PUB-4 | 강좌 상세 | 강좌 정보 노출 | 썸네일/배지/강사/일정/수강료/정원 | Must | `courses` |
 | F-PUB-5 | 강좌 상세 | 수강 신청 진입 | 비로그인 시 로그인 유도, 로그인 시 신청 확인 화면 | Must | `enrollments` |
-| F-PUB-5b | 신청 확인 화면 | 자격증 발급 정보 입력 | 주소·사진 1매(둘 다 필수), 회원당 1회 입력 후 재사용(2026-08-28 추가) | Must | `profiles`, storage `member-photos` |
+| F-PUB-5b | 신청 확인 화면 | 자격증 발급 정보 입력 | 강좌별 `requiresCertificateInfo`가 true일 때만 노출·필수(주소·사진 1매), 회원당 1회 입력 후 재사용. false인 강좌(보수교육 등)는 아예 노출 안 함(2026-08-28 도입, 2026-08-29 강좌별 on/off로 확장) | Must | `profiles`, `courses.requires_certificate_info`, storage `member-photos` |
 | F-PUB-6 | 강좌 상세·신청 확인 | 무통장입금 안내 | Admin이 등록한 계좌(최대 3개) 목록 + 입금자명 안내 + 기한(3일) 노출 + 복사. 신청 확인 화면에도 동일하게 노출(2026-08-28부터) | Must | `bank_accounts` |
 | F-PUB-7 | 약관·정책 페이지 | 공개 문서 조회 | 이용약관/개인정보처리방침/환불정책 등 CMS에서 관리하는 published 최신본 표시 | Must | `legal_documents` |
 
@@ -130,6 +130,7 @@ graph TD
 | F-ADMC-2 | 등록/수정 폼 | 커리큘럼(강의 링크) 관리 | 강의 추가/삭제/순서 변경 | Must | `lessons` |
 | F-ADMC-3 | 목록 | 신청 이력 있는 강좌 보호 | 삭제 대신 비활성화만 허용, 확인 다이얼로그 | Must | `courses`, `enrollments` |
 | F-ADMC-4 | 등록/수정 폼 | 카테고리 선택 | 최대 3Depth 계층형 선택기(1Depth→2Depth→3Depth 순차 선택), leaf가 아닌 상위 depth도 선택 가능 | Must | `categories` |
+| F-ADMC-5 | 등록/수정 폼 | 자격증 발급 정보 필수 여부 | 체크박스(기본 켜짐) — 끄면 F-PUB-5b(주소·사진)가 신청 확인 화면에서 아예 안 보임. 자격과정이 아닌 보수교육·일반교육용(2026-08-29 추가) | Must | `courses.requires_certificate_info` |
 
 ### 2.7 (admin) 회원 관리 `/admin/members`
 

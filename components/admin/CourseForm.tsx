@@ -150,6 +150,16 @@ export default function CourseForm({
         정부지원 대상
       </label>
 
+      <label className="flex items-center gap-2 text-[12.5px] text-n-7">
+        <input
+          type="checkbox"
+          name="requiresCertificateInfo"
+          defaultChecked={defaultValues ? defaultValues.requiresCertificateInfo : true}
+          className="h-4 w-4"
+        />
+        수강신청 시 주소·자격증 사진 필수 입력 (자격과정이 아니면 체크 해제)
+      </label>
+
       <button type="submit" className="h-11 rounded-pill bg-pink text-[14px] font-semibold text-white">
         {submitLabel}
       </button>

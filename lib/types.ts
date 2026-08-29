@@ -53,6 +53,7 @@ export interface Course {
   startDate: string | null; // 강좌 시작 년월일("YYYY-MM-DD"), 미입력 시 null
   endDate: string | null; // 강좌 종료 년월일("YYYY-MM-DD"), 미입력 시 null
   scheduleType: CourseScheduleType | null; // 평일반/주말반/평일+주말반, 미입력 시 null
+  requiresCertificateInfo: boolean; // 수강신청 시 주소·사진(자격증 발급용) 필수 요구 여부
   governmentSupport: boolean;
   status: CourseStatus;
 }

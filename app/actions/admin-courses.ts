@@ -70,6 +70,11 @@ function readCourseFields(formData: FormData) {
     end_date: endDate,
     schedule_type: scheduleType,
     government_support: formData.get('governmentSupport') === 'on',
+    // 체크박스라 폼에 값이 없으면 formData.get()이 null을 반환한다 — 즉 htmlFor의 기본
+    // 미체크 상태와 "필드 자체가 없음"을 구분할 수 없다. 그래서 CourseForm.tsx는 신규
+    // 강좌일 때만 defaultChecked를 true로 미리 켜 둔다(기존 강좌는 전부 true였던 동작을
+    // 그대로 유지). 여기서는 체크박스 값 그대로("on"이면 true) 저장한다(관리자 요청, 2026-08-29).
+    requires_certificate_info: formData.get('requiresCertificateInfo') === 'on',
     status,
   };
 }

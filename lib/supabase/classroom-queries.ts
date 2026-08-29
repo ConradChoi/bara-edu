@@ -26,6 +26,7 @@ type CourseRow = {
   start_date: string | null;
   end_date: string | null;
   schedule_type: Course['scheduleType'];
+  requires_certificate_info: boolean;
   government_support: boolean;
   status: Course['status'];
 };
@@ -44,6 +45,7 @@ function mapCourseRow(row: CourseRow): Course {
     startDate: row.start_date,
     endDate: row.end_date,
     scheduleType: row.schedule_type,
+    requiresCertificateInfo: row.requires_certificate_info,
     governmentSupport: row.government_support,
     status: row.status,
   };
@@ -83,7 +85,7 @@ function mapLessonRow(row: LessonRow): Lesson {
   };
 }
 
-const COURSE_COLUMNS = 'id, slug, title, category_id, description, instructor, fee, seats, total_hours, start_date, end_date, schedule_type, government_support, status';
+const COURSE_COLUMNS = 'id, slug, title, category_id, description, instructor, fee, seats, total_hours, start_date, end_date, schedule_type, requires_certificate_info, government_support, status';
 const LESSON_COLUMNS =
   'id, course_id, title, video_url, order, has_quiz, has_assignment, assignment_due_at, lesson_mode, online_meeting_url, online_scheduled_at, offline_location_name, offline_address';
 

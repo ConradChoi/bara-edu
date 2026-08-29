@@ -203,6 +203,7 @@ export interface Course {
   startDate: string | null;   // 강좌 시작 년월일("YYYY-MM-DD"), 선택 입력 — 관리자 요청으로 2026-08-28 추가
   endDate: string | null;     // 강좌 종료 년월일("YYYY-MM-DD"), 선택 입력 — 관리자 요청으로 2026-08-28 추가
   scheduleType: 'weekday' | 'weekend' | 'both' | null;  // 평일반/주말반/평일+주말반, 선택 입력
+  requiresCertificateInfo: boolean;  // 수강신청 시 주소·자격증 사진 필수 여부(기본 true, 2026-08-29 추가 — 자격과정이 아닌 강좌는 관리자가 끌 수 있음)
   governmentSupport: boolean;
   status: 'active' | 'upcoming' | 'closed';
 }

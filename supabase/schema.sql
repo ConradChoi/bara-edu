@@ -829,7 +829,11 @@ alter table bank_accounts enable row level security;
 -- 계좌번호·예금주 실명이 결합된 정보라 비로그인 상태의 완전 공개는 두지 않는다 — 신청
 -- 확인 화면은 어차피 로그인해야 도달하므로 UX 손실 없이 로그인 회원으로만 제한한다
 -- (security-officer 점검 후 대표 확인, 2026-08-28).
+-- 정책 이름을 bank_accounts_public_select에서 바꾸면서 새 이름 쪽 drop을 빠뜨려
+-- 재실행 시 "policy already exists" 에러가 났다(idempotent 원칙 위반, 2026-08-29
+-- 사용자 리포트로 발견). 두 이름 다 drop해 이전 실행 상태와 무관하게 항상 재실행 가능하게 한다.
 drop policy if exists "bank_accounts_public_select" on bank_accounts;
+drop policy if exists "bank_accounts_authenticated_select" on bank_accounts;
 create policy "bank_accounts_authenticated_select" on bank_accounts for select using (auth.role() = 'authenticated');
 drop policy if exists "bank_accounts_admin_write" on bank_accounts;
 create policy "bank_accounts_admin_write" on bank_accounts for insert with check (is_admin());
@@ -892,3 +896,9 @@ create policy "member_photos_read" on storage.objects for select
 drop policy if exists "member_photos_owner_delete" on storage.objects;
 create policy "member_photos_owner_delete" on storage.objects for delete
   using (bucket_id = 'member-photos' and ((storage.foldername(name))[1] = auth.uid()::text or is_admin()));
+
+-- courses.requires_certificate_info: 강좌마다 자격증 발급용 추가정보(주소/사진)가
+-- 필요한지가 다르다 — 자격과정이 아닌 보수교육·일반교육은 필요 없다(관리자 요청,
+-- 2026-08-29). 기존 강좌는 지금까지 무조건 필수였던 동작을 그대로 유지하도록
+-- true로 마이그레이션하고, 관리자가 강좌별로 끌 수 있게 한다.
+alter table courses add column if not exists requires_certificate_info boolean not null default true;
