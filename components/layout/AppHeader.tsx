@@ -9,7 +9,7 @@ type AppHeaderProps = {
 // 근거: docs/01-plan/features/bara-edu-lms.menu-features.md 1.1
 export default function AppHeader({ kind }: AppHeaderProps) {
   return (
-    <header className="flex h-[57px] items-center gap-6 border-b border-n-3 bg-n-0 px-6">
+    <header className="sticky top-0 z-10 flex h-[57px] items-center gap-6 border-b border-n-3 bg-n-0 px-6">
       <Link href="/" className="text-sm font-semibold text-indigo">
         바라 평생교육원
       </Link>
