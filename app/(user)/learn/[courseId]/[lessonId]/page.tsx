@@ -18,6 +18,7 @@ import {
   getQuizAttemptHistory,
   getQuizForLesson,
 } from '@/lib/supabase/classroom-queries';
+import { getCourseMaterialsForCourse } from '@/lib/supabase/queries';
 import { createClient } from '@/lib/supabase/server';
 
 export async function generateMetadata({
@@ -65,10 +66,11 @@ export default async function ClassroomLessonPage({
   const currentLesson = lessons.find((l) => l.id === lessonId);
   if (!currentLesson) notFound();
 
-  const [completedLessonIds, latestAssignments, eligibility] = await Promise.all([
+  const [completedLessonIds, latestAssignments, eligibility, materials] = await Promise.all([
     getProgressLessonIds(user.id, courseId),
     getLatestAssignmentSubmissionsForCourse(user.id, courseId),
     getCertificateEligibilityForCourse(user.id, courseId),
+    getCourseMaterialsForCourse(courseId),
   ]);
 
   const quizQuestions = currentLesson.hasQuiz ? await getQuizForLesson(currentLesson.id) : [];
@@ -84,6 +86,7 @@ export default async function ClassroomLessonPage({
         completedLessonIds={completedLessonIds}
         courseId={courseId}
         currentLessonId={currentLesson.id}
+        materials={materials}
       />
 
       <div className="flex flex-1 flex-col gap-5">

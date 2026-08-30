@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server';
-import type { BankAccount, Category, Course, EnrollmentStatus, LessonMode } from '@/lib/types';
+import type { BankAccount, Category, Course, CourseMaterial, CourseMaterialKind, EnrollmentStatus, LessonMode } from '@/lib/types';
 
 type CategoryRow = {
   id: string;
@@ -159,6 +159,48 @@ export async function getPublicLessonsForCourse(courseId: string): Promise<Publi
       hasAssignment: row.has_assignment,
     })
   );
+}
+
+// 강좌 교재(주교재/보조교재) — RLS가 courses_public_select/courses_enrolled_select와
+// 동일한 기준(공개 강좌는 전체 공개, 승인된 학습자는 강좌 상태 무관 접근)이라 공개 강좌
+// 상세(/courses/[slug])와 강의실(learn/*) 양쪽에서 이 함수 하나를 그대로 재사용한다
+// (관리자 요청, 2026-08-30 — 구매 URL까지 있어 학습자에게 노출하는 정보이므로 lessons
+// 미리보기처럼 필드를 따로 가릴 이유가 없다).
+export type CourseMaterialRow = {
+  id: string;
+  course_id: string;
+  kind: CourseMaterialKind;
+  title: string;
+  publisher: string | null;
+  purchase_url: string | null;
+  order: number;
+};
+
+// admin-queries.ts의 getAdminCourseById()도 이 매퍼를 재사용한다 — Course 매핑이
+// queries.ts/admin-queries.ts/classroom-queries.ts 3곳에 중복돼 있던 것과 같은 문제가
+// 여기서도 반복되지 않도록, 처음부터 매퍼를 export해 한 곳에서만 관리한다.
+export function mapCourseMaterialRow(row: CourseMaterialRow): CourseMaterial {
+  return {
+    id: row.id,
+    courseId: row.course_id,
+    kind: row.kind,
+    title: row.title,
+    publisher: row.publisher,
+    purchaseUrl: row.purchase_url,
+    order: row.order,
+  };
+}
+
+export async function getCourseMaterialsForCourse(courseId: string): Promise<CourseMaterial[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('course_materials')
+    .select('id, course_id, kind, title, publisher, purchase_url, order')
+    .eq('course_id', courseId)
+    .order('order', { ascending: true });
+
+  if (error) throw new Error(error.message);
+  return (data as CourseMaterialRow[]).map(mapCourseMaterialRow);
 }
 
 // 입금 계좌 목록 — RLS가 전체 공개(select using (true))이므로 관리자 화면도 이 함수를

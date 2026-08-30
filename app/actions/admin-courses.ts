@@ -235,3 +235,61 @@ export async function moveLessonUp(lessonId: string, courseId: string) {
 export async function moveLessonDown(lessonId: string, courseId: string) {
   await swapLessonOrder(lessonId, courseId, 'down');
 }
+
+// ===================== 교재(주교재/보조교재) =====================
+// 주교재/보조교재 모두 선택 입력 — 교재명만 있으면 등록되고, 출판사·구매 URL은 비워둘
+// 수 있다(보조교재는 유인물·PPT 등 출판사·구매 URL이 아예 없는 자료도 많다는 관리자
+// 요청, 2026-08-30). 주교재는 강좌당 1개만 — supabase/schema.sql의 부분 유니크
+// 인덱스(course_materials_one_main_per_course)가 최종 방어선이고, 화면(admin/courses/[id])은
+// 이미 주교재가 있으면 "추가" 폼 대신 수정 폼만 보여줘 애초에 두 번째를 만들 수 없게 한다.
+function readCourseMaterialFields(formData: FormData) {
+  const title = (formData.get('title') as string | null)?.trim();
+  if (!title) return null;
+  return {
+    title,
+    publisher: (formData.get('publisher') as string | null)?.trim() || null,
+    purchase_url: (formData.get('purchaseUrl') as string | null)?.trim() || null,
+  };
+}
+
+export async function addCourseMaterial(courseId: string, kind: 'main' | 'supplementary', formData: FormData) {
+  const fields = readCourseMaterialFields(formData);
+  if (!fields) redirect(`/admin/courses/${courseId}?error=material-validation`);
+
+  const supabase = await requireAdminClient();
+  const { count } = await supabase
+    .from('course_materials')
+    .select('id', { count: 'exact', head: true })
+    .eq('course_id', courseId)
+    .eq('kind', kind);
+
+  const { error } = await supabase.from('course_materials').insert({
+    course_id: courseId,
+    kind,
+    order: count ?? 0,
+    ...fields!,
+  });
+  if (error) {
+    // 화면이 이미 막아주지만, 동시 요청 등으로 유니크 인덱스에 걸리는 경우를 대비한다.
+    if (error.code === '23505') redirect(`/admin/courses/${courseId}?error=material-main-exists`);
+    redirect(`/admin/courses/${courseId}?error=failed`);
+  }
+  redirect(`/admin/courses/${courseId}?materialAdded=1`);
+}
+
+export async function updateCourseMaterial(materialId: string, courseId: string, formData: FormData) {
+  const fields = readCourseMaterialFields(formData);
+  if (!fields) redirect(`/admin/courses/${courseId}?error=material-validation`);
+
+  const supabase = await requireAdminClient();
+  const { error } = await supabase.from('course_materials').update(fields!).eq('id', materialId);
+  if (error) redirect(`/admin/courses/${courseId}?error=failed`);
+  redirect(`/admin/courses/${courseId}?materialUpdated=1`);
+}
+
+export async function deleteCourseMaterial(materialId: string, courseId: string) {
+  const supabase = await requireAdminClient();
+  const { error } = await supabase.from('course_materials').delete().eq('id', materialId);
+  if (error) redirect(`/admin/courses/${courseId}?error=failed`);
+  redirect(`/admin/courses/${courseId}?materialDeleted=1`);
+}

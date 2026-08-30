@@ -223,6 +223,20 @@ export interface Lesson {
   offlineAddress: string | null;      // lessonMode='offline' 선택
 }
 
+// 강좌 교재(주교재/보조교재, 2026-08-30 추가). 주교재는 강좌당 최대 1개(unique 인덱스로 강제),
+// 보조교재는 여러 개 등록 가능 — 실물 교재뿐 아니라 유인물·PPT 등 자료 전반을 포괄. 둘 다 선택 항목.
+export type CourseMaterialKind = 'main' | 'supplementary';
+
+export interface CourseMaterial {
+  id: string;
+  courseId: string;
+  kind: CourseMaterialKind;
+  title: string;
+  publisher: string | null;
+  purchaseUrl: string | null;
+  order: number;
+}
+
 export type EnrollmentStatus = 'pending' | 'approved' | 'rejected' | 'expired';
 
 export interface Enrollment {

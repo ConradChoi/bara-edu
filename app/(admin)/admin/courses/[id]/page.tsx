@@ -1,11 +1,14 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import {
+  addCourseMaterial,
   addLesson,
+  deleteCourseMaterial,
   deleteLesson,
   moveLessonDown,
   moveLessonUp,
   updateCourse,
+  updateCourseMaterial,
   updateLesson,
 } from '@/app/actions/admin-courses';
 import Link from 'next/link';
@@ -24,12 +27,17 @@ const SUCCESS_MESSAGE: Record<string, string> = {
   lessonUpdated: '강의를 수정했어요.',
   lessonDeleted: '강의를 삭제했어요.',
   lessonReordered: '순서를 변경했어요.',
+  materialAdded: '교재를 추가했어요.',
+  materialUpdated: '교재를 수정했어요.',
+  materialDeleted: '교재를 삭제했어요.',
 };
 
 const ERROR_MESSAGE: Record<string, string> = {
   validation: '필수 항목을 확인해주세요 (slug는 영문 소문자·숫자·하이픈만 가능해요, 종료일은 시작일 이후여야 해요).',
   'slug-taken': '이미 사용 중인 slug예요.',
   'lesson-validation': '강의명을 입력해주세요.',
+  'material-validation': '교재명을 입력해주세요.',
+  'material-main-exists': '주교재는 강좌당 1개만 등록할 수 있어요.',
   failed: '처리 중 문제가 발생했어요.',
 };
 
@@ -47,6 +55,8 @@ export default async function AdminCourseDetailPage({
 
   const message = Object.keys(SUCCESS_MESSAGE).find((key) => search[key]);
   const errorMessage = search.error && ERROR_MESSAGE[search.error];
+  const mainMaterial = course.materials.find((m) => m.kind === 'main');
+  const supplementaryMaterials = course.materials.filter((m) => m.kind === 'supplementary');
 
   return (
     <div className="flex max-w-[640px] flex-col gap-6">
@@ -242,6 +252,164 @@ export default async function AdminCourseDetailPage({
             </button>
           </div>
         </form>
+      </section>
+
+      <section className="flex flex-col gap-3">
+        <h2 className="text-[15px] font-semibold text-n-9">교재</h2>
+
+        <div className="flex flex-col gap-2">
+          <p className="text-[12.5px] font-medium text-n-7">주교재 (강좌당 1개, 선택)</p>
+          {mainMaterial ? (
+            <div className="rounded-lg border border-n-3 p-3">
+              <form action={updateCourseMaterial.bind(null, mainMaterial.id, id)} className="flex flex-col gap-2">
+                <input
+                  name="title"
+                  placeholder="교재명"
+                  defaultValue={mainMaterial.title}
+                  className="h-9 rounded-md border border-n-3 bg-n-1 px-2.5 text-[13px]"
+                />
+                <div className="flex flex-wrap gap-2">
+                  <input
+                    name="publisher"
+                    placeholder="출판사(선택)"
+                    defaultValue={mainMaterial.publisher ?? ''}
+                    className="h-9 flex-1 rounded-md border border-n-3 bg-n-1 px-2.5 text-[12.5px]"
+                  />
+                  <input
+                    name="purchaseUrl"
+                    placeholder="구매 가능한 URL(선택)"
+                    defaultValue={mainMaterial.purchaseUrl ?? ''}
+                    className="h-9 flex-1 rounded-md border border-n-3 bg-n-1 px-2.5 text-[12.5px]"
+                  />
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <button type="submit" className="rounded-pill border border-n-3 px-2.5 py-1 text-[11.5px] text-n-7">
+                    저장
+                  </button>
+                  <div className="flex-1" />
+                </div>
+              </form>
+              <div className="mt-2">
+                <ConfirmDialog
+                  triggerLabel="삭제"
+                  triggerClassName="rounded-pill border border-danger px-2.5 py-1 text-[11.5px] text-danger"
+                  title="주교재를 삭제할까요?"
+                  description="삭제 후에는 강좌 상세/강의실에서 노출되지 않아요."
+                  confirmLabel="삭제"
+                  tone="danger"
+                  action={deleteCourseMaterial.bind(null, mainMaterial.id, id)}
+                />
+              </div>
+            </div>
+          ) : (
+            <form
+              action={addCourseMaterial.bind(null, id, 'main')}
+              className="flex flex-col gap-2 rounded-lg border border-n-3 bg-n-1 p-3"
+            >
+              <input name="title" placeholder="교재명" className="h-9 rounded-md border border-n-3 bg-n-0 px-2.5 text-[13px]" />
+              <div className="flex flex-wrap gap-2">
+                <input
+                  name="publisher"
+                  placeholder="출판사(선택)"
+                  className="h-9 flex-1 rounded-md border border-n-3 bg-n-0 px-2.5 text-[13px]"
+                />
+                <input
+                  name="purchaseUrl"
+                  placeholder="구매 가능한 URL(선택)"
+                  className="h-9 flex-1 rounded-md border border-n-3 bg-n-0 px-2.5 text-[13px]"
+                />
+              </div>
+              <div className="flex items-center">
+                <div className="flex-1" />
+                <button type="submit" className="rounded-pill bg-pink px-4 py-1.5 text-[12.5px] font-semibold text-white">
+                  추가
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <p className="text-[12.5px] font-medium text-n-7">보조교재 (유인물·PPT 등 포함, 여러 개 가능)</p>
+
+          {supplementaryMaterials.length > 0 && (
+            <ul className="flex flex-col gap-2">
+              {supplementaryMaterials.map((material) => (
+                <li key={material.id} className="rounded-lg border border-n-3 p-3">
+                  <form action={updateCourseMaterial.bind(null, material.id, id)} className="flex flex-col gap-2">
+                    <input
+                      name="title"
+                      placeholder="교재/자료명"
+                      defaultValue={material.title}
+                      className="h-9 rounded-md border border-n-3 bg-n-1 px-2.5 text-[13px]"
+                    />
+                    <div className="flex flex-wrap gap-2">
+                      <input
+                        name="publisher"
+                        placeholder="출판사(선택)"
+                        defaultValue={material.publisher ?? ''}
+                        className="h-9 flex-1 rounded-md border border-n-3 bg-n-1 px-2.5 text-[12.5px]"
+                      />
+                      <input
+                        name="purchaseUrl"
+                        placeholder="구매 가능한 URL(선택)"
+                        defaultValue={material.purchaseUrl ?? ''}
+                        className="h-9 flex-1 rounded-md border border-n-3 bg-n-1 px-2.5 text-[12.5px]"
+                      />
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <button type="submit" className="rounded-pill border border-n-3 px-2.5 py-1 text-[11.5px] text-n-7">
+                        저장
+                      </button>
+                      <div className="flex-1" />
+                    </div>
+                  </form>
+                  <div className="mt-2">
+                    <ConfirmDialog
+                      triggerLabel="삭제"
+                      triggerClassName="rounded-pill border border-danger px-2.5 py-1 text-[11.5px] text-danger"
+                      title="보조교재를 삭제할까요?"
+                      description="삭제 후에는 강좌 상세/강의실에서 노출되지 않아요."
+                      confirmLabel="삭제"
+                      tone="danger"
+                      action={deleteCourseMaterial.bind(null, material.id, id)}
+                    />
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <form
+            action={addCourseMaterial.bind(null, id, 'supplementary')}
+            className="flex flex-col gap-2 rounded-lg border border-n-3 bg-n-1 p-3"
+          >
+            <p className="text-[12.5px] font-medium text-n-7">보조교재 추가</p>
+            <input
+              name="title"
+              placeholder="교재/유인물/PPT 등 자료명"
+              className="h-9 rounded-md border border-n-3 bg-n-0 px-2.5 text-[13px]"
+            />
+            <div className="flex flex-wrap gap-2">
+              <input
+                name="publisher"
+                placeholder="출판사(선택)"
+                className="h-9 flex-1 rounded-md border border-n-3 bg-n-0 px-2.5 text-[13px]"
+              />
+              <input
+                name="purchaseUrl"
+                placeholder="구매 가능한 URL(선택)"
+                className="h-9 flex-1 rounded-md border border-n-3 bg-n-0 px-2.5 text-[13px]"
+              />
+            </div>
+            <div className="flex items-center">
+              <div className="flex-1" />
+              <button type="submit" className="rounded-pill bg-pink px-4 py-1.5 text-[12.5px] font-semibold text-white">
+                추가
+              </button>
+            </div>
+          </form>
+        </div>
       </section>
     </div>
   );

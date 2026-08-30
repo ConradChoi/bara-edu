@@ -8,6 +8,7 @@ import {
   getActiveCategoryTree,
   getApprovedSeatsTaken,
   getCourseBySlug,
+  getCourseMaterialsForCourse,
   getMyEnrollmentForCourse,
   getPublicLessonsForCourse,
 } from '@/lib/supabase/queries';
@@ -41,12 +42,16 @@ export default async function CourseDetailPage({
     data: { user },
   } = await supabase.auth.getUser();
 
-  const [categories, seatsTaken, myEnrollment, lessons] = await Promise.all([
+  const [categories, seatsTaken, myEnrollment, lessons, materials] = await Promise.all([
     getActiveCategoryTree(),
     getApprovedSeatsTaken([course.id]),
     user ? getMyEnrollmentForCourse(user.id, course.id) : Promise.resolve(null),
     getPublicLessonsForCourse(course.id),
+    getCourseMaterialsForCourse(course.id),
   ]);
+
+  const mainMaterial = materials.find((m) => m.kind === 'main');
+  const supplementaryMaterials = materials.filter((m) => m.kind === 'supplementary');
 
   const categoryName = categories.find((c) => c.id === course.categoryId)?.name;
   const isFull = (seatsTaken[course.id] ?? 0) >= course.seats;
@@ -107,6 +112,51 @@ export default async function CourseDetailPage({
                 <Badge tone="neutral">{LESSON_MODE_LABEL[lesson.lessonMode]}</Badge>
                 {lesson.hasQuiz && <Badge tone="info">퀴즈</Badge>}
                 {lesson.hasAssignment && <Badge tone="info">과제</Badge>}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {(mainMaterial || supplementaryMaterials.length > 0) && (
+        <div className="mt-8 flex flex-col gap-2">
+          <h2 className="text-[15px] font-semibold text-n-9">교재</h2>
+          <ul className="flex flex-col gap-2">
+            {mainMaterial && (
+              <li className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-n-3 bg-n-0 p-3 text-[13px]">
+                <Badge tone="info">주교재</Badge>
+                <span className="flex-1 font-medium text-n-9">{mainMaterial.title}</span>
+                {mainMaterial.publisher && <span className="text-n-5">{mainMaterial.publisher}</span>}
+                {mainMaterial.purchaseUrl && (
+                  <a
+                    href={mainMaterial.purchaseUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[12.5px] font-medium text-indigo underline"
+                  >
+                    구매하기
+                  </a>
+                )}
+              </li>
+            )}
+            {supplementaryMaterials.map((material) => (
+              <li
+                key={material.id}
+                className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-n-3 bg-n-0 p-3 text-[13px]"
+              >
+                <Badge tone="neutral">보조교재</Badge>
+                <span className="flex-1 font-medium text-n-9">{material.title}</span>
+                {material.publisher && <span className="text-n-5">{material.publisher}</span>}
+                {material.purchaseUrl && (
+                  <a
+                    href={material.purchaseUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[12.5px] font-medium text-indigo underline"
+                  >
+                    구매하기
+                  </a>
+                )}
               </li>
             ))}
           </ul>

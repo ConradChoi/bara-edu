@@ -81,6 +81,7 @@ graph TD
 | F-PUB-2 | 강좌 목록 | 카테고리 트리 필터 | 최대 3Depth 카테고리 트리(예: IT·디지털 > 개발 > 프론트엔드)에서 선택, 상위 선택 시 하위 전체 포함 | Must | `categories`, `courses` |
 | F-PUB-3 | 강좌 목록 | 강좌 카드 그리드 | 3열(PC)/2열(태블릿)/1열(모바일) | Must | `courses` |
 | F-PUB-4 | 강좌 상세 | 강좌 정보 노출 | 썸네일/배지/강사/일정/수강료/정원 | Must | `courses` |
+| F-PUB-4b | 강좌 상세 | 교재 노출 | 주교재(강좌당 최대 1개)/보조교재(여러 개, 유인물·PPT 등 포함) 목록 — 교재명·출판사·구매 URL. 둘 다 선택 항목, 없으면 섹션 자체 미노출(2026-08-30 추가) | Should | `course_materials` |
 | F-PUB-5 | 강좌 상세 | 수강 신청 진입 | 비로그인 시 로그인 유도, 로그인 시 신청 확인 화면 | Must | `enrollments` |
 | F-PUB-5b | 신청 확인 화면 | 자격증 발급 정보 입력 | 강좌별 `requiresCertificateInfo`가 true일 때만 노출·필수(주소·사진 1매), 회원당 1회 입력 후 재사용. false인 강좌(보수교육 등)는 아예 노출 안 함(2026-08-28 도입, 2026-08-29 강좌별 on/off로 확장) | Must | `profiles`, `courses.requires_certificate_info`, storage `member-photos` |
 | F-PUB-6 | 강좌 상세·신청 확인 | 무통장입금 안내 | Admin이 등록한 계좌(최대 3개) 목록 + 입금자명 안내 + 기한(3일) 노출 + 복사. 신청 확인 화면에도 동일하게 노출(2026-08-28부터) | Must | `bank_accounts` |
@@ -110,6 +111,7 @@ graph TD
 | ID | 메뉴/화면 | 기능명 | 설명 | 우선순위 | 관련 데이터 |
 |---|---|---|---|:---:|---|
 | F-LRN-1 | 커리큘럼 | 강의 목록 + 진행 상태 | 완료(✓)/진행중(▶)/예정(○), 자유 수강(Q4) | Must | `lessons`, `progress` |
+| F-LRN-1b | 커리큘럼 사이드바 | 교재 노출 | 승인된 신청자에게 주교재/보조교재 목록(F-PUB-4b와 동일 데이터) 노출, 강좌 상세와 이중 노출(2026-08-30 추가) | Should | `course_materials` |
 | F-LRN-2 | 영상 플레이어 | 외부 링크 임베드 | 업로드 아님, 링크만 | Must | `lessons` |
 | F-LRN-3 | 영상 플레이어 | 학습 완료 표시 | 자동완료 아님, 사용자가 직접 클릭 | Must | `progress` |
 | F-LRN-4 | 퀴즈 | 객관식 응시/채점 | 즉시 채점, 재응시 무제한(Q5) | Must | `quiz_submissions` |
@@ -131,6 +133,7 @@ graph TD
 | F-ADMC-3 | 목록 | 신청 이력 있는 강좌 보호 | 삭제 대신 비활성화만 허용, 확인 다이얼로그 | Must | `courses`, `enrollments` |
 | F-ADMC-4 | 등록/수정 폼 | 카테고리 선택 | 최대 3Depth 계층형 선택기(1Depth→2Depth→3Depth 순차 선택), leaf가 아닌 상위 depth도 선택 가능 | Must | `categories` |
 | F-ADMC-5 | 등록/수정 폼 | 자격증 발급 정보 필수 여부 | 체크박스(기본 켜짐) — 끄면 F-PUB-5b(주소·사진)가 신청 확인 화면에서 아예 안 보임. 자격과정이 아닌 보수교육·일반교육용(2026-08-29 추가) | Must | `courses.requires_certificate_info` |
+| F-ADMC-6 | 등록/수정 폼 | 교재 관리 | 주교재(강좌당 1개, 선택)/보조교재(여러 개, 선택) 등록·수정·삭제 — 항목: 교재명·출판사·구매 가능 URL. 보조교재는 실물 교재뿐 아니라 유인물·PPT 등 자료 전반을 포괄(2026-08-30 추가) | Should | `course_materials` |
 
 ### 2.7 (admin) 회원 관리 `/admin/members`
 

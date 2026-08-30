@@ -36,6 +36,10 @@ do $$ begin
   create type course_schedule_type as enum ('weekday', 'weekend', 'both');
 exception when duplicate_object then null; end $$;
 
+do $$ begin
+  create type course_material_kind as enum ('main', 'supplementary');
+exception when duplicate_object then null; end $$;
+
 -- ===================== Tables =====================
 
 -- 회원 프로필 (auth.users 1:1)
@@ -902,3 +906,46 @@ create policy "member_photos_owner_delete" on storage.objects for delete
 -- 2026-08-29). 기존 강좌는 지금까지 무조건 필수였던 동작을 그대로 유지하도록
 -- true로 마이그레이션하고, 관리자가 강좌별로 끌 수 있게 한다.
 alter table courses add column if not exists requires_certificate_info boolean not null default true;
+
+-- ===================== 강좌 교재(주교재/보조교재) (2026-08-30) =====================
+-- 주교재는 강좌당 1개, 보조교재(유인물·PPT 등 다양한 자료 포함)는 여러 개 등록 가능
+-- (관리자 요청). lessons와 동일하게 별도 테이블로 두고 RLS도 courses_public_select/
+-- courses_enrolled_select와 동일한 기준(공개 강좌는 전체 공개, 승인된 학습자는 강좌
+-- 상태 무관 접근)을 그대로 재사용한다. 셋 다 선택 입력이라 title 외에는 nullable이다.
+create table if not exists course_materials (
+  id uuid primary key default gen_random_uuid(),
+  course_id uuid not null references courses(id) on delete cascade,
+  kind course_material_kind not null,
+  title text not null,
+  publisher text,
+  purchase_url text,
+  "order" integer not null default 0,
+  created_at timestamptz not null default now()
+);
+create index if not exists course_materials_course_id_idx on course_materials(course_id);
+
+-- 주교재는 강좌당 1개만 — app 레벨에서도 UI로 막지만(있으면 "추가" 폼 대신 수정 폼만
+-- 보여줌), DB 레벨에서도 부분 유니크 인덱스로 강제한다(quiz_options_one_correct_per_question과
+-- 동일 패턴).
+create unique index if not exists course_materials_one_main_per_course
+  on course_materials(course_id) where kind = 'main';
+
+alter table course_materials enable row level security;
+
+drop policy if exists "course_materials_public_select" on course_materials;
+create policy "course_materials_public_select" on course_materials for select using (
+  is_admin() or exists (select 1 from courses c where c.id = course_materials.course_id and c.status in ('active','upcoming'))
+);
+drop policy if exists "course_materials_enrolled_select" on course_materials;
+create policy "course_materials_enrolled_select" on course_materials for select using (
+  is_active_learner() and exists (
+    select 1 from enrollments e
+    where e.course_id = course_materials.course_id and e.user_id = auth.uid() and e.status = 'approved'
+  )
+);
+drop policy if exists "course_materials_admin_write" on course_materials;
+create policy "course_materials_admin_write" on course_materials for insert with check (is_admin());
+drop policy if exists "course_materials_admin_update" on course_materials;
+create policy "course_materials_admin_update" on course_materials for update using (is_admin());
+drop policy if exists "course_materials_admin_delete" on course_materials;
+create policy "course_materials_admin_delete" on course_materials for delete using (is_admin());

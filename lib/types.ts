@@ -76,6 +76,20 @@ export interface Lesson {
   offlineAddress: string | null; // lessonMode='offline'일 때 선택 입력
 }
 
+// 강좌 교재(주교재/보조교재, 2026-08-30 추가). 주교재는 강좌당 1개, 보조교재는 여러 개
+// 등록 가능 — 보조교재는 실제 교재뿐 아니라 유인물·PPT 등 다양한 자료를 포괄한다.
+export type CourseMaterialKind = 'main' | 'supplementary';
+
+export interface CourseMaterial {
+  id: string;
+  courseId: string;
+  kind: CourseMaterialKind;
+  title: string;
+  publisher: string | null;
+  purchaseUrl: string | null;
+  order: number;
+}
+
 // 학습자 화면용 퀴즈 타입 — is_correct 필드가 없다(정답 유출 방지).
 // get_quiz_for_lesson() RPC 응답과 1:1 대응. 관리자 전용(isCorrect 포함) 타입은
 // lib/supabase/admin-queries.ts에 별도로 둔다.

@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import ProgressBar from '@/components/classroom/ProgressBar';
-import type { Lesson } from '@/lib/types';
+import type { CourseMaterial, Lesson } from '@/lib/types';
 
 // F-LRN-1: 완료(✓)/진행중(▶)/예정(○) 표시, 자유 수강(Q4 — 잠금 없음).
 // 모바일(390px)에서는 <details>로 접고 펼친다 — client JS 없이 순수 HTML로 처리.
@@ -9,11 +9,13 @@ export default function CurriculumSidebar({
   completedLessonIds,
   courseId,
   currentLessonId,
+  materials,
 }: {
   lessons: Lesson[];
   completedLessonIds: Set<string>;
   courseId: string;
   currentLessonId: string;
+  materials: CourseMaterial[];
 }) {
   const list = (
     <ul className="flex flex-col gap-1">
@@ -52,6 +54,31 @@ export default function CurriculumSidebar({
         {list}
       </div>
       <ProgressBar completed={completedLessonIds.size} total={lessons.length} />
+      {materials.length > 0 && (
+        <div>
+          <h2 className="mb-2 text-[13px] font-semibold text-n-9">교재</h2>
+          <ul className="flex flex-col gap-1.5">
+            {materials.map((material) => (
+              <li key={material.id} className="rounded-md bg-n-1 px-3 py-2 text-[12.5px]">
+                <div className="flex items-center gap-1.5">
+                  <span className="shrink-0 text-[11px] font-medium text-n-5">{material.kind === 'main' ? '주교재' : '보조교재'}</span>
+                  <span className="flex-1 font-medium text-n-9">{material.title}</span>
+                </div>
+                {(material.publisher || material.purchaseUrl) && (
+                  <div className="mt-0.5 flex items-center gap-2 text-[11.5px] text-n-6">
+                    {material.publisher && <span>{material.publisher}</span>}
+                    {material.purchaseUrl && (
+                      <a href={material.purchaseUrl} target="_blank" rel="noopener noreferrer" className="text-indigo underline">
+                        구매하기
+                      </a>
+                    )}
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }

@@ -5,10 +5,18 @@
 // admin 라우트(app/(admin)/*, proxy.ts가 role='admin'만 통과시킴)에서만 호출된다는 전제.
 
 import { createClient } from '@/lib/supabase/server';
-import { deriveStatus, collectDescendantIds, getApprovedSeatsTaken, getMyEnrollments } from '@/lib/supabase/queries';
+import {
+  deriveStatus,
+  collectDescendantIds,
+  getApprovedSeatsTaken,
+  getMyEnrollments,
+  mapCourseMaterialRow,
+  type CourseMaterialRow,
+} from '@/lib/supabase/queries';
 import type {
   AssignmentSubmissionStatus,
   Course,
+  CourseMaterial,
   CourseStatus,
   EnrollmentStatus,
   Lesson,
@@ -388,27 +396,31 @@ export async function getAdminCourses(filters?: {
   }));
 }
 
-export type AdminCourseDetail = Course & { lessons: Lesson[] };
+export type AdminCourseDetail = Course & { lessons: Lesson[]; materials: CourseMaterial[] };
 
 export async function getAdminCourseById(id: string): Promise<AdminCourseDetail | null> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from('courses')
     .select(
-      'id, slug, title, category_id, description, instructor, fee, seats, total_hours, start_date, end_date, schedule_type, requires_certificate_info, government_support, status, lessons(id, course_id, title, video_url, order, has_quiz, has_assignment, assignment_due_at, lesson_mode, online_meeting_url, online_scheduled_at, offline_location_name, offline_address)'
+      'id, slug, title, category_id, description, instructor, fee, seats, total_hours, start_date, end_date, schedule_type, requires_certificate_info, government_support, status, lessons(id, course_id, title, video_url, order, has_quiz, has_assignment, assignment_due_at, lesson_mode, online_meeting_url, online_scheduled_at, offline_location_name, offline_address), course_materials(id, course_id, kind, title, publisher, purchase_url, order)'
     )
     .eq('id', id)
     .maybeSingle();
   if (error) throw new Error(error.message);
   if (!data) return null;
 
-  const row = data as unknown as CourseRow & { lessons: LessonRow[] };
+  const row = data as unknown as CourseRow & { lessons: LessonRow[]; course_materials: CourseMaterialRow[] };
   return {
     ...mapCourseRow(row),
     lessons: row.lessons
       .slice()
       .sort((a, b) => a.order - b.order)
       .map(mapLessonRow),
+    materials: row.course_materials
+      .slice()
+      .sort((a, b) => a.order - b.order)
+      .map(mapCourseMaterialRow),
   };
 }
 
