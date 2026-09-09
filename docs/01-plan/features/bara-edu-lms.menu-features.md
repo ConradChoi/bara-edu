@@ -122,7 +122,18 @@ graph TD
 
 | ID | 메뉴/화면 | 기능명 | 설명 | 우선순위 | 관련 데이터 |
 |---|---|---|---|:---:|---|
-| F-ADM-1 | 대시보드 | 요약 카드 | 신규신청/입금대기/오늘승인/수료임박 | Should | 집계 쿼리 |
+| F-ADM-1 | 대시보드 | 요약 카드(신청·수료) | 신규신청/입금대기/오늘승인/수료임박 | Should | 집계 쿼리 |
+| F-ADM-2 | 대시보드 | 요약 카드(신규 가입) | 기존 카드 그리드에 `오늘 신규가입`/`이번주 신규가입` 2개 추가. **가입 시점 사실 기준** — 탈퇴(status='withdrawn') 회원도 포함, `role='admin'` 계정은 제외. "이번주"는 월요일 00:00(KST)~현재, 카드 하단에 기간(예: 9/8~9/14) 병기. 클릭 시 `/admin/members`(2026-09-09 추가) | Must | `profiles.created_at`, `profiles.role`, `profiles.status` |
+| F-ADM-3 | 대시보드 | 최근 가입자 목록 | 최신 가입 **10명**, 표시 항목: 이름 · 마스킹 이메일(`ab***@gmail.com`) · 가입일시 · 인증상태 배지. 행 클릭 시 `/admin/members/[id]`. `role='admin'`, `status='withdrawn'` 제외(익명화된 이름이라 목록 노출 무의미). 0건이면 빈 상태 문구(2026-09-09 추가) | Must | `profiles` |
+| F-ADM-4 | 대시보드 | 이메일 미인증 회원 수 | `auth.users.email_confirmed_at is null` 카운트 + 그중 **가입 7일 초과 방치** 건수 보조 표기. 이 프로젝트는 Confirm email ON이라 미인증 = 로그인 불가 = 실질 미가입, 즉 F-ADM-2/5 수치의 **보정값**이라 함께 노출해야 의미가 성립. `lib/supabase/admin.ts`의 `createAdminClient()` + `auth.admin.listUsers()` 서버 전용 호출, 실시간성 불필요하므로 **60초 캐시** 필수(매 대시보드 로드마다 전체 페이지네이션 순회 금지)(2026-09-09 추가) | Should | `auth.users` (service_role) |
+| F-ADM-5 | 대시보드 | 가입 추이 그래프 | 최근 **30일 일별** 가입자 수 막대 차트, 기간 토글 없음. 집계 기준은 F-ADM-2와 동일(탈퇴 포함/관리자 제외). 차트 라이브러리 신규 도입 금지 — CSS/인라인 SVG 막대로 구현(현재 `package.json`에 차트 의존성 없음)(2026-09-09 추가) | Should | `profiles.created_at` |
+| F-ADM-6 | 대시보드 | 미인증 회원 목록 + 인증메일 재전송 | 미인증자 개별 목록과 재전송 액션. 메일 발송 남용 방지(rate limit)와 privacy-security-officer 점검이 선행 필요해 이번 범위에서 제외 | **Won't (Later)** | `auth.users` |
+
+> **F-ADM-2~5 공통 제약 (2026-09-09, 구현 전 반드시 확인)**
+> 1. **미인증 가입도 `profiles`에 행이 생긴다.** `supabase/schema.sql`의 `on_auth_user_created` 트리거가 `after insert on auth.users`로 동작하므로, 이메일 인증 전 계정도 `profiles.created_at`에 집계된다. 따라서 F-ADM-2/3/5의 수치는 "실사용 회원"이 아니라 **"가입 시도"**다. 카드 라벨/툴팁에 이 정의를 명시하고, F-ADM-4를 함께 노출해 보정한다.
+> 2. **날짜 경계는 KST 고정.** 기존 `getAdminDashboardStats()`는 `new Date().setHours(0,0,0,0)`(서버 로컬 TZ)를 쓰는데, Amplify SSR 런타임은 UTC라 "오늘"이 KST 09:00에 시작하는 기존 버그가 있다. 신규 항목은 KST 자정 경계 헬퍼를 만들어 쓰고, 기존 F-ADM-1 카드도 같은 헬퍼로 교체한다.
+> 3. **관리자 계정 제외**: 모든 가입 통계는 `role='learner'`만 집계한다(운영자 계정 생성이 가입 지표에 섞이면 안 됨).
+> 4. **재가입 중복 카운트 허용**: F-MY-6이 동일 이메일 재가입을 허용하고 탈퇴 시 auth 이메일이 익명화되므로, 재가입은 별도 신규 행으로 1건 더 집계된다. "가입 시점 사실 기준"과 일관되므로 의도된 동작이다.
 
 ### 2.6 (admin) 강좌 관리 `/admin/courses`
 

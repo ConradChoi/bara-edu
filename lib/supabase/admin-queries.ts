@@ -4,6 +4,9 @@
 // RLS(is_admin())가 서버에서 이미 강제하므로 여기서 role을 다시 확인하지 않는다 — 이 함수들은
 // admin 라우트(app/(admin)/*, proxy.ts가 role='admin'만 통과시킴)에서만 호출된다는 전제.
 
+import { getKstStartOfDaysAgoIso, getKstStartOfTodayIso, getKstStartOfWeekIso, formatKstWeekRangeLabel, toKstDateKey } from '@/lib/kst';
+import { createAdminClient } from '@/lib/supabase/admin';
+import { requireAdminClient } from '@/lib/supabase/require-admin';
 import { createClient } from '@/lib/supabase/server';
 import {
   deriveStatus,
@@ -110,9 +113,7 @@ export type AdminDashboardStats = {
 
 export async function getAdminDashboardStats(): Promise<AdminDashboardStats> {
   const supabase = await createClient();
-  const todayStart = new Date();
-  todayStart.setHours(0, 0, 0, 0);
-  const todayStartIso = todayStart.toISOString();
+  const todayStartIso = getKstStartOfTodayIso();
 
   // newApplicationsToday는 원래 status='pending'까지 걸러서 "오늘 들어왔고 아직 처리
   // 안 된 건"이 됐었다 — 관리자가 부지런히 처리할수록 숫자가 줄어드는 역설이 있어
@@ -131,6 +132,200 @@ export async function getAdminDashboardStats(): Promise<AdminDashboardStats> {
     paymentPendingTotal: pendingTotal.count ?? 0,
     approvedToday: approvedToday.count ?? 0,
   };
+}
+
+// ===================== 대시보드 — 회원 가입 (F-ADM-2~5, 2026-09-09) =====================
+// F-ADM-2~5 공통 전제(menu-features.md 참고): 여기서 "가입"은 email 인증 여부와 무관하게
+// auth.users insert 시점에 profiles가 함께 생성되는 "가입 시도" 기준이다(실사용 회원이 아님).
+// role='admin' 계정은 전부 제외, status='withdrawn'(탈퇴) 회원은 가입 사실 자체는 유지하기
+// 위해 집계(카드/차트)에는 포함하되 개인식별 목록(최근 가입자)에서는 제외한다(익명화된 이름만
+// 남아 노출해도 의미가 없음).
+
+// auth.users.email_confirmed_at은 일반 RLS 클라이언트로 조회할 수 없어 service_role 기반
+// admin.auth.admin.listUsers()로만 가져올 수 있다. 대시보드 로드마다 전체 회원을 순회하는
+// 비용을 줄이기 위해 60초 메모리 캐시를 둔다(product-manager 결정) — Amplify SSR의 웜
+// 컨테이너 수명 동안만 유효한 프로세스 내 캐시이며, 콜드스타트 시 자연히 초기화된다.
+let authConfirmationCache: { map: Map<string, string | null>; expiresAt: number } | null = null;
+
+// 캐시 채움 직후 60초 이내 가입한 회원은 이 맵에 없어 "미인증"으로 잘못 표시될 수 있다
+// (60초 뒤 캐시가 갱신되면 자연히 해소되는 트레이드오프, qa-reviewer 지적, 2026-09-09).
+async function getAuthConfirmationMap(): Promise<Map<string, string | null>> {
+  // service_role로 RLS를 완전히 우회하는 이 프로젝트의 유일한 조회 경로다. 지금은 이
+  // 함수를 호출하는 곳이 admin 대시보드뿐이라 당장 뚫리진 않지만, RLS 하나에만 기대지
+  // 않고 require-admin.ts와 동일하게 앱 레벨에서도 재확인한다 — 나중에 이 함수가 다른
+  // 화면에서 재사용되는 순간 전 회원 인증상태가 즉시 노출되는 구조이기 때문
+  // (privacy-security-officer 점검, 2026-09-09).
+  await requireAdminClient();
+
+  const now = Date.now();
+  if (authConfirmationCache && authConfirmationCache.expiresAt > now) {
+    return authConfirmationCache.map;
+  }
+
+  const admin = createAdminClient();
+  const map = new Map<string, string | null>();
+  const perPage = 1000;
+  let page = 1;
+  // GoTrue 응답의 nextPage(다음 페이지 없으면 null)로 종료 판단 — data.users.length<perPage
+  // 방식은 회원 수가 perPage의 정확한 배수일 때 불필요한 페이지를 한 번 더 요청한다
+  // (qa-reviewer 지적, 2026-09-09). page 상한은 응답 스펙이 예상과 다를 때의 안전장치.
+  while (page <= 200) {
+    const { data, error } = await admin.auth.admin.listUsers({ page, perPage });
+    if (error) throw new Error(error.message);
+    for (const u of data.users) {
+      map.set(u.id, u.email_confirmed_at ?? null);
+    }
+    if (!data.nextPage) break;
+    page = data.nextPage;
+  }
+
+  authConfirmationCache = { map, expiresAt: now + 60_000 };
+  return map;
+}
+
+// 이메일 로컬파트 앞 2자만 노출("ab***@gmail.com"). 대시보드는 관리자가 상시 띄워두는
+// 첫 화면이라 회원관리 목록(전체 노출)보다 어깨너머 노출 위험이 커 마스킹한다.
+// 로컬파트가 2자 이하면 slice(0,2)가 전체를 그대로 반환해 마스킹이 무의미해지는
+// 버그가 있었다 — 이 경우 통째로 가린다(privacy-security-officer 지적, 2026-09-09).
+function maskEmail(email: string | null | undefined): string {
+  if (!email) return '-';
+  const atIndex = email.indexOf('@');
+  if (atIndex <= 0) return '***';
+  const local = email.slice(0, atIndex);
+  const domain = email.slice(atIndex + 1);
+  if (local.length <= 2) return `***@${domain}`;
+  return `${local.slice(0, 2)}***@${domain}`;
+}
+
+export type SignupSummary = {
+  todayCount: number;
+  weekCount: number;
+  weekRangeLabel: string; // 이번 주 월요일(KST)부터 오늘까지 — 롤링 7일이 아니라 "주간 실적" 개념이라
+  // 주 중간(예: 수요일)에 보면 "9/8~9/9"처럼 아직 끝나지 않은 기간으로 표시된다(주 전체 범위 아님).
+};
+
+export async function getSignupSummary(): Promise<SignupSummary> {
+  const supabase = await createClient();
+  const todayStartIso = getKstStartOfTodayIso();
+  const weekStartIso = getKstStartOfWeekIso();
+
+  const [todayRes, weekRes] = await Promise.all([
+    supabase.from('profiles').select('id', { count: 'exact', head: true }).eq('role', 'learner').gte('created_at', todayStartIso),
+    supabase.from('profiles').select('id', { count: 'exact', head: true }).eq('role', 'learner').gte('created_at', weekStartIso),
+  ]);
+
+  const firstError = todayRes.error ?? weekRes.error;
+  if (firstError) throw new Error(firstError.message);
+
+  return {
+    todayCount: todayRes.count ?? 0,
+    weekCount: weekRes.count ?? 0,
+    weekRangeLabel: formatKstWeekRangeLabel(weekStartIso),
+  };
+}
+
+export type RecentSignup = {
+  id: string;
+  name: string;
+  maskedEmail: string;
+  createdAt: string;
+  // null = auth.users에서 이 회원을 찾지 못한 경우("확인 불가") — listUsers 페이지네이션이
+  // 예상과 다르게 잘렸을 때 인증완료 회원을 "미인증"으로 잘못 표시하지 않기 위해 구분한다
+  // (privacy-security-officer 지적, 2026-09-09).
+  confirmed: boolean | null;
+};
+
+export async function getRecentSignups(limit = 10): Promise<RecentSignup[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('id, name, email, created_at')
+    .eq('role', 'learner')
+    .eq('status', 'active')
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (error) throw new Error(error.message);
+
+  const confirmationMap = await getAuthConfirmationMap();
+
+  return (data as { id: string; name: string; email: string | null; created_at: string }[]).map((row) => {
+    const confirmedAt = confirmationMap.get(row.id);
+    return {
+      id: row.id,
+      name: row.name,
+      maskedEmail: maskEmail(row.email),
+      createdAt: row.created_at,
+      confirmed: confirmedAt === undefined ? null : confirmedAt !== null,
+    };
+  });
+}
+
+export type SignupTrendPoint = { date: string; count: number }; // date: "YYYY-MM-DD"(KST)
+
+export async function getSignupTrend(days = 30): Promise<SignupTrendPoint[]> {
+  const supabase = await createClient();
+  const startIso = getKstStartOfDaysAgoIso(days - 1);
+
+  const { data, error } = await supabase.from('profiles').select('created_at').eq('role', 'learner').gte('created_at', startIso);
+  if (error) throw new Error(error.message);
+
+  const counts = new Map<string, number>();
+  for (const row of data as { created_at: string }[]) {
+    const key = toKstDateKey(row.created_at);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+
+  const points: SignupTrendPoint[] = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const key = toKstDateKey(getKstStartOfDaysAgoIso(i));
+    points.push({ date: key, count: counts.get(key) ?? 0 });
+  }
+  return points;
+}
+
+// role='learner' 전체를 select하는데 limit이 없으면 Supabase 기본 max-rows(1000)를 넘는
+// 순간부터 조용히 잘려 집계가 틀어진다 — range()로 직접 페이지네이션한다
+// (privacy-security-officer 지적, 2026-09-09). listUsers 루프와 동일하게 상한을 둔다.
+async function getAllActiveLearnerSignupDates(): Promise<{ id: string; created_at: string }[]> {
+  const supabase = await createClient();
+  const pageSize = 1000;
+  const rows: { id: string; created_at: string }[] = [];
+  let from = 0;
+  while (from < 200_000) {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id, created_at')
+      .eq('role', 'learner')
+      .eq('status', 'active') // 탈퇴 회원은 재로그인이 불가해 애초에 미인증일 수 없다 — 이메일
+      // 익명화 과정에서 auth.users.email_confirmed_at이 초기화되더라도 "미인증/방치"로
+      // 잘못 집계되지 않도록 조회 단계에서 제외한다(privacy-security-officer 지적, 2026-09-09).
+      .range(from, from + pageSize - 1);
+    if (error) throw new Error(error.message);
+    const chunk = data as { id: string; created_at: string }[];
+    rows.push(...chunk);
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+  return rows;
+}
+
+export type UnconfirmedMemberStats = { total: number; staleOver7Days: number };
+
+export async function getUnconfirmedMemberStats(): Promise<UnconfirmedMemberStats> {
+  const [profiles, confirmationMap] = await Promise.all([getAllActiveLearnerSignupDates(), getAuthConfirmationMap()]);
+  const staleThresholdMs = Date.now() - 7 * 24 * 60 * 60 * 1000;
+
+  let total = 0;
+  let staleOver7Days = 0;
+  for (const row of profiles) {
+    const confirmedAt = confirmationMap.get(row.id);
+    if (confirmedAt === undefined) continue; // auth.users에서 못 찾은 극히 드문 경우 — 집계 제외
+    if (confirmedAt !== null) continue; // 인증 완료
+    total += 1;
+    if (new Date(row.created_at).getTime() < staleThresholdMs) staleOver7Days += 1;
+  }
+
+  return { total, staleOver7Days };
 }
 
 export type OverCapacityCourse = { courseId: string; title: string; seats: number; approvedCount: number };

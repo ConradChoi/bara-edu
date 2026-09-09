@@ -481,16 +481,164 @@ security-officer 점검(1차 No-Go → 수정 후 반영)과 qa-reviewer 점검(
 
 #### Admin 대시보드 — 패턴: 관리자 콘솔 레이아웃 Type2(상단 GNB+검색 / 좌측 메뉴)
 ```
-┌──────────────────────────────────────┐
-│ [로고] [검색]              [운영자 계정] │
-├──────────┬────────────────────────────┤
-│ 대시보드  │ [신규신청][입금대기][오늘승인][수료임박] │
-│ 강좌관리  │  각 카드 클릭 → 해당 목록          │
-│ 회원관리  │                                  │
-│ 신청·입금 │                                  │
-│ 수료관리  │                                  │
-└──────────┴────────────────────────────────┘
+┌────────────────────────────────────────────────┐
+│ [로고] [검색]                          [운영자 계정] │
+├──────────┬───────────────────────────────────────┤
+│ 대시보드  │ 신청 · 수료                              │
+│ 강좌관리  │ [신규신청][입금대기][오늘승인][수료임박]        │
+│ 회원관리  │ 회원 가입                                │
+│ 신청·입금 │ [오늘가입][이번주가입][미인증수(비클릭)]      │
+│ 수료관리  │ (정원초과 강좌 경고, 있을 때만)              │
+│ 카테고리  │ ──────────────────────────────           │
+│ CMS      │ 가입 추이 (최근 30일) — 막대 차트           │
+│          │ 최근 가입자 (10명, 행 클릭 → 상세)          │
+│          │ 수료 임박 학습자                          │
+└──────────┴───────────────────────────────────────┘
 ```
+
+#### Admin 대시보드 확장 — 회원 가입 지표 (F-ADM-2~5, 2026-09-09 추가)
+
+> 선행 조건: `bara-edu-lms.menu-features.md` 2.5절 F-ADM-2~6과 "F-ADM-2~5 공통 제약"을 반드시 함께 읽는다(KST 자정 헬퍼, `role='learner'` 필터, 재가입 중복 카운트 허용 등). 이 절은 그 위에 화면 배치·마크업만 정의한다.
+>
+> **정정 사항**: 요청 당시 재사용 후보로 언급된 `components/courses/Badge.tsx`(tone: neutral/info/warning/danger)는 공개(public) 화면 전용 배지다. Admin 화면(`/admin/enrollments`, `/admin/courses`, `/admin/assignments`, `/admin/members` 등)은 이미 전부 `components/admin/StatusBadge.tsx`(tone: neutral/success/warning/danger)를 쓰고 있으므로, 신규 배지도 이 컴포넌트를 그대로 재사용한다. 새 컴포넌트를 만들거나 `Badge.tsx`를 끌어오지 않는다.
+
+**1) 카드 레이아웃 — 그룹 분리(도메인 라벨 + 그리드 분리), 하나의 그리드에 섞지 않는다**
+
+기존 카드 4개(신청·수료)와 신규 3개(회원 가입: 오늘가입/이번주가입/미인증수)는 데이터 성격이 다르고(전자는 "처리해야 할 일", 후자는 "가입 추이 참고 지표") 클릭 목적지도 다르다(`/admin/enrollments`·`/admin/certificates` vs `/admin/members`). `grid-cols-4`를 7칸으로 늘려 한 줄에 욱여넣기보다, 카드 그룹 위에 작은 이거브로우 라벨을 붙여 두 그리드로 분리한다.
+
+```tsx
+{/* 그룹 A: 신청 · 수료 (기존, KST 자정 헬퍼로 교체) */}
+<section className="flex flex-col gap-2">
+  <p className="text-[12px] font-semibold uppercase tracking-wide text-n-5">신청 · 수료</p>
+  <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+    {applicationCards.map((c) => (
+      <Link key={c.label} href={c.href} className="rounded-lg border border-n-3 bg-n-0 p-4">
+        <p className="text-[12px] text-n-6">{c.label}</p>
+        <p className="mt-1 text-[24px] font-semibold text-n-9">{c.value}</p>
+      </Link>
+    ))}
+  </div>
+</section>
+
+{/* 그룹 B: 회원 가입 (신규) */}
+<section className="flex flex-col gap-2">
+  <p className="text-[12px] font-semibold uppercase tracking-wide text-n-5">회원 가입</p>
+  <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+    <Link href="/admin/members" className="rounded-lg border border-n-3 bg-n-0 p-4">
+      <p className="text-[12px] text-n-6">오늘 신규가입</p>
+      <p className="mt-1 text-[24px] font-semibold text-n-9">{stats.signupToday}</p>
+      <p className="mt-0.5 text-[11px] text-n-5">{todayLabel /* 예: 9/9 */}</p>
+    </Link>
+    <Link href="/admin/members" className="rounded-lg border border-n-3 bg-n-0 p-4">
+      <p className="text-[12px] text-n-6">이번주 신규가입</p>
+      <p className="mt-1 text-[24px] font-semibold text-n-9">{stats.signupThisWeek}</p>
+      <p className="mt-0.5 text-[11px] text-n-5">{weekRangeLabel /* 예: 9/8~9/14 */}</p>
+    </Link>
+    {/* 미인증 카드는 <Link>가 아니라 <div> — F-ADM-6(미인증 목록/재전송)이 이번 범위 제외라
+        드릴다운 화면이 없다. 클릭 가능한 것처럼 보이지 않도록 hover 스타일도 주지 않는다. */}
+    <div className="rounded-lg border border-n-3 bg-n-0 p-4">
+      <p className="text-[12px] text-n-6">이메일 미인증</p>
+      <p className="mt-1 text-[24px] font-semibold text-n-9">{stats.unconfirmedTotal}</p>
+      <p className={`mt-0.5 text-[11px] ${stats.unconfirmedOver7d > 0 ? 'text-warning' : 'text-n-5'}`}>
+        7일 초과 방치 {stats.unconfirmedOver7d}건
+      </p>
+    </div>
+  </div>
+</section>
+```
+
+- 이거브로우 라벨(`text-[12px] font-semibold uppercase tracking-wide text-n-5`)은 카드 그룹 표식용으로 가볍게, 아래 목록·차트 섹션의 `<h2 className="text-[15px] font-semibold text-n-9">`보다 한 단계 낮은 위계로 둔다 — 페이지 안에서 "그룹 라벨 < 섹션 제목"이 한눈에 구분되게.
+- 반응형: Admin은 데스크톱 전용(F8, 최소폭 1280 기준)이라 필수는 아니지만 창을 좁혀도 카드가 깨지지 않도록 `sm:` 분기만 최소로 넣는다(그룹 A 2/4열, 그룹 B 1/3열). 별도 `md`/`lg` 세분화는 하지 않는다(과설계 방지).
+- 미인증 카드의 보조 표기(+7일 초과 건수)는 값이 0이어도 항상 노출한다(문구 자체가 "0건"이라는 안심 정보이기도 함). 0보다 클 때만 `text-warning`으로 색을 올려 주의를 끈다.
+
+**2) 배치 순서 — "가입" 도메인 콘텐츠를 카드 바로 아래에 몰아서 배치, 기존 섹션 순서는 건드리지 않는다**
+
+```
+1. 카드 그룹 A (신청 · 수료)
+2. 카드 그룹 B (회원 가입)
+3. 가입 추이 (최근 30일) — 전체 폭
+4. 최근 가입자 (10명) — 전체 폭
+5. [조건부] 정원 초과 강좌 경고 — 기존 위치 그대로
+6. 수료 임박 학습자 — 기존 위치 그대로
+```
+
+- 3·4는 카드 그룹 B(오늘/이번주 가입, 미인증)가 방금 보여준 숫자를 "왜 그런 숫자인지" 추세와 명단으로 이어서 설명하는 콘텐츠라 카드 바로 아래에 붙인다. 기존 "정원 초과 경고"(운영 액션이 필요한 알림)와 "수료 임박"(과제/진도 도메인) 두 섹션은 이번 변경과 무관하므로 순서를 유지한다 — 불필요한 화면 diff를 피한다.
+- **2단(좌우) 배치는 채택하지 않는다.** 최근 가입자 목록은 이름·마스킹이메일(`ab***@gmail.com`)·가입일시·배지 4열이라 좌우 분할 시 이메일이 잘리기 쉽고, 가입 추이 차트도 30개 막대를 좌우 절반 폭(약 400~500px 추정)에 욱여넣으면 막대 하나가 10px 미만으로 좁아져 시니어 관리자 기준 가독성이 떨어진다. 두 섹션 모두 전체 폭으로 세로 배치하고, 차트를 목록보다 위에 둔다(요약 추세 → 상세 명단 순서가 자연스럽다).
+
+**3) 가입 추이 막대 차트 — 인라인 CSS(flex + 인라인 style height %), SVG 불필요**
+
+차트 라이브러리를 새로 넣지 않는다는 제약(F-ADM-5)에 맞춰, `<svg><rect>`보다 flex 막대가 더 단순하고 Tailwind 유틸리티만으로 hover 상태까지 처리할 수 있어 이 방식을 쓴다.
+
+```tsx
+// components/admin/SignupTrendChart.tsx
+// data는 항상 30개(가입자 0명인 날짜도 count:0으로 채워서 전달), 오래된 날짜 → 최근 날짜 순.
+export type DailySignupPoint = { date: string; count: number }; // date: 'YYYY-MM-DD' (KST)
+
+export default function SignupTrendChart({ data }: { data: DailySignupPoint[] }) {
+  const allZero = data.every((d) => d.count === 0);
+  if (allZero) {
+    return <p className="py-8 text-center text-[13px] text-n-6">최근 30일간 신규 가입이 없어요.</p>;
+  }
+  const max = Math.max(...data.map((d) => d.count));
+
+  return (
+    <div>
+      <div className="flex h-28 items-end gap-[3px]">
+        {data.map((d) => (
+          <div
+            key={d.date}
+            title={`${d.date} · ${d.count}명`}
+            style={{ height: `${(d.count / max) * 100}%` }}
+            className="min-h-[2px] w-full flex-1 rounded-t-[2px] bg-indigo/70 hover:bg-indigo"
+          />
+        ))}
+      </div>
+      {/* 라벨 밀도: 30개 전부 표시하면 겹친다 — 5일 간격 + 마지막 날짜만 노출(약 7개) */}
+      <div className="mt-1 flex gap-[3px] text-[10px] text-n-5">
+        {data.map((d, i) => (
+          <div key={d.date} className="flex-1 text-center">
+            {i % 5 === 0 || i === data.length - 1 ? d.date.slice(5).replace('-', '/') : ''}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+```
+
+- 막대는 `min-h-[2px]`로 0명인 날에도 얇은 기준선을 남긴다(값이 0인지, 데이터가 안 왔는지 구분되게).
+- 정확한 수치는 hover 시 `title` 툴팁으로만 제공한다(관리자 데스크톱 전용 도구라 키보드/터치 접근성은 이번 범위에서 별도 처리하지 않음 — 4.5.10 접근성 체크리스트는 공개 화면 대상이라 이 위젯에는 적용하지 않는다. qa-reviewer 리뷰 시 참고).
+- 막대 색은 이 프로젝트의 브랜드 액센트인 `bg-indigo`(hover 시 진하게, 평소 `/70` 투명도)를 쓴다 — Admin 화면에서 이미 활성 상태 표시(`AdminSidebar` 활성 NavItem)에 `bg-indigo/10 text-indigo`를 쓰고 있어 톤이 일관된다.
+
+**4) 인증상태 배지 — `components/admin/StatusBadge.tsx` 재사용, tone은 success/warning**
+
+기존 컨벤션(`enrollments`/`assignments`의 `STATUS_TONE`)이 "대기·미완료 계열 = warning", "완료·승인 계열 = success"로 이미 일관되어 있으므로 그대로 따른다.
+
+```tsx
+<StatusBadge tone={isConfirmed ? 'success' : 'warning'}>
+  {isConfirmed ? '인증완료' : '미인증'}
+</StatusBadge>
+```
+
+최근 가입자 목록(F-ADM-3)은 `AdminTable` + `StatusBadge`로 조립하고, "행 클릭 시 이동"은 `/admin/members` 목록처럼 이름 셀만 링크로 두지 않고 행 전체를 클릭 가능하게 만든다 — 이 위젯은 이름 외 다른 셀에 별도 액션이 없는 "훑어보기" 목록이라 행 전체 클릭이 더 자연스럽다(반면 `/admin/members` 정식 목록은 행마다 다른 액션이 늘어날 수 있어 이름 링크만 유지, 이번에 바꾸지 않는다). 서버 컴포넌트를 유지하기 위해 별도 클라이언트 컴포넌트 없이 "stretched link" 패턴을 쓴다:
+
+```tsx
+<tr key={m.id} className="relative hover:bg-n-1">
+  <td className="relative">
+    <Link href={`/admin/members/${m.id}`} className="absolute inset-0" aria-label={`${m.name} 상세 보기`} />
+    <span className="relative font-medium text-n-9">{m.name}</span>
+  </td>
+  <td>{maskEmail(m.email)}</td>
+  <td>{new Date(m.createdAt).toLocaleString('ko-KR')}</td>
+  <td>
+    <StatusBadge tone={m.emailConfirmed ? 'success' : 'warning'}>
+      {m.emailConfirmed ? '인증완료' : '미인증'}
+    </StatusBadge>
+  </td>
+</tr>
+```
+
+`maskEmail`은 로컬파트 앞 2자 + `***` + `@도메인` 형식(`ab***@gmail.com`, 스펙 예시와 동일). 로컬파트가 2자 미만이면 있는 만큼만 쓰고 나머지를 `***`로 채운다(예: `a***@gmail.com`).
 
 #### Admin 신청·입금 관리 — 패턴: 목록 테이블 + 확인 다이얼로그 + 토스트
 ```
@@ -869,6 +1017,10 @@ Footer 컴포넌트는 이 값을 props가 아니라 `data/site-config.ts`에서
 | 잘못된 slug 접근 | Next.js 404 | 404 페이지 | ✅ 12 |
 | 무통장입금 기한 만료 | 자동 만료, 재신청 가능 | "입금기한 만료" 배지 + 재신청 CTA | ✅ 03 신청내역-만료 |
 | 신청 이력 있는 강좌 비활성화 시도 | 확인 다이얼로그 | "이미 신청 N건이 있어요" | ✅ 07 하단 주석 |
+| Admin 대시보드 "최근 가입자" 0건(오픈 초기) | — | "아직 가입한 회원이 없어요" 빈 상태 문구(`AdminTable` 기존 "검색 결과가 없어요" 톤과 동일) | ☐ |
+| Admin 대시보드 "가입 추이" 30일 전부 0건 | — | 차트 대신 "최근 30일간 신규 가입이 없어요" 안내 문구로 대체(차트 자체를 렌더링하지 않음) | ☐ |
+| `auth.admin.listUsers()`(F-ADM-4 미인증 수) 조회 실패/타임아웃 | 예외를 상위로 전파해 대시보드 전체를 에러 페이지로 만들지 않는다 — 해당 카드만 값 자리에 "-" 표시, 나머지 카드·섹션은 정상 렌더링 | 카드에 "-" + "일시적으로 불러올 수 없어요" | ☐ |
+| KST 자정 헬퍼 도입 후 "오늘/이번주" 경계 회귀 | 자정 직전·직후(23:59↔00:00 KST) 유닛 테스트로 헬퍼 자체를 검증 | — (QA 항목, UI 없음) | ☐ |
 
 ---
 
@@ -932,3 +1084,4 @@ Footer 컴포넌트는 이 값을 props가 아니라 `data/site-config.ts`에서
 |---|---|---|---|
 | 0.1 | 2026-08-01 | 초안 작성 (bara-edu-lms.plan.md/flows.md 기반) | AI Team |
 | 1.1 | 2026-08-10 | 4.5절 홈(Home) 화면 설계 추가(bara-edu-lms.home.md 기반) — 히어로/카테고리/강좌/신청방법/브랜드소개·문의(Should)/Footer 전면 재설계, CourseCard·Badge·FilterChip `/courses`→공유 컴포넌트 추출 계획, 접근성(H-M10) 체크리스트. Figma F1~F8은 텍스트 산출물로 갈음(실물 Figma 반영은 후속) | UI/UX Designer |
+| 1.2 | 2026-09-09 | Admin 대시보드에 회원 가입 지표(F-ADM-2~5) 화면 정의 추가 — 카드 그룹 분리(신청·수료 / 회원가입, 미인증 카드는 비클릭), 배치 순서(가입 추이→최근 가입자를 카드 바로 아래로, 2단 배치는 기각), `SignupTrendChart`(라이브러리 없는 flex+인라인 style 막대, 라벨 5일 간격), 인증상태 배지는 `components/admin/StatusBadge.tsx`(success/warning) 재사용, 최근 가입자 행 클릭은 stretched-link 패턴. Error Handling 표에 관련 엣지케이스 4건 추가. Figma 05 Admin 대시보드 페이지 반영은 ui-ux-designer 후속 작업(F7 재검토 필요) | Service Planner |
