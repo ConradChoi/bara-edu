@@ -23,6 +23,7 @@ export const metadata: Metadata = { title: '강좌 수정 | 관리자' };
 const SUCCESS_MESSAGE: Record<string, string> = {
   created: '강좌를 등록했어요. 이어서 커리큘럼을 추가해주세요.',
   updated: '수정했어요.',
+  duplicated: '강좌를 복사했어요. 제목·slug·시작일/종료일과, 강의별 과제 마감일·온라인 세션 일시를 모두 다시 확인해주세요.',
   lessonAdded: '강의를 추가했어요.',
   lessonUpdated: '강의를 수정했어요.',
   lessonDeleted: '강의를 삭제했어요.',

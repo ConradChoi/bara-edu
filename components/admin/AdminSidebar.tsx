@@ -8,6 +8,7 @@ const NAV_ITEMS = [
   { href: '/admin/enrollments', label: '신청·입금 관리' },
   { href: '/admin/bank-accounts', label: '계좌정보 관리' },
   { href: '/admin/courses', label: '강좌 관리' },
+  { href: '/admin/exam-bank', label: '문제은행 관리' },
   { href: '/admin/categories', label: '카테고리 관리' },
   { href: '/admin/members', label: '회원 관리' },
   { href: '/admin/operators', label: '운영자 관리' },

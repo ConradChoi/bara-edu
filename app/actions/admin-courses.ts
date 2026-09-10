@@ -332,3 +332,158 @@ export async function deleteCourseMaterial(materialId: string, courseId: string)
   if (error) redirect(`/admin/courses/${courseId}?error=failed`);
   redirect(`/admin/courses/${courseId}?materialDeleted=1`);
 }
+
+// ===================== 강좌 복사 (2026-09-10) =====================
+// 매번 새 강좌를 등록할 때마다 커리큘럼/교재/시험을 처음부터 다시 만들어야 하는 부담을
+// 줄이려는 관리자 요청. 확정된 복사 범위는 "기본정보+커리큘럼+교재+시험설정 모두"
+// (product-manager 확인 불필요 — 대표 직접 확정). 시험 문항의 "내용"은 이제 문제은행
+// 소유라 복사하지 않고 course_exam_question_links(연결)만 복사한다 — 그러면 원본/복사본이
+// 같은 문제은행 문항을 계속 공유해서 쓴다(문항을 두 번 만들 필요가 없다는 게 애초에
+// 문제은행을 도입한 이유이기도 하다).
+export async function duplicateCourse(courseId: string) {
+  const supabase = await requireAdminClient();
+
+  const { data: source, error: sourceError } = await supabase.from('courses').select('*').eq('id', courseId).maybeSingle();
+  if (sourceError || !source) redirect('/admin/courses?error=failed');
+
+  const {
+    id: _sourceId,
+    slug: sourceSlug,
+    title: sourceTitle,
+    created_at: _sourceCreatedAt,
+    status: _sourceStatus,
+    start_date: _sourceStartDate,
+    end_date: _sourceEndDate,
+    ...courseRest
+  } = source as Record<string, unknown> & {
+    id: string;
+    slug: string;
+    title: string;
+    created_at: string;
+    status: string;
+    start_date: string | null;
+    end_date: string | null;
+  };
+
+  // 커리큘럼·교재·시험연결을 전부 복사하는 동안 실패할 수 있어, 그 사이엔 항상
+  // status='closed'(비공개)로 둔다 — qa-reviewer 지적: 처음부터 'upcoming'으로 만들면
+  // 복사가 중간에 실패해도 미완성 강좌가 공개 목록(getPublicCourses)에 바로 노출된다.
+  // 모든 하위 데이터 복사가 끝난 뒤에만 마지막에 'upcoming'으로 전환한다. 시작일/종료일은
+  // 원본이 이미 지났을 수 있어 복사하지 않고 null로 초기화(관리자가 새로 정함).
+  let newCourseId: string | null = null;
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const candidateSlug = attempt === 0 ? `${sourceSlug}-copy` : `${sourceSlug}-copy-${attempt + 1}`;
+    const { data, error } = await supabase
+      .from('courses')
+      .insert({
+        ...courseRest,
+        title: `${sourceTitle} (복사본)`,
+        slug: candidateSlug,
+        status: 'closed',
+        start_date: null,
+        end_date: null,
+      })
+      .select('id')
+      .single();
+    if (!error) {
+      newCourseId = data!.id as string;
+      break;
+    }
+    if (error.code !== '23505') redirect('/admin/courses?error=failed');
+  }
+  if (!newCourseId) redirect('/admin/courses?error=failed');
+
+  // 커리큘럼(강의) 복사 — 강의별 퀴즈까지 함께 복사해야 has_quiz=true인 강의가 빈 퀴즈로
+  // 남지 않는다(퀴즈는 문제은행과 달리 강의 소유 콘텐츠라 내용까지 그대로 복제해야 한다).
+  const { data: lessons, error: lessonsError } = await supabase
+    .from('lessons')
+    .select('*')
+    .eq('course_id', courseId)
+    .order('order', { ascending: true });
+  if (lessonsError) redirect(`/admin/courses/${newCourseId}?error=failed`);
+
+  for (const lesson of (lessons ?? []) as Record<string, unknown>[]) {
+    const {
+      id: oldLessonId,
+      course_id: _lessonCourseId,
+      assignment_due_at: _lessonAssignmentDueAt,
+      online_scheduled_at: _lessonOnlineScheduledAt,
+      ...lessonRest
+    } = lesson as {
+      id: string;
+      course_id: string;
+      assignment_due_at: string | null;
+      online_scheduled_at: string | null;
+    };
+    // 과제 마감시각/온라인 세션 일시는 원본이 이미 지났을 수 있어 복사하지 않고
+    // null로 초기화한다(qa-reviewer 지적 — 그대로 복사하면 복사본이 등록 즉시
+    // "이미 지난 마감일"을 갖게 됨).
+    const { data: newLesson, error: newLessonError } = await supabase
+      .from('lessons')
+      .insert({ ...lessonRest, course_id: newCourseId, assignment_due_at: null, online_scheduled_at: null })
+      .select('id')
+      .single();
+    if (newLessonError) redirect(`/admin/courses/${newCourseId}?error=failed`);
+
+    const { data: questions } = await supabase
+      .from('quiz_questions')
+      .select('*')
+      .eq('lesson_id', oldLessonId)
+      .order('order', { ascending: true });
+
+    for (const question of (questions ?? []) as Record<string, unknown>[]) {
+      const { id: oldQuestionId, lesson_id: _questionLessonId, created_at: _questionCreatedAt, ...questionRest } =
+        question as { id: string; lesson_id: string; created_at: string };
+      const { data: newQuestion, error: newQuestionError } = await supabase
+        .from('quiz_questions')
+        .insert({ ...questionRest, lesson_id: newLesson!.id })
+        .select('id')
+        .single();
+      if (newQuestionError) redirect(`/admin/courses/${newCourseId}?error=failed`);
+
+      const { data: options } = await supabase.from('quiz_options').select('*').eq('question_id', oldQuestionId);
+      if (options && options.length > 0) {
+        const optionRows = (options as Record<string, unknown>[]).map((option) => {
+          const { id: _optionId, question_id: _optionQuestionId, ...optionRest } = option as { id: string; question_id: string };
+          return { ...optionRest, question_id: newQuestion!.id };
+        });
+        const { error: optionsError } = await supabase.from('quiz_options').insert(optionRows);
+        if (optionsError) redirect(`/admin/courses/${newCourseId}?error=failed`);
+      }
+    }
+  }
+
+  // 교재(주교재/보조교재) 복사.
+  const { data: materials, error: materialsError } = await supabase.from('course_materials').select('*').eq('course_id', courseId);
+  if (materialsError) redirect(`/admin/courses/${newCourseId}?error=failed`);
+  if (materials && materials.length > 0) {
+    const materialRows = (materials as Record<string, unknown>[]).map((material) => {
+      const { id: _materialId, course_id: _materialCourseId, created_at: _materialCreatedAt, ...materialRest } =
+        material as { id: string; course_id: string; created_at: string };
+      return { ...materialRest, course_id: newCourseId };
+    });
+    const { error: insertMaterialsError } = await supabase.from('course_materials').insert(materialRows);
+    if (insertMaterialsError) redirect(`/admin/courses/${newCourseId}?error=failed`);
+  }
+
+  // 시험 문항 "연결" 복사 — 문항 내용은 복사하지 않고 문제은행 참조만 그대로 옮긴다.
+  const { data: examLinks, error: examLinksError } = await supabase
+    .from('course_exam_question_links')
+    .select('bank_question_id, order')
+    .eq('course_id', courseId);
+  if (examLinksError) redirect(`/admin/courses/${newCourseId}?error=failed`);
+  if (examLinks && examLinks.length > 0) {
+    const examLinkRows = (examLinks as { bank_question_id: string; order: number }[]).map((link) => ({
+      ...link,
+      course_id: newCourseId,
+    }));
+    const { error: insertExamLinksError } = await supabase.from('course_exam_question_links').insert(examLinkRows);
+    if (insertExamLinksError) redirect(`/admin/courses/${newCourseId}?error=failed`);
+  }
+
+  // 모든 하위 데이터 복사가 끝난 뒤에만 'closed' → 'upcoming'으로 전환한다(위 status='closed' 주석 참고).
+  const { error: activateError } = await supabase.from('courses').update({ status: 'upcoming' }).eq('id', newCourseId);
+  if (activateError) redirect(`/admin/courses/${newCourseId}?error=failed`);
+
+  redirect(`/admin/courses/${newCourseId}?duplicated=1`);
+}

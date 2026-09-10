@@ -1011,7 +1011,7 @@ Footer 컴포넌트는 이 값을 props가 아니라 `data/site-config.ts`에서
 ### 4.6.0 의존 관계 요약
 
 - **재사용**: 퀴즈 저작 화면의 문항/보기 CRUD form-action 패턴, `ConfirmDialog`, `StatusBadge`, `AdminTable`, 카테고리 관리의 ▲▼ 순서변경(`swapOrder`) 패턴, `getCertificateEligibilityForCourse`/`CertificateAction` 게이트, `/admin/certificates` 기존 3섹션.
-- **신규**: `categories.is_certification`, `courses.requires_exam`/`exam_pass_score`/`exam_max_attempts`, 테이블 4종(`course_exam_questions`/`course_exam_options`/`course_exam_submissions`/`course_exam_attempt_resets`), RPC `submit_course_exam`(SECURITY DEFINER), 서버 액션 `app/actions/admin-exam.ts` + `app/actions/classroom-exam.ts`, 화면 `/admin/courses/[id]/exam` + `/learn/[courseId]/exam`.
+- **신규**: `categories.is_certification`, `courses.requires_exam`/`exam_pass_score`/`exam_max_attempts`, 테이블 4종(`course_exam_questions`/`course_exam_options`/`course_exam_submissions`/`course_exam_attempt_resets`), RPC `submit_course_exam`(SECURITY DEFINER), 서버 액션 `app/actions/admin-exam.ts` + `app/actions/classroom-exam.ts`, 화면 `/admin/courses/[id]/exam` + `/learn/[courseId]/exam`. (**2026-09-10 갱신**: `course_exam_questions`/`course_exam_options`는 이후 문제은행 구조로 대체됨 — 4.6.11 참고. `course_exam_submissions`/`course_exam_attempt_resets`는 그대로 유지.)
 
 ### 4.6.1 데이터 모델 확장 (`lib/types.ts`)
 
@@ -1339,6 +1339,29 @@ export default function CourseForm({ categories, action, defaultValues, submitLa
 | 4 | PASSED 상태의 "강의실로 돌아가기" 링크 대상 | **첫 강의로 고정** — `lessons[0]` |
 | 5 | `course_exam_options` 보기 개수 | **자유(고정 없음)**로 구현 — 강의 퀴즈와 동일한 조작 방식 |
 | 6 | flows.md 동기화 | 이번 라운드에서는 미반영 — 후속 작업으로 남김(별도 요청 시 처리) |
+
+### 4.6.11 문제은행(Question Bank) 재설계 + 강좌 복사 기능 (2026-09-10 추가)
+
+> **계기**: 관리자 문의("시험문제를 매번 강좌를 생성했을 때 만들어야 하는건가요?")에 위 4.6.1~4.6.10 설계의 한계(문항이 강좌 1개에 완전히 묶여 있어 같은 자격증의 여러 강좌가 문항을 재사용할 수 없음)를 확인한 뒤, 관리자가 두 기능을 직접 요청·범위 확정: ① 문제은행 분리, ② 강좌 복사.
+
+**데이터 모델 변경** — `course_exam_questions`/`course_exam_options`(강좌 소유)를 폐기하고 3개 테이블로 대체:
+- `exam_question_bank(id, category_id, question, order)` — **1Depth 카테고리 소유**. 관리자가 "문제은행 범위"로 "1Depth 카테고리별로 분리(추천)"를 확정(전체 공용이 아님 — 서로 무관한 자격증끼리 문항이 섞이는 걸 방지).
+- `exam_bank_options(id, bank_question_id, label, is_correct, order)` — 문항의 보기. 정답 1개 제약은 기존과 동일하게 부분 유니크 인덱스로 강제.
+- `course_exam_question_links(id, course_id, bank_question_id, order)` — 강좌↔문항 연결 join 테이블. 강좌의 "시험"은 이제 이 링크의 순서 있는 집합일 뿐이고, 문항 내용은 항상 문제은행에서 조인해 가져온다. `unique(course_id, bank_question_id)`로 같은 강좌에 같은 문항 중복 연결을 막는다.
+- 신규 RPC `get_root_category_id(p_category_id)` — 강좌의 `category_id`에서 1Depth 조상까지 거슬러 올라간다(plpgsql, 최대 3단계 loop). 앱(`getCourseCertificationCategoryId`)과 DB 마이그레이션 양쪽에서 재사용해 "조상 찾기" 로직이 두 곳에 중복되지 않게 함.
+- 기존 데이터 마이그레이션: `course_exam_questions`/`course_exam_options`의 기존 행을 **PK id를 그대로 재사용**하며 신규 테이블로 옮기고(참조 매핑이 trivial해짐), `course_exam_question_links`도 함께 생성한 뒤 옛 테이블은 drop. `if exists(...)`로 감싸 schema.sql 재실행 시 조용히 스킵되는 1회성 멱등 마이그레이션으로 구현.
+- `set_course_exam_correct_option`/`get_course_exam`/`submit_course_exam` RPC 3종은 게이팅 로직(수강 여부·진도·과제·advisory lock·응시 횟수)은 그대로 두고, 문항 조회 경로만 `course_exam_question_links` → `exam_question_bank` → `exam_bank_options` 조인으로 교체.
+
+**화면 변경**:
+- `/admin/courses/[id]/exam`(F-ADMC-8, 기존 화면 재활용) — 문항 CRUD를 제거하고 **연결 관리 전용**으로 축소. 문항 내용은 읽기 전용 표시 + ▲▼ 순서 변경 + "연결 해제"(문항 자체는 안 지움, cascade 아님 — 링크 행만 delete)만 제공. 하단에 "문제은행에서 추가" 섹션(같은 카테고리에서 아직 이 강좌에 연결 안 된 문항 목록 + "추가" 버튼).
+- `/admin/exam-bank`(F-ADMC-8b, 신규) — 1Depth 자격증 카테고리 picker(`?categoryId=` 쿼리) + 기존 퀴즈 저작 화면과 동일한 CRUD 패턴(문항 추가/수정/삭제/▲▼순서, 보기 추가/수정/삭제/정답설정). 카테고리가 하나도 없으면 `/admin/categories`로 안내.
+- `AdminSidebar`에 "문제은행 관리" 메뉴 추가(강좌 관리 바로 아래).
+- 서버 액션 분리: `app/actions/admin-exam.ts`(연결 관리만 — `linkBankQuestionToCourse`/`unlinkBankQuestionFromCourse`/`moveCourseExamLinkUp`/`Down`)와 `app/actions/admin-exam-bank.ts`(신규, 문항 내용 CRUD — `admin-quiz.ts`를 거의 그대로 복제하되 테이블명/categoryId 기준만 교체). 문제은행 쓰기 액션은 `categoryId`가 실제 1Depth+자격증 카테고리인지 서버에서 재검증(`assertCertificationCategory`) — hidden 필드 신뢰 금지 원칙(F-ADMC-7 constraint #3와 동일 이유) 유지.
+
+**강좌 복사(F-ADMC-10, 신규)** — 관리자가 "강좌 복사 범위"로 "기본정보+커리큘럼+교재+시험설정 모두(추천)"를 확정:
+- `duplicateCourse(courseId)` 서버 액션. 기본정보(제목에 "(복사본)" 접미, slug는 `-copy`→`-copy-2`… 순으로 빈 슬러그 탐색, 상태는 항상 `upcoming`으로 초기화 — 복사본이 실수로 바로 공개되지 않게), 커리큘럼(`lessons`, 강의별 `quiz_questions`/`quiz_options`까지 포함 — 그래야 `has_quiz=true`인 강의가 빈 퀴즈로 남지 않음), 교재(`course_materials`), 시험설정(`course_exam_question_links`)을 순차 insert로 복제.
+- 시험 문항은 **내용을 복제하지 않고 문제은행 참조(`bank_question_id`)만 복사** — 원본/복사본 강좌가 같은 문제은행을 계속 공유해서 쓴다(문제은행을 도입한 이유와 동일: 문항을 두 번 만들 필요 없음).
+- 진입점: `/admin/courses` 목록 각 행에 "복사" 버튼(비파괴적 작업이라 `ConfirmDialog` 없이 즉시 실행하는 폼 submit). 완료 후 새 강좌의 수정 화면(`/admin/courses/[id]?duplicated=1`)으로 이동, "제목·slug·일정 등 필요한 부분을 수정해주세요" 안내.
 
 ---
 

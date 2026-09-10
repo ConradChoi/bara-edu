@@ -341,7 +341,7 @@ async function getApprovedEnrollmentProgressStats(): Promise<ApprovedEnrollmentP
   const { data: enrollmentRows, error: enrollmentError } = await supabase
     .from('enrollments')
     .select(
-      'user_id, course_id, profiles(name), courses(title, requires_exam, exam_max_attempts, lessons(id, has_assignment), course_exam_questions(id))'
+      'user_id, course_id, profiles(name), courses(title, requires_exam, exam_max_attempts, lessons(id, has_assignment), course_exam_question_links(id))'
     )
     .eq('status', 'approved');
   if (enrollmentError) throw new Error(enrollmentError.message);
@@ -355,7 +355,7 @@ async function getApprovedEnrollmentProgressStats(): Promise<ApprovedEnrollmentP
       requires_exam: boolean;
       exam_max_attempts: number | null;
       lessons: { id: string; has_assignment: boolean }[];
-      course_exam_questions: { id: string }[];
+      course_exam_question_links: { id: string }[];
     };
   }[];
   const candidates = rows.filter((r) => r.courses.lessons.length > 0);
@@ -426,7 +426,7 @@ async function getApprovedEnrollmentProgressStats(): Promise<ApprovedEnrollmentP
       approvedAssignmentLessonIds: approvedSet,
       hasCertificate: certifiedSet.has(pairKey),
       requiresExam: r.courses.requires_exam,
-      examQuestionCount: r.courses.course_exam_questions.length,
+      examQuestionCount: r.courses.course_exam_question_links.length,
       examMaxAttempts: r.courses.exam_max_attempts,
       examPassed: submissions.some((s) => s.passed),
       examAttemptsSinceReset: submissionsSinceReset.length,
@@ -677,7 +677,7 @@ export async function getAdminCourses(filters?: {
   const supabase = await createClient();
   let query = supabase
     .from('courses')
-    .select('id, slug, title, fee, seats, status, requires_exam, categories(name), course_exam_questions(id)')
+    .select('id, slug, title, fee, seats, status, requires_exam, categories(name), course_exam_question_links(id)')
     .order('created_at', { ascending: false });
 
   if (filters?.status && filters.status !== 'all') query = query.eq('status', filters.status);
@@ -696,7 +696,7 @@ export async function getAdminCourses(filters?: {
     status: CourseStatus;
     requires_exam: boolean;
     categories: { name: string } | null;
-    course_exam_questions: { id: string }[];
+    course_exam_question_links: { id: string }[];
   }[];
   const courseIds = rows.map((c) => c.id);
 
@@ -718,7 +718,7 @@ export async function getAdminCourses(filters?: {
     enrollmentCount: enrollmentCounts[c.id] ?? 0,
     certificateCount: certificateCounts[c.id] ?? 0,
     requiresExam: c.requires_exam,
-    examQuestionCount: c.course_exam_questions.length,
+    examQuestionCount: c.course_exam_question_links.length,
   }));
 }
 
@@ -751,6 +751,22 @@ export async function getAdminCourseById(id: string): Promise<AdminCourseDetail 
 }
 
 // ===================== 카테고리 관리 (/admin/categories) =====================
+
+// 문제은행 관리 화면(/admin/exam-bank)의 카테고리 선택기용 — 1Depth이자 자격증으로
+// 지정된 카테고리만 문제은행을 가질 수 있다(2026-09-10).
+export type AdminCertificationCategory = { id: string; name: string };
+
+export async function getCertificationCategories(): Promise<AdminCertificationCategory[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('categories')
+    .select('id, name')
+    .eq('depth', 1)
+    .eq('is_certification', true)
+    .order('order', { ascending: true });
+  if (error) throw new Error(error.message);
+  return data as AdminCertificationCategory[];
+}
 
 export async function getCategoryCourseCounts(): Promise<Record<string, number>> {
   const supabase = await createClient();
@@ -1089,17 +1105,73 @@ export async function getQuizQuestionsForLesson(lessonId: string): Promise<Admin
   }));
 }
 
-// ===================== 자격시험 저작 (/admin/courses/[id]/exam, 2026-09-09) =====================
+// ===================== 자격시험 문제은행 + 강좌 연결 (2026-09-10 재설계) =====================
+// 처음엔 문항을 강좌별로 독립 저장했으나, 관리자 요청으로 "같은 자격증(1Depth 카테고리) 안의
+// 강좌끼리는 문제를 공유해서 쓸 수 있어야 한다"는 요구가 추가돼 문제은행 구조로 바뀌었다.
 // isCorrect를 포함하는 관리자 전용 타입 — quiz와 동일한 정답 비노출 패턴.
 
-export type AdminCourseExamOption = { id: string; label: string; order: number; isCorrect: boolean };
-export type AdminCourseExamQuestion = { id: string; courseId: string; question: string; order: number; options: AdminCourseExamOption[] };
+export type AdminExamBankOption = { id: string; label: string; order: number; isCorrect: boolean };
+export type AdminExamBankQuestion = { id: string; categoryId: string; question: string; order: number; options: AdminExamBankOption[] };
 
-export async function getCourseExamQuestionsForCourse(courseId: string): Promise<AdminCourseExamQuestion[]> {
+export async function getExamBankQuestionsForCategory(categoryId: string): Promise<AdminExamBankQuestion[]> {
   const supabase = await createClient();
   const { data, error } = await supabase
-    .from('course_exam_questions')
-    .select('id, course_id, question, order, course_exam_options(id, label, is_correct, order)')
+    .from('exam_question_bank')
+    .select('id, category_id, question, order, exam_bank_options(id, label, is_correct, order)')
+    .eq('category_id', categoryId)
+    .order('order', { ascending: true });
+  if (error) throw new Error(error.message);
+
+  return (
+    data as unknown as {
+      id: string;
+      category_id: string;
+      question: string;
+      order: number;
+      exam_bank_options: { id: string; label: string; is_correct: boolean; order: number }[];
+    }[]
+  ).map((row) => ({
+    id: row.id,
+    categoryId: row.category_id,
+    question: row.question,
+    order: row.order,
+    options: row.exam_bank_options
+      .slice()
+      .sort((a, b) => a.order - b.order)
+      .map((o) => ({ id: o.id, label: o.label, order: o.order, isCorrect: o.is_correct })),
+  }));
+}
+
+// 강좌의 category_id에서 1Depth 조상까지 거슬러 올라간다 — DB의 get_root_category_id()를
+// 그대로 재사용해 판정 로직이 앱/DB 두 곳에 따로 존재하지 않게 한다.
+async function getCourseRootCategoryId(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  courseId: string
+): Promise<string | null> {
+  const { data: course, error: courseError } = await supabase.from('courses').select('category_id').eq('id', courseId).maybeSingle();
+  if (courseError) throw new Error(courseError.message);
+  if (!course) return null;
+
+  const { data, error } = await supabase.rpc('get_root_category_id', { p_category_id: course.category_id });
+  if (error) throw new Error(error.message);
+  return data as string | null;
+}
+
+export type AdminCourseExamLink = {
+  linkId: string;
+  bankQuestionId: string;
+  question: string;
+  order: number;
+  options: AdminExamBankOption[];
+};
+
+// 강좌 시험 저작 화면(/admin/courses/[id]/exam)에서 "이 강좌 시험에 포함된 문항" 목록.
+// 문항 내용은 이제 문제은행 소유라 여기서는 링크(순서·연결 여부)만 다룬다.
+export async function getCourseExamQuestionsForCourse(courseId: string): Promise<AdminCourseExamLink[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('course_exam_question_links')
+    .select('id, bank_question_id, order, exam_question_bank(question, exam_bank_options(id, label, is_correct, order))')
     .eq('course_id', courseId)
     .order('order', { ascending: true });
   if (error) throw new Error(error.message);
@@ -1107,21 +1179,42 @@ export async function getCourseExamQuestionsForCourse(courseId: string): Promise
   return (
     data as unknown as {
       id: string;
-      course_id: string;
-      question: string;
+      bank_question_id: string;
       order: number;
-      course_exam_options: { id: string; label: string; is_correct: boolean; order: number }[];
+      exam_question_bank: { question: string; exam_bank_options: { id: string; label: string; is_correct: boolean; order: number }[] };
     }[]
   ).map((row) => ({
-    id: row.id,
-    courseId: row.course_id,
-    question: row.question,
+    linkId: row.id,
+    bankQuestionId: row.bank_question_id,
+    question: row.exam_question_bank.question,
     order: row.order,
-    options: row.course_exam_options
+    options: row.exam_question_bank.exam_bank_options
       .slice()
       .sort((a, b) => a.order - b.order)
       .map((o) => ({ id: o.id, label: o.label, order: o.order, isCorrect: o.is_correct })),
   }));
+}
+
+// "문제은행 관리로 이동" 링크용 — 강좌가 속한 1Depth 자격증 카테고리 id.
+export async function getCourseCertificationCategoryId(courseId: string): Promise<string | null> {
+  const supabase = await createClient();
+  return getCourseRootCategoryId(supabase, courseId);
+}
+
+// "문제은행에서 추가" 피커용 — 강좌의 자격증 카테고리 안에서 아직 이 강좌에 연결되지 않은 문항.
+export async function getAvailableBankQuestionsForCourse(courseId: string): Promise<AdminExamBankQuestion[]> {
+  const supabase = await createClient();
+  const rootCategoryId = await getCourseRootCategoryId(supabase, courseId);
+  if (!rootCategoryId) return [];
+
+  const [bankQuestions, linkRows] = await Promise.all([
+    getExamBankQuestionsForCategory(rootCategoryId),
+    supabase.from('course_exam_question_links').select('bank_question_id').eq('course_id', courseId),
+  ]);
+  if (linkRows.error) throw new Error(linkRows.error.message);
+
+  const linkedIds = new Set((linkRows.data as { bank_question_id: string }[]).map((r) => r.bank_question_id));
+  return bankQuestions.filter((q) => !linkedIds.has(q.id));
 }
 
 // ===================== 과제 검토 (/admin/assignments, Phase 4.5) =====================

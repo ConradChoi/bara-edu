@@ -969,31 +969,105 @@ alter table courses add column if not exists requires_exam boolean not null defa
 alter table courses add column if not exists exam_pass_score integer;
 alter table courses add column if not exists exam_max_attempts integer;
 
--- 시험 문항/선택지 — quiz_questions/quiz_options와 동일한 "정답 비노출" 원칙을 그대로
--- 적용한다. 관리자만 직접 select 가능, 학습자는 get_course_exam()/submit_course_exam()
--- RPC로만 접근한다.
-create table if not exists course_exam_questions (
+-- ===================== 자격시험 문제은행 (2026-09-10 재설계) =====================
+-- 처음엔 문항을 강좌별로 독립 저장했으나(course_exam_questions), 관리자 요청으로
+-- "같은 자격증(1Depth 카테고리) 안에서는 강좌가 여러 개(2급/3급, 기수 반복 등)여도 문제를
+-- 공유해서 쓸 수 있어야 한다"는 요구가 추가돼 문제은행 구조로 다시 설계한다.
+-- exam_question_bank/exam_bank_options가 실제 문항 저장소이고, course_exam_question_links가
+-- "이 강좌의 시험은 문제은행의 어떤 문항들을 어떤 순서로 쓰는지"만 가리키는 얇은 연결
+-- 테이블이다 — 문항 내용을 한 번 고치면 그 문항을 쓰는 모든 강좌에 즉시 반영된다.
+-- 정답 비노출 원칙(quiz_questions와 동일)은 그대로 유지: 관리자만 직접 select 가능,
+-- 학습자는 get_course_exam()/submit_course_exam() RPC로만 접근한다.
+
+-- category_id는 반드시 1Depth이자 is_certification=true인 카테고리여야 한다(앱 레벨
+-- admin-exam-bank.ts에서 검증 — 카테고리마다 시험 내용이 완전히 달라 전체 공용으로 섞으면
+-- 관리자가 엉뚱한 자격증 문제를 실수로 연결하기 쉽다는 관리자 판단, 2026-09-10).
+create table if not exists exam_question_bank (
   id uuid primary key default gen_random_uuid(),
-  course_id uuid not null references courses(id) on delete cascade,
+  category_id uuid not null references categories(id),
   question text not null,
   "order" integer not null default 0,
   created_at timestamptz not null default now()
 );
-create index if not exists course_exam_questions_course_id_idx on course_exam_questions(course_id);
+create index if not exists exam_question_bank_category_id_idx on exam_question_bank(category_id);
 
-create table if not exists course_exam_options (
+create table if not exists exam_bank_options (
   id uuid primary key default gen_random_uuid(),
-  question_id uuid not null references course_exam_questions(id) on delete cascade,
+  bank_question_id uuid not null references exam_question_bank(id) on delete cascade,
   label text not null,
   is_correct boolean not null default false,
   "order" integer not null default 0
 );
-create index if not exists course_exam_options_question_id_idx on course_exam_options(question_id);
+create index if not exists exam_bank_options_bank_question_id_idx on exam_bank_options(bank_question_id);
 
 -- quiz_options_one_correct_per_question과 동일한 이유(정답 설정이 원자적이지 않으면
 -- 문항당 정답이 0개/2개로 남을 수 있음) — DB 레벨로 강제한다.
-create unique index if not exists course_exam_options_one_correct_per_question
-  on course_exam_options(question_id) where is_correct;
+create unique index if not exists exam_bank_options_one_correct_per_question
+  on exam_bank_options(bank_question_id) where is_correct;
+
+-- 강좌의 시험 = 문제은행에서 가져다 쓰는 문항들의 순서 있는 목록. 같은 문항을 여러 강좌가
+-- 동시에 쓸 수 있으므로 (course_id, bank_question_id) 조합은 강좌당 한 번만 존재해야 한다.
+create table if not exists course_exam_question_links (
+  id uuid primary key default gen_random_uuid(),
+  course_id uuid not null references courses(id) on delete cascade,
+  bank_question_id uuid not null references exam_question_bank(id) on delete cascade,
+  "order" integer not null default 0,
+  unique (course_id, bank_question_id)
+);
+create index if not exists course_exam_question_links_course_id_idx on course_exam_question_links(course_id);
+create index if not exists course_exam_question_links_bank_question_id_idx on course_exam_question_links(bank_question_id);
+
+-- 1Depth 조상 카테고리 id를 반환한다(최대 3Depth라 최대 2번만 상위로 이동) — 문제은행
+-- 소속 카테고리 판정, 마이그레이션에 재사용한다.
+create or replace function public.get_root_category_id(p_category_id uuid)
+returns uuid
+language plpgsql
+stable
+set search_path = public
+as $$
+declare
+  v_id uuid := p_category_id;
+  v_parent uuid;
+  v_depth smallint;
+begin
+  for i in 1..3 loop
+    select parent_id, depth into v_parent, v_depth from categories where id = v_id;
+    if v_depth is null or v_depth = 1 or v_parent is null then
+      return v_id;
+    end if;
+    v_id := v_parent;
+  end loop;
+  return v_id;
+end;
+$$;
+
+-- 예전 course_exam_questions/course_exam_options(강좌 전용 저장) 데이터를 문제은행+링크로
+-- 1회 이전한다. 이 스키마를 여러 번 재실행해도 안전하도록, 예전 테이블이 남아있을 때만
+-- 이전을 시도하고 끝나면 예전 테이블을 삭제한다 — 그 다음 재실행부터는 테이블이 없으므로
+-- 이 블록 전체가 조용히 스킵된다(idempotent).
+do $$
+begin
+  if exists (select 1 from information_schema.tables where table_schema = 'public' and table_name = 'course_exam_questions') then
+    insert into exam_question_bank (id, category_id, question, "order", created_at)
+    select q.id, public.get_root_category_id(c.category_id), q.question, q."order", q.created_at
+    from course_exam_questions q
+    join courses c on c.id = q.course_id
+    on conflict (id) do nothing;
+
+    insert into exam_bank_options (id, bank_question_id, label, is_correct, "order")
+    select o.id, o.question_id, o.label, o.is_correct, o."order"
+    from course_exam_options o
+    on conflict (id) do nothing;
+
+    insert into course_exam_question_links (course_id, bank_question_id, "order")
+    select q.course_id, q.id, q."order"
+    from course_exam_questions q
+    on conflict (course_id, bank_question_id) do nothing;
+
+    drop table if exists course_exam_options;
+    drop table if exists course_exam_questions;
+  end if;
+end $$;
 
 -- 응시 기록. passed는 응시 시점 exam_pass_score 기준 스냅샷으로, 이후 합격 기준이
 -- 바뀌어도 재계산하지 않는다(지난 합격이 나중에 뒤집히면 안 됨 — product-manager 확정).
@@ -1029,28 +1103,38 @@ create table if not exists course_exam_attempt_resets (
 );
 create index if not exists course_exam_attempt_resets_user_course_idx on course_exam_attempt_resets(user_id, course_id);
 
-alter table course_exam_questions enable row level security;
-alter table course_exam_options enable row level security;
+alter table exam_question_bank enable row level security;
+alter table exam_bank_options enable row level security;
+alter table course_exam_question_links enable row level security;
 alter table course_exam_submissions enable row level security;
 alter table course_exam_attempt_resets enable row level security;
 
-drop policy if exists "course_exam_questions_admin_select" on course_exam_questions;
-create policy "course_exam_questions_admin_select" on course_exam_questions for select using (is_admin());
-drop policy if exists "course_exam_questions_admin_write" on course_exam_questions;
-create policy "course_exam_questions_admin_write" on course_exam_questions for insert with check (is_admin());
-drop policy if exists "course_exam_questions_admin_update" on course_exam_questions;
-create policy "course_exam_questions_admin_update" on course_exam_questions for update using (is_admin());
-drop policy if exists "course_exam_questions_admin_delete" on course_exam_questions;
-create policy "course_exam_questions_admin_delete" on course_exam_questions for delete using (is_admin());
+drop policy if exists "exam_question_bank_admin_select" on exam_question_bank;
+create policy "exam_question_bank_admin_select" on exam_question_bank for select using (is_admin());
+drop policy if exists "exam_question_bank_admin_write" on exam_question_bank;
+create policy "exam_question_bank_admin_write" on exam_question_bank for insert with check (is_admin());
+drop policy if exists "exam_question_bank_admin_update" on exam_question_bank;
+create policy "exam_question_bank_admin_update" on exam_question_bank for update using (is_admin());
+drop policy if exists "exam_question_bank_admin_delete" on exam_question_bank;
+create policy "exam_question_bank_admin_delete" on exam_question_bank for delete using (is_admin());
 
-drop policy if exists "course_exam_options_admin_select" on course_exam_options;
-create policy "course_exam_options_admin_select" on course_exam_options for select using (is_admin());
-drop policy if exists "course_exam_options_admin_write" on course_exam_options;
-create policy "course_exam_options_admin_write" on course_exam_options for insert with check (is_admin());
-drop policy if exists "course_exam_options_admin_update" on course_exam_options;
-create policy "course_exam_options_admin_update" on course_exam_options for update using (is_admin());
-drop policy if exists "course_exam_options_admin_delete" on course_exam_options;
-create policy "course_exam_options_admin_delete" on course_exam_options for delete using (is_admin());
+drop policy if exists "exam_bank_options_admin_select" on exam_bank_options;
+create policy "exam_bank_options_admin_select" on exam_bank_options for select using (is_admin());
+drop policy if exists "exam_bank_options_admin_write" on exam_bank_options;
+create policy "exam_bank_options_admin_write" on exam_bank_options for insert with check (is_admin());
+drop policy if exists "exam_bank_options_admin_update" on exam_bank_options;
+create policy "exam_bank_options_admin_update" on exam_bank_options for update using (is_admin());
+drop policy if exists "exam_bank_options_admin_delete" on exam_bank_options;
+create policy "exam_bank_options_admin_delete" on exam_bank_options for delete using (is_admin());
+
+drop policy if exists "course_exam_question_links_admin_select" on course_exam_question_links;
+create policy "course_exam_question_links_admin_select" on course_exam_question_links for select using (is_admin());
+drop policy if exists "course_exam_question_links_admin_write" on course_exam_question_links;
+create policy "course_exam_question_links_admin_write" on course_exam_question_links for insert with check (is_admin());
+drop policy if exists "course_exam_question_links_admin_update" on course_exam_question_links;
+create policy "course_exam_question_links_admin_update" on course_exam_question_links for update using (is_admin());
+drop policy if exists "course_exam_question_links_admin_delete" on course_exam_question_links;
+create policy "course_exam_question_links_admin_delete" on course_exam_question_links for delete using (is_admin());
 
 -- course_exam_submissions: 본인+관리자 select만 허용하고 insert/update/delete 정책은
 -- 아예 두지 않는다 — quiz_submissions(무제한 재응시, 수료와 무관)와 달리 이 테이블은
@@ -1084,9 +1168,9 @@ begin
     raise exception 'not authorized';
   end if;
 
-  update course_exam_options set is_correct = false where question_id = p_question_id and is_correct = true;
+  update exam_bank_options set is_correct = false where bank_question_id = p_question_id and is_correct = true;
 
-  update course_exam_options set is_correct = true where id = p_option_id and question_id = p_question_id;
+  update exam_bank_options set is_correct = true where id = p_option_id and bank_question_id = p_question_id;
   if not found then
     raise exception 'option does not belong to question';
   end if;
@@ -1156,11 +1240,12 @@ begin
   end if;
 
   return query
-    select q.id, q.question, q."order", o.id, o.label, o."order"
-    from course_exam_questions q
-    join course_exam_options o on o.question_id = q.id
-    where q.course_id = p_course_id
-    order by q."order", o."order";
+    select eb.id, eb.question, l."order", ebo.id, ebo.label, ebo."order"
+    from course_exam_question_links l
+    join exam_question_bank eb on eb.id = l.bank_question_id
+    join exam_bank_options ebo on ebo.bank_question_id = eb.id
+    where l.course_id = p_course_id
+    order by l."order", ebo."order";
 end;
 $$;
 
@@ -1189,6 +1274,38 @@ begin
   where user_id = v_user_id and course_id = p_course_id;
 
   return v_reset_at;
+end;
+$$;
+
+-- 강의실 사이드바가 시험 섹션 상태(locked/not_ready/available/...)를 계산하려면 "문항이
+-- 몇 개고 그중 정답 미설정 문항이 있는지"만 알면 되고 문항 내용 자체는 필요 없다.
+-- course_exam_question_links/exam_question_bank/exam_bank_options는 전부 admin-only
+-- select RLS라(2026-09-10 문제은행 재설계로도 이 원칙 유지) 학습자 세션으로 직접 select하면
+-- 항상 빈 결과만 돌아온다 — get_my_exam_reset_at()과 동일한 이유로 이 두 숫자만 SECURITY
+-- DEFINER로 우회해 내려준다(qa-reviewer 지적, 2026-09-10: getCourseExamState()가 옛
+-- course_exam_questions/options 직접 select에 의존해왔는데 애초에 그 테이블들도
+-- admin-only였어서 모든 학습자에게 시험 섹션이 항상 'not_ready'로만 보였던 잠재 버그 발견).
+create or replace function public.get_course_exam_readiness(p_course_id uuid)
+returns table (question_count integer, has_unresolved_question boolean)
+language plpgsql
+security definer
+stable
+set search_path = public
+as $$
+begin
+  if auth.uid() is null or not is_active_learner() then
+    raise exception 'not authorized';
+  end if;
+
+  return query
+    select
+      count(*)::integer,
+      coalesce(bool_or(not exists (
+        select 1 from exam_bank_options o where o.bank_question_id = eb.id and o.is_correct
+      )), false)
+    from course_exam_question_links l
+    join exam_question_bank eb on eb.id = l.bank_question_id
+    where l.course_id = p_course_id;
 end;
 $$;
 
@@ -1275,7 +1392,7 @@ begin
     raise exception 'exam not configured for course';
   end if;
 
-  select count(*) into v_total_questions from course_exam_questions where course_id = p_course_id;
+  select count(*) into v_total_questions from course_exam_question_links where course_id = p_course_id;
   if v_total_questions = 0 then
     raise exception 'exam not found for course';
   end if;
@@ -1285,9 +1402,10 @@ begin
   -- 실수로 학습자가 응시 횟수만 소모하지 않도록, 응시 자체를 막는다(횟수 미소모).
   -- 관리자 화면(admin/courses/[id]/exam)의 경고 배너와 동일한 조건이다(qa-reviewer 지적, 2026-09-09).
   select count(*) into v_unresolved_questions
-  from course_exam_questions q
-  where q.course_id = p_course_id
-    and not exists (select 1 from course_exam_options o where o.question_id = q.id and o.is_correct = true);
+  from course_exam_question_links l
+  join exam_question_bank eb on eb.id = l.bank_question_id
+  where l.course_id = p_course_id
+    and not exists (select 1 from exam_bank_options o where o.bank_question_id = eb.id and o.is_correct = true);
   if v_unresolved_questions > 0 then
     raise exception 'exam not ready';
   end if;
@@ -1297,11 +1415,11 @@ begin
   -- 뿐이라 REST로 직접 호출하면 우회 가능하므로 서버에서 명시적으로 거부한다.
   select count(*) into v_duplicate_question_count
   from (
-    select o.question_id
-    from course_exam_options o
+    select o.bank_question_id
+    from exam_bank_options o
     where o.id = any(p_selected_option_ids)
-      and o.question_id in (select id from course_exam_questions where course_id = p_course_id)
-    group by o.question_id
+      and o.bank_question_id in (select bank_question_id from course_exam_question_links where course_id = p_course_id)
+    group by o.bank_question_id
     having count(*) > 1
   ) dup;
   if v_duplicate_question_count > 0 then
@@ -1330,15 +1448,15 @@ begin
 
   select count(*) filter (where sel.option_id is not null and sel.option_id = correct_opt.id)
   into v_correct_count
-  from course_exam_questions q
-  join course_exam_options correct_opt on correct_opt.question_id = q.id and correct_opt.is_correct = true
+  from course_exam_question_links l
+  join exam_bank_options correct_opt on correct_opt.bank_question_id = l.bank_question_id and correct_opt.is_correct = true
   left join lateral (
     select o.id as option_id
-    from course_exam_options o
-    where o.question_id = q.id and o.id = any(p_selected_option_ids)
+    from exam_bank_options o
+    where o.bank_question_id = l.bank_question_id and o.id = any(p_selected_option_ids)
     limit 1
   ) sel on true
-  where q.course_id = p_course_id;
+  where l.course_id = p_course_id;
 
   v_score := round(100.0 * v_correct_count / v_total_questions);
   v_passed := v_score >= v_pass_score;

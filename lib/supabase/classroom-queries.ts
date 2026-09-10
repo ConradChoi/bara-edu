@@ -344,7 +344,11 @@ export async function getCourseExamState(userId: string, courseId: string): Prom
     getLessonsForClassroom(courseId),
     getProgressStatsForCourses(userId, [courseId]),
     getLatestAssignmentSubmissionsForCourse(userId, courseId),
-    supabase.from('course_exam_questions').select('id, course_exam_options(is_correct)').eq('course_id', courseId),
+    // course_exam_question_links/exam_question_bank/exam_bank_options는 admin-only select
+    // RLS라 학습자 세션으로 직접 select할 수 없다 — 문항 개수/정답 미설정 여부만 담은
+    // get_course_exam_readiness() RPC로 우회한다(get_my_exam_reset_at()과 동일한 이유,
+    // qa-reviewer 지적, 2026-09-10).
+    supabase.rpc('get_course_exam_readiness', { p_course_id: courseId }),
     supabase
       .from('course_exam_submissions')
       .select('score, passed, submitted_at')
@@ -367,11 +371,14 @@ export async function getCourseExamState(userId: string, courseId: string): Prom
     .map((l) => l.title);
   const progressComplete = stats.totalLessons > 0 && stats.completedLessons === stats.totalLessons && pendingAssignmentLessonTitles.length === 0;
 
-  const questions = (questionsRes.data as { id: string; course_exam_options: { is_correct: boolean }[] }[]) ?? [];
-  const questionCount = questions.length;
+  const readiness = (questionsRes.data as { question_count: number; has_unresolved_question: boolean }[] | null)?.[0] ?? {
+    question_count: 0,
+    has_unresolved_question: false,
+  };
+  const questionCount = readiness.question_count;
   // 정답이 하나도 지정되지 않은 문항이 있으면 submit_course_exam() RPC가 'exam not ready'로
   // 응시 자체를 거부한다 — 화면 상태도 동일 기준으로 미리 'not_ready'를 보여준다(qa-reviewer 지적).
-  const hasUnresolvedQuestion = questions.some((q) => !q.course_exam_options.some((o) => o.is_correct));
+  const hasUnresolvedQuestion = readiness.has_unresolved_question;
   const submissions = (submissionsRes.data as { score: number; passed: boolean; submitted_at: string }[]) ?? [];
   const lastResetAtMs = resetAtRes.data ? new Date(resetAtRes.data as string).getTime() : null;
   const submissionsSinceReset = lastResetAtMs === null ? submissions : submissions.filter((s) => new Date(s.submitted_at).getTime() > lastResetAtMs);

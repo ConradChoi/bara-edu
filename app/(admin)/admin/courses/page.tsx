@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { deactivateCourse, deleteCourse } from '@/app/actions/admin-courses';
+import { deactivateCourse, deleteCourse, duplicateCourse } from '@/app/actions/admin-courses';
 import StatusBadge from '@/components/admin/StatusBadge';
 import AdminTable from '@/components/admin/AdminTable';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
@@ -99,6 +99,14 @@ export default async function AdminCoursesPage({
                     >
                       수정
                     </Link>
+                    <form action={duplicateCourse.bind(null, c.id)}>
+                      <button
+                        type="submit"
+                        className="rounded-pill border border-n-3 px-3 py-1.5 text-[12px] font-medium text-n-7"
+                      >
+                        복사
+                      </button>
+                    </form>
                     {c.status !== 'closed' && (
                       <ConfirmDialog
                         triggerLabel="비활성화"

@@ -1,36 +1,20 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import {
-  addExamOption,
-  addExamQuestion,
-  deleteExamOption,
-  deleteExamQuestion,
-  moveExamQuestionDown,
-  moveExamQuestionUp,
-  setExamCorrectOption,
-  updateExamOption,
-  updateExamQuestion,
-} from '@/app/actions/admin-exam';
+import { linkBankQuestionToCourse, moveCourseExamLinkDown, moveCourseExamLinkUp, unlinkBankQuestionFromCourse } from '@/app/actions/admin-exam';
 import StatusBadge from '@/components/admin/StatusBadge';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
-import { getAdminCourseById, getCourseExamQuestionsForCourse } from '@/lib/supabase/admin-queries';
+import { getAdminCourseById, getAvailableBankQuestionsForCourse, getCourseCertificationCategoryId, getCourseExamQuestionsForCourse } from '@/lib/supabase/admin-queries';
 
 export const metadata: Metadata = { title: '자격시험 관리 | 관리자' };
 
 const SUCCESS_MESSAGE: Record<string, string> = {
-  questionAdded: '문항을 추가했어요.',
-  questionUpdated: '문항을 수정했어요.',
-  questionDeleted: '문항을 삭제했어요.',
+  questionAdded: '문항을 연결했어요.',
+  questionDeleted: '문항 연결을 해제했어요.',
   questionReordered: '순서를 변경했어요.',
-  optionAdded: '보기를 추가했어요.',
-  optionUpdated: '보기를 수정했어요.',
-  optionDeleted: '보기를 삭제했어요.',
-  correctSet: '정답을 설정했어요.',
 };
 
 const ERROR_MESSAGE: Record<string, string> = {
-  validation: '내용을 입력해주세요.',
   failed: '처리 중 문제가 발생했어요.',
 };
 
@@ -47,8 +31,12 @@ export default async function AdminCourseExamPage({
   const course = await getAdminCourseById(courseId);
   if (!course) notFound();
 
-  const questions = await getCourseExamQuestionsForCourse(courseId);
-  const unresolvedCount = questions.filter((q) => !q.options.some((o) => o.isCorrect)).length;
+  const [links, availableQuestions, categoryId] = await Promise.all([
+    getCourseExamQuestionsForCourse(courseId),
+    getAvailableBankQuestionsForCourse(courseId),
+    getCourseCertificationCategoryId(courseId),
+  ]);
+  const unresolvedCount = links.filter((l) => !l.options.some((o) => o.isCorrect)).length;
 
   return (
     <div className="flex max-w-[640px] flex-col gap-6">
@@ -88,106 +76,90 @@ export default async function AdminCourseExamPage({
 
       {unresolvedCount > 0 && (
         <div className="rounded-md border border-warning bg-warning/10 px-3.5 py-3 text-[13px] font-medium text-warning">
-          정답이 설정되지 않은 문항이 {unresolvedCount}개 있어요. 학습자 제출 시 해당 문항은 항상 오답으로 채점돼요.
+          정답이 설정되지 않은 문항이 {unresolvedCount}개 있어요. 문제은행에서 정답을 먼저 설정해주세요.
         </div>
       )}
 
-      {questions.length === 0 ? (
+      <div className="flex items-center justify-between rounded-md border border-n-3 bg-n-1 px-3.5 py-3">
+        <p className="text-[12.5px] text-n-6">문항의 내용(질문/보기/정답)은 이제 문제은행에서 관리해요. 이 화면에서는 문항 연결과 순서만 다뤄요.</p>
+        {categoryId && (
+          <Link href={`/admin/exam-bank?categoryId=${categoryId}`} className="shrink-0 rounded-pill border border-n-4 px-3 py-1.5 text-[12px] font-medium text-n-8">
+            문제은행 관리로 이동
+          </Link>
+        )}
+      </div>
+
+      {links.length === 0 ? (
         <p className="text-[13px] text-n-6">
-          등록된 문항이 없어요. 문항이 0개인 동안 학습자에게는 &quot;시험 준비 중&quot; 안내만 보여요.
+          연결된 문항이 없어요. 문항이 0개인 동안 학습자에게는 &quot;시험 준비 중&quot; 안내만 보여요.
         </p>
       ) : (
         <ul className="flex flex-col gap-4">
-          {questions.map((q, index) => (
-            <li key={q.id} className="rounded-lg border border-n-3 p-4">
+          {links.map((link, index) => (
+            <li key={link.linkId} className="rounded-lg border border-n-3 p-4">
               <div className="flex items-start gap-2">
-                <span className="mt-2 text-[12px] text-n-5">{index + 1}.</span>
-                <form action={updateExamQuestion.bind(null, q.id, courseId)} className="flex flex-1 items-center gap-2">
-                  <input
-                    name="question"
-                    defaultValue={q.question}
-                    className="h-9 flex-1 rounded-md border border-n-3 bg-n-1 px-2.5 text-[13px]"
-                  />
-                  <button type="submit" className="rounded-pill border border-n-3 px-2.5 py-1 text-[11.5px] text-n-7">
-                    저장
-                  </button>
-                </form>
-                <form action={moveExamQuestionUp.bind(null, q.id, courseId)}>
+                <span className="mt-0.5 text-[12px] text-n-5">{index + 1}.</span>
+                <p className="flex-1 text-[13px] font-medium text-n-9">{link.question}</p>
+                <form action={moveCourseExamLinkUp.bind(null, link.linkId, courseId)}>
                   <button type="submit" className="rounded-pill border border-n-3 px-2 py-1 text-[11px] text-n-7">
                     ▲
                   </button>
                 </form>
-                <form action={moveExamQuestionDown.bind(null, q.id, courseId)}>
+                <form action={moveCourseExamLinkDown.bind(null, link.linkId, courseId)}>
                   <button type="submit" className="rounded-pill border border-n-3 px-2 py-1 text-[11px] text-n-7">
                     ▼
                   </button>
                 </form>
                 <ConfirmDialog
-                  triggerLabel="문항 삭제"
+                  triggerLabel="연결 해제"
                   triggerClassName="rounded-pill border border-danger px-2.5 py-1 text-[11.5px] text-danger"
-                  title="문항을 삭제할까요?"
-                  description="보기도 함께 삭제돼요."
-                  confirmLabel="삭제"
+                  title="문항 연결을 해제할까요?"
+                  description="문제은행의 문항 자체는 삭제되지 않아요. 이 강좌 시험에서만 빠져요."
+                  confirmLabel="해제"
                   tone="danger"
-                  action={deleteExamQuestion.bind(null, q.id, courseId)}
+                  action={unlinkBankQuestionFromCourse.bind(null, link.linkId, courseId)}
                 />
               </div>
 
-              <ul className="mt-3 flex flex-col gap-1.5 pl-6">
-                {q.options.map((option) => (
-                  <li key={option.id} className="flex items-center gap-2">
-                    <form
-                      action={updateExamOption.bind(null, option.id, q.id, courseId)}
-                      className="flex flex-1 items-center gap-2"
-                    >
-                      <input
-                        name="label"
-                        defaultValue={option.label}
-                        className="h-8 flex-1 rounded-md border border-n-3 bg-n-0 px-2 text-[12.5px]"
-                      />
-                      <button type="submit" className="rounded-pill border border-n-3 px-2 py-1 text-[11px] text-n-7">
-                        저장
-                      </button>
-                    </form>
-                    {option.isCorrect ? (
-                      <StatusBadge tone="success">정답</StatusBadge>
-                    ) : (
-                      <form action={setExamCorrectOption.bind(null, option.id, q.id, courseId)}>
-                        <button type="submit" className="rounded-pill border border-n-3 px-2 py-1 text-[11px] text-n-7">
-                          정답으로 설정
-                        </button>
-                      </form>
-                    )}
-                    <form action={deleteExamOption.bind(null, option.id, q.id, courseId)}>
-                      <button type="submit" className="rounded-pill border border-danger px-2 py-1 text-[11px] text-danger">
-                        삭제
-                      </button>
-                    </form>
+              <ul className="mt-3 flex flex-col gap-1 pl-6">
+                {link.options.map((option) => (
+                  <li key={option.id} className="flex items-center gap-2 text-[12.5px] text-n-7">
+                    <span>{option.label}</span>
+                    {option.isCorrect && <StatusBadge tone="success">정답</StatusBadge>}
                   </li>
                 ))}
               </ul>
-
-              <form action={addExamOption.bind(null, q.id, courseId)} className="mt-2 flex items-center gap-2 pl-6">
-                <input
-                  name="label"
-                  placeholder="보기 추가"
-                  className="h-8 flex-1 rounded-md border border-n-3 bg-n-0 px-2 text-[12.5px]"
-                />
-                <button type="submit" className="rounded-pill border border-n-3 px-2.5 py-1 text-[11.5px] text-n-7">
-                  추가
-                </button>
-              </form>
             </li>
           ))}
         </ul>
       )}
 
-      <form action={addExamQuestion.bind(null, courseId)} className="flex items-center gap-2 rounded-lg border border-n-3 bg-n-1 p-3">
-        <input name="question" placeholder="새 문항" className="h-9 flex-1 rounded-md border border-n-3 bg-n-0 px-2.5 text-[13px]" />
-        <button type="submit" className="rounded-pill bg-pink px-4 py-1.5 text-[12.5px] font-semibold text-white">
-          문항 추가
-        </button>
-      </form>
+      <div className="rounded-lg border border-n-3 bg-n-1 p-4">
+        <p className="mb-3 text-[13px] font-semibold text-n-9">문제은행에서 추가</p>
+        {availableQuestions.length === 0 ? (
+          <p className="text-[12.5px] text-n-6">
+            추가할 수 있는 문항이 없어요.{' '}
+            {categoryId && (
+              <Link href={`/admin/exam-bank?categoryId=${categoryId}`} className="underline">
+                문제은행에서 문항을 먼저 만들어주세요.
+              </Link>
+            )}
+          </p>
+        ) : (
+          <ul className="flex flex-col gap-2">
+            {availableQuestions.map((q) => (
+              <li key={q.id} className="flex items-center gap-2">
+                <span className="flex-1 text-[12.5px] text-n-8">{q.question}</span>
+                <form action={linkBankQuestionToCourse.bind(null, courseId, q.id)}>
+                  <button type="submit" className="rounded-pill bg-pink px-3 py-1 text-[11.5px] font-semibold text-white">
+                    추가
+                  </button>
+                </form>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
     </div>
   );
 }
