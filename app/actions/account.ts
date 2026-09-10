@@ -71,7 +71,13 @@ export async function withdraw() {
   const { error: progressError } = await admin.from('progress').delete().eq('user_id', user.id);
   const { error: quizError } = await admin.from('quiz_submissions').delete().eq('user_id', user.id);
   const { error: assignmentError } = await admin.from('assignment_submissions').delete().eq('user_id', user.id);
-  if (progressError || quizError || assignmentError) redirect('/my?withdrawError=failed');
+  // 자격시험 응시 기록·리셋 이력도 진도/퀴즈/과제와 동일한 "학습 이력" 범주라 함께 파기한다
+  // (privacy-security-officer 지적, 2026-09-09 — module-lms-9 추가 당시 누락됐던 부분).
+  const { error: examSubmissionError } = await admin.from('course_exam_submissions').delete().eq('user_id', user.id);
+  const { error: examResetError } = await admin.from('course_exam_attempt_resets').delete().eq('user_id', user.id);
+  if (progressError || quizError || assignmentError || examSubmissionError || examResetError) {
+    redirect('/my?withdrawError=failed');
+  }
 
   if (photoPathToDelete) {
     // 실패해도 탈퇴 자체를 막지는 않는다 — profiles.photo_path는 이미 null로 비워졌으니

@@ -8,6 +8,7 @@ type CategoryRow = {
   depth: number;
   order: number;
   is_active: boolean;
+  is_certification: boolean;
 };
 
 function mapCategory(row: CategoryRow): Category {
@@ -18,6 +19,7 @@ function mapCategory(row: CategoryRow): Category {
     depth: row.depth as 1 | 2 | 3,
     order: row.order,
     isActive: row.is_active,
+    isCertification: row.is_certification,
   };
 }
 
@@ -37,6 +39,9 @@ type CourseRow = {
   requires_certificate_info: boolean;
   government_support: boolean;
   status: Course['status'];
+  requires_exam: boolean;
+  exam_pass_score: number | null;
+  exam_max_attempts: number | null;
 };
 
 function mapCourse(row: CourseRow): Course {
@@ -51,6 +56,9 @@ function mapCourse(row: CourseRow): Course {
     seats: row.seats,
     totalHours: row.total_hours,
     startDate: row.start_date,
+    requiresExam: row.requires_exam,
+    examPassScore: row.exam_pass_score,
+    examMaxAttempts: row.exam_max_attempts,
     endDate: row.end_date,
     scheduleType: row.schedule_type,
     requiresCertificateInfo: row.requires_certificate_info,
@@ -63,7 +71,7 @@ export async function getCategoryTree(): Promise<Category[]> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from('categories')
-    .select('id, name, parent_id, depth, order, is_active')
+    .select('id, name, parent_id, depth, order, is_active, is_certification')
     .order('depth', { ascending: true })
     .order('order', { ascending: true });
 
@@ -95,7 +103,7 @@ export async function getPublicCourses(categoryId?: string): Promise<Course[]> {
   const supabase = await createClient();
   let query = supabase
     .from('courses')
-    .select('id, slug, title, category_id, description, instructor, fee, seats, total_hours, start_date, end_date, schedule_type, requires_certificate_info, government_support, status')
+    .select('id, slug, title, category_id, description, instructor, fee, seats, total_hours, start_date, end_date, schedule_type, requires_certificate_info, government_support, status, requires_exam, exam_pass_score, exam_max_attempts')
     .in('status', ['active', 'upcoming']);
 
   if (categoryId) {
@@ -117,7 +125,7 @@ export async function getCourseBySlug(slug: string): Promise<Course | null> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from('courses')
-    .select('id, slug, title, category_id, description, instructor, fee, seats, total_hours, start_date, end_date, schedule_type, requires_certificate_info, government_support, status')
+    .select('id, slug, title, category_id, description, instructor, fee, seats, total_hours, start_date, end_date, schedule_type, requires_certificate_info, government_support, status, requires_exam, exam_pass_score, exam_max_attempts')
     .eq('slug', slug)
     .maybeSingle();
 

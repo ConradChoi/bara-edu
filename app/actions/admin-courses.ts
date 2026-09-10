@@ -4,7 +4,10 @@ import { redirect } from 'next/navigation';
 import { requireAdminClient } from '@/lib/supabase/require-admin';
 import { getCertificateCountsByCourse, getEnrollmentCountsByCourse } from '@/lib/supabase/admin-queries';
 import { parseKstDatetimeLocal } from '@/lib/kst';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import type { CourseScheduleType, CourseStatus } from '@/lib/types';
+
+type SupabaseServerClient = SupabaseClient;
 
 // 강좌 관리 (F-ADMC-1~4). category_id/course_id FK에 ON DELETE 절이 없어 참조가 있는
 // 상태로 삭제를 시도하면 raw FK 에러(23503)가 난다 — 미리 참조 건수를 확인해 친절한
@@ -21,7 +24,22 @@ function readOptionalDateField(formData: FormData, name: string): string | null 
   return raw;
 }
 
-function readCourseFields(formData: FormData) {
+// courseId의 카테고리를 1Depth 조상까지 거슬러 올라가 is_certification을 확인한다
+// (최대 3Depth라 최대 2번만 상위로 이동). categories 테이블 조회 실패/미존재 시 false로
+// 안전하게 취급한다.
+async function getCategoryIsCertification(supabase: SupabaseServerClient, categoryId: string): Promise<boolean> {
+  let currentId: string | null = categoryId;
+  for (let i = 0; i < 3 && currentId; i++) {
+    const result = await supabase.from('categories').select('parent_id, depth, is_certification').eq('id', currentId).maybeSingle();
+    const data = result.data as { parent_id: string | null; depth: number; is_certification: boolean } | null;
+    if (!data) return false;
+    if (data.depth === 1) return data.is_certification;
+    currentId = data.parent_id;
+  }
+  return false;
+}
+
+async function readCourseFields(supabase: SupabaseServerClient, formData: FormData) {
   const title = (formData.get('title') as string | null)?.trim();
   const slug = (formData.get('slug') as string | null)?.trim();
   const categoryId = (formData.get('categoryId') as string | null) || null;
@@ -57,6 +75,24 @@ function readCourseFields(formData: FormData) {
     ? (scheduleTypeRaw as CourseScheduleType)
     : null;
 
+  // 시험 관련 필드 — CourseForm이 'use client'로 카테고리 선택에 따라 실시간으로
+  // 보였다 사라지는 값이라 클라이언트가 뭘 보내든 신뢰하지 않는다. 1Depth 카테고리가
+  // 자격증이 아니면 서버에서 항상 false/null로 정규화한다(product-manager 확정,
+  // menu-features.md F-ADMC-7~9 제약 #2 — 문항·응시 기록은 지우지 않고 게이팅만 해제).
+  const isCertificationCategory = await getCategoryIsCertification(supabase, categoryId);
+  let requiresExam = false;
+  let examPassScore: number | null = null;
+  let examMaxAttempts: number | null = null;
+  if (isCertificationCategory && formData.get('requiresExam') === 'on') {
+    const passScoreRaw = Number(formData.get('examPassScore'));
+    const maxAttemptsRaw = Number(formData.get('examMaxAttempts'));
+    if (!Number.isInteger(passScoreRaw) || passScoreRaw < 1 || passScoreRaw > 100) return null;
+    if (!Number.isInteger(maxAttemptsRaw) || maxAttemptsRaw < 1) return null;
+    requiresExam = true;
+    examPassScore = passScoreRaw;
+    examMaxAttempts = maxAttemptsRaw;
+  }
+
   return {
     title,
     slug,
@@ -75,15 +111,18 @@ function readCourseFields(formData: FormData) {
     // 강좌일 때만 defaultChecked를 true로 미리 켜 둔다(기존 강좌는 전부 true였던 동작을
     // 그대로 유지). 여기서는 체크박스 값 그대로("on"이면 true) 저장한다(관리자 요청, 2026-08-29).
     requires_certificate_info: formData.get('requiresCertificateInfo') === 'on',
+    requires_exam: requiresExam,
+    exam_pass_score: examPassScore,
+    exam_max_attempts: examMaxAttempts,
     status,
   };
 }
 
 export async function createCourse(formData: FormData) {
-  const fields = readCourseFields(formData);
+  const supabase = await requireAdminClient();
+  const fields = await readCourseFields(supabase, formData);
   if (!fields) redirect('/admin/courses/new?error=validation');
 
-  const supabase = await requireAdminClient();
   const { data, error } = await supabase.from('courses').insert(fields!).select('id').single();
 
   if (error) {
@@ -94,10 +133,10 @@ export async function createCourse(formData: FormData) {
 }
 
 export async function updateCourse(courseId: string, formData: FormData) {
-  const fields = readCourseFields(formData);
+  const supabase = await requireAdminClient();
+  const fields = await readCourseFields(supabase, formData);
   if (!fields) redirect(`/admin/courses/${courseId}?error=validation`);
 
-  const supabase = await requireAdminClient();
   const { error } = await supabase.from('courses').update(fields!).eq('id', courseId);
 
   if (error) {

@@ -7,6 +7,8 @@ import { getMyEnrollmentForCourse } from '@/lib/supabase/queries';
 import type {
   AssignmentSubmissionStatus,
   Course,
+  CourseExamQuestionWithOptions,
+  CourseExamStatus,
   Lesson,
   QuizQuestionWithOptions,
 } from '@/lib/types';
@@ -29,6 +31,9 @@ type CourseRow = {
   requires_certificate_info: boolean;
   government_support: boolean;
   status: Course['status'];
+  requires_exam: boolean;
+  exam_pass_score: number | null;
+  exam_max_attempts: number | null;
 };
 
 function mapCourseRow(row: CourseRow): Course {
@@ -48,6 +53,9 @@ function mapCourseRow(row: CourseRow): Course {
     requiresCertificateInfo: row.requires_certificate_info,
     governmentSupport: row.government_support,
     status: row.status,
+    requiresExam: row.requires_exam,
+    examPassScore: row.exam_pass_score,
+    examMaxAttempts: row.exam_max_attempts,
   };
 }
 
@@ -85,7 +93,7 @@ function mapLessonRow(row: LessonRow): Lesson {
   };
 }
 
-const COURSE_COLUMNS = 'id, slug, title, category_id, description, instructor, fee, seats, total_hours, start_date, end_date, schedule_type, requires_certificate_info, government_support, status';
+const COURSE_COLUMNS = 'id, slug, title, category_id, description, instructor, fee, seats, total_hours, start_date, end_date, schedule_type, requires_certificate_info, government_support, status, requires_exam, exam_pass_score, exam_max_attempts';
 const LESSON_COLUMNS =
   'id, course_id, title, video_url, order, has_quiz, has_assignment, assignment_due_at, lesson_mode, online_meeting_url, online_scheduled_at, offline_location_name, offline_address';
 
@@ -301,6 +309,8 @@ export type CertificateEligibility = {
   totalLessons: number;
   completedLessons: number;
   pendingAssignmentLessonTitles: string[];
+  examRequired: boolean;
+  examPassed: boolean; // examRequired=false면 항상 true(eligible 산식 단순화용)
 };
 
 // UI 표시 전용(버튼 활성화 여부 + "부족한 항목" 안내) — 실제 발급 게이트는
@@ -309,25 +319,37 @@ export type CertificateEligibility = {
 export async function getCertificateEligibilityForCourse(userId: string, courseId: string): Promise<CertificateEligibility> {
   const supabase = await createClient();
 
-  const [lessons, statsByCourse, latestAssignments, certRes] = await Promise.all([
+  const [course, lessons, statsByCourse, latestAssignments, certRes, examPassedRes] = await Promise.all([
+    getCourseForClassroom(courseId),
     getLessonsForClassroom(courseId),
     getProgressStatsForCourses(userId, [courseId]),
     getLatestAssignmentSubmissionsForCourse(userId, courseId),
     supabase.from('certificates').select('id').eq('user_id', userId).eq('course_id', courseId).maybeSingle(),
+    supabase
+      .from('course_exam_submissions')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', userId)
+      .eq('course_id', courseId)
+      .eq('passed', true),
   ]);
   if (certRes.error) throw new Error(certRes.error.message);
+  if (examPassedRes.error) throw new Error(examPassedRes.error.message);
 
   const stats = statsByCourse[courseId];
   const pendingAssignmentLessonTitles = lessons
     .filter((l) => l.hasAssignment && latestAssignments.get(l.id)?.status !== 'approved')
     .map((l) => l.title);
 
+  const examRequired = course?.requiresExam ?? false;
+  const examPassed = !examRequired || (examPassedRes.count ?? 0) > 0;
+
   const alreadyIssued = certRes.data !== null;
   const eligible =
     !alreadyIssued &&
     stats.totalLessons > 0 &&
     stats.completedLessons === stats.totalLessons &&
-    pendingAssignmentLessonTitles.length === 0;
+    pendingAssignmentLessonTitles.length === 0 &&
+    examPassed;
 
   return {
     eligible,
@@ -335,7 +357,122 @@ export async function getCertificateEligibilityForCourse(userId: string, courseI
     totalLessons: stats.totalLessons,
     completedLessons: stats.completedLessons,
     pendingAssignmentLessonTitles,
+    examRequired,
+    examPassed,
   };
+}
+
+// ===================== 자격시험(Course Exam, 2026-09-09) =====================
+
+export type CourseExamState = {
+  status: CourseExamStatus;
+  completedLessons: number;
+  totalLessons: number;
+  pendingAssignmentLessonTitles: string[];
+  examPassScore: number | null;
+  examMaxAttempts: number | null;
+  remainingAttempts: number | null; // 'available'일 때만 값 존재
+  lastScore: number | null;
+  passedScore: number | null;
+  passedAt: string | null;
+};
+
+// requiresExam=false인 강좌는 null을 반환한다(호출부에서 섹션 자체를 숨김).
+export async function getCourseExamState(userId: string, courseId: string): Promise<CourseExamState | null> {
+  const course = await getCourseForClassroom(courseId);
+  if (!course || !course.requiresExam) return null;
+
+  const supabase = await createClient();
+  const [lessons, statsByCourse, latestAssignments, questionsRes, submissionsRes, resetAtRes] = await Promise.all([
+    getLessonsForClassroom(courseId),
+    getProgressStatsForCourses(userId, [courseId]),
+    getLatestAssignmentSubmissionsForCourse(userId, courseId),
+    supabase.from('course_exam_questions').select('id, course_exam_options(is_correct)').eq('course_id', courseId),
+    supabase
+      .from('course_exam_submissions')
+      .select('score, passed, submitted_at')
+      .eq('user_id', userId)
+      .eq('course_id', courseId)
+      .order('submitted_at', { ascending: false }),
+    // course_exam_attempt_resets는 관리자 전용 select 정책이라 본인 세션으로는 조회할 수
+    // 없다 — get_my_exam_reset_at() RPC로 reset_at 하나만 SECURITY DEFINER로 받아온다
+    // (qa-reviewer/privacy-security-officer 공통 지적, 2026-09-09: 관리자가 리셋해도
+    // 학습자 화면이 계속 'exhausted'로 남아있던 버그).
+    supabase.rpc('get_my_exam_reset_at', { p_course_id: courseId }),
+  ]);
+  if (questionsRes.error) throw new Error(questionsRes.error.message);
+  if (submissionsRes.error) throw new Error(submissionsRes.error.message);
+  if (resetAtRes.error) throw new Error(resetAtRes.error.message);
+
+  const stats = statsByCourse[courseId];
+  const pendingAssignmentLessonTitles = lessons
+    .filter((l) => l.hasAssignment && latestAssignments.get(l.id)?.status !== 'approved')
+    .map((l) => l.title);
+  const progressComplete = stats.totalLessons > 0 && stats.completedLessons === stats.totalLessons && pendingAssignmentLessonTitles.length === 0;
+
+  const questions = (questionsRes.data as { id: string; course_exam_options: { is_correct: boolean }[] }[]) ?? [];
+  const questionCount = questions.length;
+  // 정답이 하나도 지정되지 않은 문항이 있으면 submit_course_exam() RPC가 'exam not ready'로
+  // 응시 자체를 거부한다 — 화면 상태도 동일 기준으로 미리 'not_ready'를 보여준다(qa-reviewer 지적).
+  const hasUnresolvedQuestion = questions.some((q) => !q.course_exam_options.some((o) => o.is_correct));
+  const submissions = (submissionsRes.data as { score: number; passed: boolean; submitted_at: string }[]) ?? [];
+  const lastResetAtMs = resetAtRes.data ? new Date(resetAtRes.data as string).getTime() : null;
+  const submissionsSinceReset = lastResetAtMs === null ? submissions : submissions.filter((s) => new Date(s.submitted_at).getTime() > lastResetAtMs);
+
+  const passedSubmission = submissions.find((s) => s.passed) ?? null;
+  const latestSubmission = submissions[0] ?? null;
+
+  let status: CourseExamStatus;
+  if (!progressComplete) {
+    status = 'locked';
+  } else if (questionCount === 0 || hasUnresolvedQuestion) {
+    status = 'not_ready';
+  } else if (passedSubmission) {
+    status = 'passed';
+  } else if (course.examMaxAttempts !== null && submissionsSinceReset.length >= course.examMaxAttempts) {
+    status = 'exhausted';
+  } else {
+    status = 'available';
+  }
+
+  return {
+    status,
+    completedLessons: stats.completedLessons,
+    totalLessons: stats.totalLessons,
+    pendingAssignmentLessonTitles,
+    examPassScore: course.examPassScore,
+    examMaxAttempts: course.examMaxAttempts,
+    remainingAttempts: status === 'available' && course.examMaxAttempts !== null ? course.examMaxAttempts - submissionsSinceReset.length : null,
+    lastScore: latestSubmission?.score ?? null,
+    passedScore: passedSubmission?.score ?? null,
+    passedAt: passedSubmission?.submitted_at ?? null,
+  };
+}
+
+// get_course_exam() RPC 래핑 — 정답은 응답에 포함되지 않는다(get_quiz_for_lesson과 동일 원칙).
+export async function getCourseExamQuestions(courseId: string): Promise<CourseExamQuestionWithOptions[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc('get_course_exam', { p_course_id: courseId });
+  if (error) throw new Error(error.message);
+
+  const rows = data as {
+    question_id: string;
+    question: string;
+    question_order: number;
+    option_id: string;
+    option_label: string;
+    option_order: number;
+  }[];
+
+  const questions = new Map<string, CourseExamQuestionWithOptions>();
+  for (const row of rows) {
+    if (!questions.has(row.question_id)) {
+      questions.set(row.question_id, { id: row.question_id, question: row.question, order: row.question_order, options: [] });
+    }
+    questions.get(row.question_id)!.options.push({ id: row.option_id, label: row.option_label, order: row.option_order });
+  }
+
+  return [...questions.values()].sort((a, b) => a.order - b.order);
 }
 
 export type MyCertificate = { id: string; courseId: string; courseTitle: string; issuedAt: string; fileUrl: string | null };

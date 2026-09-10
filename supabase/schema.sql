@@ -949,3 +949,492 @@ drop policy if exists "course_materials_admin_update" on course_materials;
 create policy "course_materials_admin_update" on course_materials for update using (is_admin());
 drop policy if exists "course_materials_admin_delete" on course_materials;
 create policy "course_materials_admin_delete" on course_materials for delete using (is_admin());
+
+-- ===================== module: 자격시험(Course Exam) (2026-09-09) =====================
+-- 1Depth 카테고리가 "자격증"인 강좌는 교육 이수 후 시험을 볼 수도 있다(강좌별 선택).
+-- 강의 퀴즈(quiz_questions 등)와는 완전히 분리된 테이블로 둔다 — 퀴즈는 "무제한 재응시,
+-- 수료 조건과 무관"이고 이 시험은 "횟수 제한, 합격이 수료증 발급 조건"이라 정반대 규칙이라
+-- 한 테이블에 섞으면 무제한 재응시 로직이 곧 수료 게이팅 우회 경로가 된다(product-manager
+-- 확정, menu-features.md F-ADMC-7~9 제약).
+
+-- categories.is_certification: 1Depth 카테고리 중 "이 카테고리는 자격증 과정"임을 표시하는
+-- 플래그. 카테고리 이름 문자열("자격증")로 판정하면 관리자가 이름을 바꾸는 순간 기능이
+-- 조용히 사라지므로 별도 컬럼으로 둔다(product-manager 지적). depth 2/3에서는 항상 false.
+alter table categories add column if not exists is_certification boolean not null default false;
+
+-- courses.requires_exam/exam_pass_score/exam_max_attempts: 강좌별 시험 설정. requires_exam이
+-- false면 나머지 둘은 null로 유지된다(app 레벨에서 카테고리가 자격증이 아니면 항상
+-- false로 정규화 — admin-courses.ts readCourseFields 참고).
+alter table courses add column if not exists requires_exam boolean not null default false;
+alter table courses add column if not exists exam_pass_score integer;
+alter table courses add column if not exists exam_max_attempts integer;
+
+-- 시험 문항/선택지 — quiz_questions/quiz_options와 동일한 "정답 비노출" 원칙을 그대로
+-- 적용한다. 관리자만 직접 select 가능, 학습자는 get_course_exam()/submit_course_exam()
+-- RPC로만 접근한다.
+create table if not exists course_exam_questions (
+  id uuid primary key default gen_random_uuid(),
+  course_id uuid not null references courses(id) on delete cascade,
+  question text not null,
+  "order" integer not null default 0,
+  created_at timestamptz not null default now()
+);
+create index if not exists course_exam_questions_course_id_idx on course_exam_questions(course_id);
+
+create table if not exists course_exam_options (
+  id uuid primary key default gen_random_uuid(),
+  question_id uuid not null references course_exam_questions(id) on delete cascade,
+  label text not null,
+  is_correct boolean not null default false,
+  "order" integer not null default 0
+);
+create index if not exists course_exam_options_question_id_idx on course_exam_options(question_id);
+
+-- quiz_options_one_correct_per_question과 동일한 이유(정답 설정이 원자적이지 않으면
+-- 문항당 정답이 0개/2개로 남을 수 있음) — DB 레벨로 강제한다.
+create unique index if not exists course_exam_options_one_correct_per_question
+  on course_exam_options(question_id) where is_correct;
+
+-- 응시 기록. passed는 응시 시점 exam_pass_score 기준 스냅샷으로, 이후 합격 기준이
+-- 바뀌어도 재계산하지 않는다(지난 합격이 나중에 뒤집히면 안 됨 — product-manager 확정).
+-- attempt_no는 "가장 최근 리셋 이후" 1부터 재기산한다(잔여 응시 횟수 계산 기준).
+create table if not exists course_exam_submissions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references profiles(id) on delete cascade,
+  course_id uuid not null references courses(id) on delete cascade,
+  score integer not null,
+  passed boolean not null,
+  attempt_no integer not null,
+  submitted_at timestamptz not null default now()
+);
+create index if not exists course_exam_submissions_user_course_idx on course_exam_submissions(user_id, course_id);
+
+-- submit_course_exam()의 잔여횟수 계산(SELECT count → INSERT)은 두 단계 사이에 잠금이
+-- 없으면 동시에 여러 요청이 들어왔을 때 전부 count=0을 읽어 재응시 제한을 우회할 수
+-- 있다(qa-reviewer 지적, 2026-09-09) — 앱 레벨 advisory lock(아래 RPC 참고)과 별개로,
+-- 최종 방어선을 DB 유니크 제약으로 둔다. attempt_no가 같은 (user,course) 쌍은 동시에
+-- 두 행이 성립할 수 없어, 레이스가 나더라도 한쪽은 반드시 unique violation으로 실패한다.
+create unique index if not exists course_exam_submissions_user_course_attempt
+  on course_exam_submissions(user_id, course_id, attempt_no);
+
+-- 관리자가 응시 횟수를 리셋해줄 때의 사유 기록(F-ADMCE-4, 사유 필수). 기존 응시 기록은
+-- 삭제하지 않고, "잔여 횟수"는 exam_max_attempts − (가장 최근 리셋 시각 이후 제출 수)로 계산한다.
+create table if not exists course_exam_attempt_resets (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references profiles(id) on delete cascade,
+  course_id uuid not null references courses(id) on delete cascade,
+  reason text not null,
+  reset_at timestamptz not null default now(),
+  reset_by uuid not null references profiles(id)
+);
+create index if not exists course_exam_attempt_resets_user_course_idx on course_exam_attempt_resets(user_id, course_id);
+
+alter table course_exam_questions enable row level security;
+alter table course_exam_options enable row level security;
+alter table course_exam_submissions enable row level security;
+alter table course_exam_attempt_resets enable row level security;
+
+drop policy if exists "course_exam_questions_admin_select" on course_exam_questions;
+create policy "course_exam_questions_admin_select" on course_exam_questions for select using (is_admin());
+drop policy if exists "course_exam_questions_admin_write" on course_exam_questions;
+create policy "course_exam_questions_admin_write" on course_exam_questions for insert with check (is_admin());
+drop policy if exists "course_exam_questions_admin_update" on course_exam_questions;
+create policy "course_exam_questions_admin_update" on course_exam_questions for update using (is_admin());
+drop policy if exists "course_exam_questions_admin_delete" on course_exam_questions;
+create policy "course_exam_questions_admin_delete" on course_exam_questions for delete using (is_admin());
+
+drop policy if exists "course_exam_options_admin_select" on course_exam_options;
+create policy "course_exam_options_admin_select" on course_exam_options for select using (is_admin());
+drop policy if exists "course_exam_options_admin_write" on course_exam_options;
+create policy "course_exam_options_admin_write" on course_exam_options for insert with check (is_admin());
+drop policy if exists "course_exam_options_admin_update" on course_exam_options;
+create policy "course_exam_options_admin_update" on course_exam_options for update using (is_admin());
+drop policy if exists "course_exam_options_admin_delete" on course_exam_options;
+create policy "course_exam_options_admin_delete" on course_exam_options for delete using (is_admin());
+
+-- course_exam_submissions: 본인+관리자 select만 허용하고 insert/update/delete 정책은
+-- 아예 두지 않는다 — quiz_submissions(무제한 재응시, 수료와 무관)와 달리 이 테이블은
+-- 합격 여부가 수료증 발급을 게이팅하므로, 학습자가 REST로 직접 유리한 점수를 꽂아 넣는
+-- 경로를 원천 차단한다. 쓰기는 오직 submit_course_exam() RPC(SECURITY DEFINER, RLS 우회)로만.
+drop policy if exists "course_exam_submissions_self_select" on course_exam_submissions;
+create policy "course_exam_submissions_self_select" on course_exam_submissions for select using (
+  user_id = auth.uid() or is_admin()
+);
+
+drop policy if exists "course_exam_attempt_resets_admin_select" on course_exam_attempt_resets;
+create policy "course_exam_attempt_resets_admin_select" on course_exam_attempt_resets for select using (is_admin());
+-- reset_by는 서버 액션이 자기 자신의 id로만 채우지만, is_admin()만 확인하는 with check는
+-- 이론상 다른 관리자 명의로 감사기록을 남기는 걸 막지 못한다 — reset_by=auth.uid()까지
+-- 요구해 위조를 원천 차단한다(privacy-security-officer 지적, 2026-09-09).
+drop policy if exists "course_exam_attempt_resets_admin_write" on course_exam_attempt_resets;
+create policy "course_exam_attempt_resets_admin_write" on course_exam_attempt_resets for insert with check (
+  is_admin() and reset_by = auth.uid()
+);
+
+-- ===================== RPC: 시험 문항 정답 설정 (원자적) =====================
+-- set_quiz_correct_option()과 동일한 이유로 하나의 트랜잭션에 묶는다.
+create or replace function public.set_course_exam_correct_option(p_question_id uuid, p_option_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if not is_admin() then
+    raise exception 'not authorized';
+  end if;
+
+  update course_exam_options set is_correct = false where question_id = p_question_id and is_correct = true;
+
+  update course_exam_options set is_correct = true where id = p_option_id and question_id = p_question_id;
+  if not found then
+    raise exception 'option does not belong to question';
+  end if;
+end;
+$$;
+
+-- ===================== RPC: 시험 조회 (정답 비공개) =====================
+-- get_quiz_for_lesson()은 강의 하나만 걸려 있어 열람 자체를 막지 않아도 유출 비용이
+-- 낮지만, 자격시험 문항은 재작성 비용이 커 진도100%+과제승인(LOCKED 게이트)까지 통과한
+-- 학습자에게만 열람을 허용한다(privacy-security-officer 지적, 2026-09-09) — 제출 게이팅
+-- (submit_course_exam)과 동일한 조건을 열람에도 적용.
+create or replace function public.get_course_exam(p_course_id uuid)
+returns table (
+  question_id uuid,
+  question text,
+  question_order integer,
+  option_id uuid,
+  option_label text,
+  option_order integer
+)
+language plpgsql
+security definer
+stable
+set search_path = public
+as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_total_lessons integer;
+  v_completed_lessons integer;
+  v_missing_assignments integer;
+begin
+  if v_user_id is null or not is_active_learner() then
+    raise exception 'not authorized';
+  end if;
+
+  if not exists (
+    select 1 from enrollments e
+    where e.course_id = p_course_id and e.user_id = v_user_id and e.status = 'approved'
+  ) then
+    raise exception 'not enrolled or not approved';
+  end if;
+
+  select count(*) into v_total_lessons from lessons where course_id = p_course_id;
+  select count(*) into v_completed_lessons
+  from lessons l
+  join progress p on p.lesson_id = l.id and p.user_id = v_user_id and p.completed_at is not null
+  where l.course_id = p_course_id;
+
+  if v_total_lessons = 0 or v_completed_lessons < v_total_lessons then
+    raise exception 'progress incomplete';
+  end if;
+
+  select count(*) into v_missing_assignments
+  from lessons l
+  where l.course_id = p_course_id
+    and l.has_assignment = true
+    and coalesce((
+      select a.status::text
+      from assignment_submissions a
+      where a.lesson_id = l.id and a.user_id = v_user_id
+      order by a.submitted_at desc
+      limit 1
+    ), '') <> 'approved';
+
+  if v_missing_assignments > 0 then
+    raise exception 'assignment not approved';
+  end if;
+
+  return query
+    select q.id, q.question, q."order", o.id, o.label, o."order"
+    from course_exam_questions q
+    join course_exam_options o on o.question_id = q.id
+    where q.course_id = p_course_id
+    order by q."order", o."order";
+end;
+$$;
+
+-- 로그인한 본인의 "가장 최근 응시횟수 리셋 시각"만 반환한다. course_exam_attempt_resets는
+-- 관리자 전용 select 정책이라(reason에 관리자 내부 메모가 담길 수 있어 학습자에게 그대로
+-- 노출하지 않는다) 일반 세션으로는 0행만 보여 getCourseExamState()의 잔여횟수 계산이
+-- "리셋 없음"으로 잘못 고정되는 문제가 있었다(qa-reviewer/privacy-security-officer 공통 지적,
+-- 2026-09-09) — reset_at 시각 하나만 SECURITY DEFINER로 우회해 내려준다.
+create or replace function public.get_my_exam_reset_at(p_course_id uuid)
+returns timestamptz
+language plpgsql
+security definer
+stable
+set search_path = public
+as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_reset_at timestamptz;
+begin
+  if v_user_id is null or not is_active_learner() then
+    raise exception 'not authorized';
+  end if;
+
+  select max(reset_at) into v_reset_at
+  from course_exam_attempt_resets
+  where user_id = v_user_id and course_id = p_course_id;
+
+  return v_reset_at;
+end;
+$$;
+
+-- ===================== RPC: 시험 제출·즉시 채점 =====================
+-- issue_certificate_self()와 동일한 진도100%+과제승인 재검증에 더해, 문항 존재/잔여
+-- 응시횟수/기합격 여부까지 서버에서 재검증한다. auth.uid()를 내부에서만 사용해 타인 명의
+-- 제출을 차단하고, 응답에는 correct_option_id를 절대 포함하지 않는다(submit_quiz_attempt
+-- 정답 유출 수정 이력과 동일 원칙).
+create or replace function public.submit_course_exam(p_course_id uuid, p_selected_option_ids uuid[])
+returns table (score integer, passed boolean, attempt_no integer)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_enrollment_status enrollment_status;
+  v_total_lessons integer;
+  v_completed_lessons integer;
+  v_missing_assignments integer;
+  v_pass_score integer;
+  v_max_attempts integer;
+  v_total_questions integer;
+  v_unresolved_questions integer;
+  v_duplicate_question_count integer;
+  v_correct_count integer;
+  v_score integer;
+  v_passed boolean;
+  v_already_passed boolean;
+  v_last_reset_at timestamptz;
+  v_attempts_since_reset integer;
+  v_next_attempt integer;
+begin
+  if v_user_id is null or not is_active_learner() then
+    raise exception 'not authorized';
+  end if;
+
+  -- 잔여횟수 계산(SELECT)과 제출(INSERT) 사이에 잠금이 없으면 동시 요청이 전부 같은
+  -- "잔여 N회"를 읽어 max_attempts를 넘겨 제출할 수 있었다(privacy-security-officer +
+  -- qa-reviewer 공통 지적, 2026-09-09 — 병렬 20건 전송 시 전부 성공하는 걸로 확인됨).
+  -- 이 함수 안에서는 항상 사용자×강좌 단위로 직렬화한다. 아래 unique index는 그래도
+  -- 남는 이론적 허점(예: 잠금 해시 충돌)에 대비한 최종 방어선이다.
+  perform pg_advisory_xact_lock(hashtextextended(v_user_id::text || ':' || p_course_id::text, 0));
+
+  select status into v_enrollment_status from enrollments where user_id = v_user_id and course_id = p_course_id;
+  if v_enrollment_status is distinct from 'approved' then
+    raise exception 'not enrolled or not approved';
+  end if;
+
+  select count(*) into v_total_lessons from lessons where course_id = p_course_id;
+  if v_total_lessons = 0 then
+    raise exception 'course has no lessons';
+  end if;
+
+  select count(*) into v_completed_lessons
+  from lessons l
+  join progress p on p.lesson_id = l.id and p.user_id = v_user_id and p.completed_at is not null
+  where l.course_id = p_course_id;
+
+  if v_completed_lessons < v_total_lessons then
+    raise exception 'progress incomplete';
+  end if;
+
+  select count(*) into v_missing_assignments
+  from lessons l
+  where l.course_id = p_course_id
+    and l.has_assignment = true
+    and coalesce((
+      select a.status::text
+      from assignment_submissions a
+      where a.lesson_id = l.id and a.user_id = v_user_id
+      order by a.submitted_at desc
+      limit 1
+    ), '') <> 'approved';
+
+  if v_missing_assignments > 0 then
+    raise exception 'assignment not approved';
+  end if;
+
+  select exam_pass_score, exam_max_attempts into v_pass_score, v_max_attempts
+  from courses where id = p_course_id and requires_exam = true;
+
+  if v_pass_score is null or v_max_attempts is null then
+    raise exception 'exam not configured for course';
+  end if;
+
+  select count(*) into v_total_questions from course_exam_questions where course_id = p_course_id;
+  if v_total_questions = 0 then
+    raise exception 'exam not found for course';
+  end if;
+
+  -- 정답이 하나도 설정되지 않은 문항이 있으면 그 문항은 항상 오답 처리돼(아래 grading의
+  -- inner join에서 분자 대상에서 빠짐) 100% 합격이 구조적으로 불가능해진다 — 관리자
+  -- 실수로 학습자가 응시 횟수만 소모하지 않도록, 응시 자체를 막는다(횟수 미소모).
+  -- 관리자 화면(admin/courses/[id]/exam)의 경고 배너와 동일한 조건이다(qa-reviewer 지적, 2026-09-09).
+  select count(*) into v_unresolved_questions
+  from course_exam_questions q
+  where q.course_id = p_course_id
+    and not exists (select 1 from course_exam_options o where o.question_id = q.id and o.is_correct = true);
+  if v_unresolved_questions > 0 then
+    raise exception 'exam not ready';
+  end if;
+
+  -- 문항당 선택지를 2개 이상 제출하면 채점 쿼리의 lateral join이 어떤 걸 고를지 순서가
+  -- 보장되지 않는다(privacy-security-officer 지적, 2026-09-09) — 라디오 그룹은 UI 제약일
+  -- 뿐이라 REST로 직접 호출하면 우회 가능하므로 서버에서 명시적으로 거부한다.
+  select count(*) into v_duplicate_question_count
+  from (
+    select o.question_id
+    from course_exam_options o
+    where o.id = any(p_selected_option_ids)
+      and o.question_id in (select id from course_exam_questions where course_id = p_course_id)
+    group by o.question_id
+    having count(*) > 1
+  ) dup;
+  if v_duplicate_question_count > 0 then
+    raise exception 'invalid submission: multiple options selected for a question';
+  end if;
+
+  select exists(
+    select 1 from course_exam_submissions where user_id = v_user_id and course_id = p_course_id and passed = true
+  ) into v_already_passed;
+  if v_already_passed then
+    raise exception 'already passed';
+  end if;
+
+  select max(reset_at) into v_last_reset_at
+  from course_exam_attempt_resets
+  where user_id = v_user_id and course_id = p_course_id;
+
+  select count(*) into v_attempts_since_reset
+  from course_exam_submissions
+  where user_id = v_user_id and course_id = p_course_id
+    and (v_last_reset_at is null or submitted_at > v_last_reset_at);
+
+  if v_attempts_since_reset >= v_max_attempts then
+    raise exception 'attempts exhausted';
+  end if;
+
+  select count(*) filter (where sel.option_id is not null and sel.option_id = correct_opt.id)
+  into v_correct_count
+  from course_exam_questions q
+  join course_exam_options correct_opt on correct_opt.question_id = q.id and correct_opt.is_correct = true
+  left join lateral (
+    select o.id as option_id
+    from course_exam_options o
+    where o.question_id = q.id and o.id = any(p_selected_option_ids)
+    limit 1
+  ) sel on true
+  where q.course_id = p_course_id;
+
+  v_score := round(100.0 * v_correct_count / v_total_questions);
+  v_passed := v_score >= v_pass_score;
+  v_next_attempt := v_attempts_since_reset + 1;
+
+  insert into course_exam_submissions (user_id, course_id, score, passed, attempt_no)
+  values (v_user_id, p_course_id, v_score, v_passed, v_next_attempt);
+
+  return query select v_score, v_passed, v_next_attempt;
+end;
+$$;
+
+-- ===================== issue_certificate_self() 갱신: 시험 합격 조건 추가 (F-LRN-9) =====================
+-- 기존 함수를 그대로 두고 마지막 insert 직전에 시험 조건만 추가한다(진도100%+과제승인은
+-- 기존 로직 그대로). create or replace로 전체를 다시 정의한다.
+create or replace function public.issue_certificate_self(p_course_id uuid)
+returns table (certificate_id uuid, issued_at timestamptz)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_enrollment_status enrollment_status;
+  v_total_lessons integer;
+  v_completed_lessons integer;
+  v_missing_assignments integer;
+  v_requires_exam boolean;
+  v_exam_passed boolean;
+  v_cert_id uuid;
+  v_issued_at timestamptz;
+begin
+  if v_user_id is null or not is_active_learner() then
+    raise exception 'not authorized';
+  end if;
+
+  select status into v_enrollment_status
+  from enrollments
+  where user_id = v_user_id and course_id = p_course_id;
+
+  if v_enrollment_status is distinct from 'approved' then
+    raise exception 'not enrolled or not approved';
+  end if;
+
+  select count(*) into v_total_lessons from lessons where course_id = p_course_id;
+  if v_total_lessons = 0 then
+    raise exception 'course has no lessons';
+  end if;
+
+  select count(*) into v_completed_lessons
+  from lessons l
+  join progress p on p.lesson_id = l.id and p.user_id = v_user_id and p.completed_at is not null
+  where l.course_id = p_course_id;
+
+  if v_completed_lessons < v_total_lessons then
+    raise exception 'progress incomplete';
+  end if;
+
+  select count(*) into v_missing_assignments
+  from lessons l
+  where l.course_id = p_course_id
+    and l.has_assignment = true
+    and coalesce((
+      select a.status::text
+      from assignment_submissions a
+      where a.lesson_id = l.id and a.user_id = v_user_id
+      order by a.submitted_at desc
+      limit 1
+    ), '') <> 'approved';
+
+  if v_missing_assignments > 0 then
+    raise exception 'assignment not approved';
+  end if;
+
+  select requires_exam into v_requires_exam from courses where id = p_course_id;
+  if v_requires_exam then
+    select exists(
+      select 1 from course_exam_submissions
+      where user_id = v_user_id and course_id = p_course_id and passed = true
+    ) into v_exam_passed;
+
+    if not v_exam_passed then
+      raise exception 'exam not passed';
+    end if;
+  end if;
+
+  insert into certificates (user_id, course_id)
+  values (v_user_id, p_course_id)
+  on conflict (user_id, course_id) do nothing
+  returning id, issued_at into v_cert_id, v_issued_at;
+
+  if v_cert_id is null then
+    select id, issued_at into v_cert_id, v_issued_at
+    from certificates where user_id = v_user_id and course_id = p_course_id;
+  end if;
+
+  return query select v_cert_id, v_issued_at;
+end;
+$$;

@@ -1003,6 +1003,345 @@ Footer 컴포넌트는 이 값을 props가 아니라 `data/site-config.ts`에서
 
 ---
 
+## 4.6 자격시험(Course Exam) 기능 설계 (2026-09-09 추가)
+
+> **입력 문서**: `docs/01-plan/features/bara-edu-lms.menu-features.md` F-ADMCAT-4, F-ADMC-7~9, F-LRN-7~10, F-ADMCE-1/4/5(전부 재논의 대상 아님, 확정 정책은 그대로 인용). 이 절은 그 위에 화면·컴포넌트·데이터 계약만 정의한다.
+> **참고 화면**: 관리자 퀴즈 저작(`app/(admin)/admin/courses/[id]/lessons/[lessonId]/quiz/page.tsx` + `app/actions/admin-quiz.ts`), 카테고리 순서 변경(`app/actions/admin-categories.ts`의 `swapOrder`), 학습자 강의실(`app/(user)/learn/[courseId]/[lessonId]/page.tsx`, `components/classroom/{CurriculumSidebar,QuizForm,QuizResult,CertificateAction}.tsx`), 강좌 폼(`components/admin/{CourseForm,CategoryPicker}.tsx`), 수료 관리(`app/(admin)/admin/certificates/page.tsx`).
+
+### 4.6.0 의존 관계 요약
+
+- **재사용**: 퀴즈 저작 화면의 문항/보기 CRUD form-action 패턴, `ConfirmDialog`, `StatusBadge`, `AdminTable`, 카테고리 관리의 ▲▼ 순서변경(`swapOrder`) 패턴, `getCertificateEligibilityForCourse`/`CertificateAction` 게이트, `/admin/certificates` 기존 3섹션.
+- **신규**: `categories.is_certification`, `courses.requires_exam`/`exam_pass_score`/`exam_max_attempts`, 테이블 4종(`course_exam_questions`/`course_exam_options`/`course_exam_submissions`/`course_exam_attempt_resets`), RPC `submit_course_exam`(SECURITY DEFINER), 서버 액션 `app/actions/admin-exam.ts` + `app/actions/classroom-exam.ts`, 화면 `/admin/courses/[id]/exam` + `/learn/[courseId]/exam`.
+
+### 4.6.1 데이터 모델 확장 (`lib/types.ts`)
+
+```typescript
+export interface Category {
+  id: string;
+  name: string;
+  parentId: string | null;
+  depth: 1 | 2 | 3;
+  order: number;
+  isActive: boolean;
+  isCertification: boolean;   // depth===1에서만 의미 있음(F-ADMCAT-4). depth 2/3는 항상 false로 저장·검증
+}
+
+export interface Course {
+  // ...기존 필드 그대로
+  requiresExam: boolean;          // 기본 false. is_certification 카테고리가 아니면 서버가 저장 시 강제로 false 정규화
+  examPassScore: number | null;   // 1~100, requiresExam=true일 때만 값 존재(기본 60)
+  examMaxAttempts: number | null; // 1 이상, requiresExam=true일 때만 값 존재(기본 3, 무제한 옵션 없음)
+}
+
+export type CourseExamQuestion = {
+  id: string;
+  courseId: string;
+  question: string;
+  order: number;
+  options: CourseExamOption[];
+};
+
+export type CourseExamOption = {
+  id: string;
+  questionId: string;
+  label: string;
+  order: number;
+  isCorrect: boolean;   // 관리자 조회 전용 필드 — 학습자 응답에는 절대 포함하지 않는다(F-LRN-7 정답 비노출 원칙)
+};
+
+export type CourseExamSubmission = {
+  id: string;
+  userId: string;
+  courseId: string;
+  score: number;      // 0~100
+  passed: boolean;     // 응시 시점 examPassScore 기준 스냅샷. 이후 합격기준이 바뀌어도 재계산하지 않음
+  attemptNo: number;    // 최근 리셋 이후 1부터 재기산
+  submittedAt: string;
+};
+
+export type CourseExamAttemptReset = {
+  id: string;
+  userId: string;
+  courseId: string;
+  reason: string;   // 필수
+  resetAt: string;
+  resetBy: string;  // 처리한 관리자 profiles.id
+};
+```
+
+`lib/supabase/classroom-queries.ts`의 `CertificateEligibility`도 함께 확장한다:
+
+```typescript
+export type CertificateEligibility = {
+  eligible: boolean;
+  alreadyIssued: boolean;
+  totalLessons: number;
+  completedLessons: number;
+  pendingAssignmentLessonTitles: string[];
+  examRequired: boolean;
+  examPassed: boolean;   // examRequired=false면 항상 true로 채워 eligible 계산식을 단순하게 유지
+};
+```
+`eligible` 산식에 `&& (!examRequired || examPassed)`를 추가한다. `CertificateAction`의 "부족한 항목" 안내 줄에도 `examRequired && !examPassed`일 때 `· 자격시험 합격 필요` 문구 + `/learn/${courseId}/exam` 인라인 링크를 덧붙인다(기존 텍스트 톤 유지, 새 버튼 만들지 않음).
+
+### 4.6.2 Admin 카테고리 관리 — 자격증 플래그 (F-ADMCAT-4)
+
+`/admin/categories`의 `CategoryNode`에서 "활성화/비활성화" 버튼 옆, **depth===1인 노드에만** 토글 버튼을 추가한다(`toggleCategoryActive`와 동일한 hidden-current 패턴 재사용):
+
+```tsx
+{category.depth === 1 && (
+  <form action={toggleCategoryCertification.bind(null, category.id)}>
+    <input type="hidden" name="current" value={String(category.isCertification)} />
+    <button type="submit" className="rounded-pill border border-n-3 px-2.5 py-1 text-[11.5px] text-n-7">
+      {category.isCertification ? '자격증 해제' : '자격증 지정'}
+    </button>
+  </form>
+)}
+{category.isCertification && <StatusBadge tone="info">자격증</StatusBadge>}
+```
+
+`toggleCategoryCertification` 서버 액션은 대상 카테고리의 `depth !== 1`이면 클라이언트 조건과 무관하게 즉시 실패시킨다(서버 재검증). 초기 시드는 "자격증" 1Depth 카테고리 1건만 `is_certification=true`(menu-features 확정, 이름은 언제든 바뀔 수 있으므로 판정에 쓰지 않는다).
+
+### 4.6.3 강좌 등록/수정 폼 — 시험 설정 블록 (F-ADMC-7 / Q4 답변)
+
+**결론: `CourseForm`을 `'use client'`로 전환하고, `CategoryPicker`에 `onLevel1Change` 콜백을 추가한다.** 두 방식은 양자택일이 아니라 함께 필요하다 — 콜백만 추가하면 그 값을 받아 조건부 렌더링할 상태를 가질 부모가 여전히 서버 컴포넌트라 무용하고, `CourseForm`만 client화해도 `CategoryPicker`가 선택값을 부모에 알릴 방법이 없다.
+
+`CourseForm`을 client로 바꿔도 안전한 이유: 현재 이 컴포넌트는 데이터를 직접 fetch하지 않는 순수 프레젠테이션 컴포넌트이며(전부 props), `action` prop은 서버 액션 참조를 그대로 전달받아 `<form action={action}>`에 연결하는 형태라 Next.js가 공식 지원하는 "서버 액션을 client 컴포넌트에 prop으로 전달" 패턴과 정확히 일치한다. 실제 변경량은 상단 `'use client'` 한 줄 + `useState` 두 개뿐이다.
+
+```tsx
+// components/admin/CategoryPicker.tsx — onLevel1Change 콜백 추가
+export default function CategoryPicker({
+  categories,
+  defaultCategoryId,
+  name = 'categoryId',
+  onLevel1Change,                 // 신규: 1Depth 선택이 바뀔 때마다 해당 Category(또는 null) 전달
+}: {
+  categories: Category[];
+  defaultCategoryId?: string;
+  name?: string;
+  onLevel1Change?: (category: Category | null) => void;
+}) {
+  const [selected, setSelected] = useState<(string | null)[]>(() => buildPath(defaultCategoryId, categories));
+
+  // 수정 화면 진입 시(defaultCategoryId 있음) 최초 1회도 부모에 알려야 함
+  useEffect(() => {
+    onLevel1Change?.(categories.find((c) => c.id === selected[0]) ?? null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function handleLevel1Select(id: string) {
+    setSelected([id || null, null, null]);
+    onLevel1Change?.(categories.find((c) => c.id === id) ?? null);
+  }
+  // level1 <select onChange>만 handleLevel1Select로 교체, level2/3 select는 변경 없음
+```
+
+```tsx
+// components/admin/CourseForm.tsx — 최상단 'use client' 추가
+'use client';
+import { useState } from 'react';
+
+export default function CourseForm({ categories, action, defaultValues, submitLabel }: { /* 기존과 동일 */ }) {
+  const [level1, setLevel1] = useState<Category | null>(null);
+  const [examEnabled, setExamEnabled] = useState(defaultValues?.requiresExam ?? false);
+  const showExamBlock = level1?.isCertification === true;
+
+  return (
+    <form action={action} className="flex flex-col gap-4 rounded-lg border border-n-3 bg-n-0 p-5">
+      {/* ...기존 필드... */}
+      <CategoryPicker categories={categories} defaultCategoryId={defaultValues?.categoryId} onLevel1Change={setLevel1} />
+      {/* ...기존 필드(교재/자격증정보 체크박스 등)... */}
+
+      {showExamBlock && (
+        <fieldset className="flex flex-col gap-3 rounded-lg border border-n-3 bg-n-1 p-4">
+          <label className="flex items-center gap-2 text-[12.5px] text-n-7">
+            <input
+              type="checkbox"
+              name="requiresExam"
+              defaultChecked={defaultValues?.requiresExam ?? false}
+              onChange={(e) => setExamEnabled(e.target.checked)}
+              className="h-4 w-4"
+            />
+            자격시험 응시 필요
+          </label>
+          {examEnabled && (
+            <div className="grid grid-cols-2 gap-4">
+              <label className="flex flex-col gap-1 text-[12.5px] text-n-7">
+                합격 기준 점수(%)
+                <input
+                  name="examPassScore"
+                  type="number"
+                  min={1}
+                  max={100}
+                  required
+                  defaultValue={defaultValues?.examPassScore ?? 60}
+                  className="h-10 rounded-md border border-n-3 bg-n-0 px-2.5 text-[13px]"
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-[12.5px] text-n-7">
+                최대 응시 횟수
+                <input
+                  name="examMaxAttempts"
+                  type="number"
+                  min={1}
+                  required
+                  defaultValue={defaultValues?.examMaxAttempts ?? 3}
+                  className="h-10 rounded-md border border-n-3 bg-n-0 px-2.5 text-[13px]"
+                />
+              </label>
+            </div>
+          )}
+        </fieldset>
+      )}
+
+      <button type="submit" className="h-11 rounded-pill bg-pink text-[14px] font-semibold text-white">
+        {submitLabel}
+      </button>
+    </form>
+  );
+}
+```
+
+- 카테고리를 자격증 → 일반으로 바꾸면 `showExamBlock`이 즉시 false가 되어 입력 필드가 DOM에서 사라진다. 그 전에 입력해 둔 값을 지우지 않아도 안전한 이유: `updateCourse`/`createCourse` 서버 액션(`app/actions/admin-courses.ts`)이 저장 직전 `categoryId`의 1Depth 조상을 서버에서 재조회해 `is_certification`이 false면 `requiresExam=false, examPassScore=null, examMaxAttempts=null`로 강제 덮어쓴다(클라이언트 hidden 값을 신뢰하지 않는다는 기존 원칙 그대로).
+
+### 4.6.4 시험 문제 저작 화면 `/admin/courses/[id]/exam` (F-ADMC-8 / Q1 답변)
+
+**결론: 기존 퀴즈 저작 화면 패턴을 거의 그대로 따르되, 아래 2가지만 다르게 간다.**
+
+| 항목 | 퀴즈 화면(기존) | 시험 화면(신규) | 사유 |
+|---|---|---|---|
+| 문항 순서 | 등록순 고정, 재정렬 UI 없음 | **▲▼ 순서 변경 버튼 추가**(`/admin/categories`의 `swapOrder()` 로직을 `course_exam_questions`에 이식) | F-ADMC-8이 "순서 변경"을 명시적으로 요구, 퀴즈에는 없던 요건 |
+| 보기 개수 | 자유 추가/삭제(개수 고정 없음) | **동일하게 자유 추가/삭제, 4개로 고정하지 않음** | menu-features 어디에도 "4개 고정" 문구가 없다. 퀴즈와 같은 조작 방식을 유지해야 관리자 학습 비용이 없다. 4개 고정이 실제 의도라면 4.6.11 질문 #5로 별도 확인 필요 |
+
+- 페이지 상단에 4.6.3에서 설정한 **합격 기준/최대 응시 횟수를 읽기 전용으로 요약 표시**: `합격 기준 {examPassScore}% · 최대 응시 {examMaxAttempts}회` + `[강좌 수정에서 변경]` 링크(`/admin/courses/${id}`). **이 두 값은 이 화면에서 수정하지 않는다** — Q5 답변(아래) 참고.
+- `course.requiresExam === false`인데 이 URL에 직접 접근한 경우 `notFound()`가 아니라 안내 배너를 얹는다: "이 강좌는 자격시험이 설정되어 있지 않아요. 강좌 수정 화면에서 먼저 켜주세요." + `[강좌 수정으로 이동]`. 문항 목록/CRUD는 계속 노출한다 — 카테고리를 되돌리면 등록된 문항이 그대로 복구되어야 하므로(F-ADMC-7~9 제약 #3) 조회·정리 자체를 막을 이유가 없다.
+- 문항 목록 상단에 신규 경고 배너(퀴즈 화면엔 없던 안전장치): 정답이 하나도 지정되지 않은 문항이 있으면 `"정답이 설정되지 않은 문항이 N개 있어요. 학습자 제출 시 해당 문항은 항상 오답으로 채점돼요."` — 경고일 뿐 저장을 막지 않는다(F-ADMC-9 "차단하지 않는다" 원칙과 동일 기조).
+- 문항 0건 + `requiresExam=true`일 때 "등록된 문항이 없어요." 아래에 한 줄 추가: `"문항이 0개인 동안 학습자에게는 '시험 준비 중' 안내만 보여요."`
+- 서버 액션은 `app/actions/admin-exam.ts` 신규 생성 — `admin-quiz.ts`를 거의 그대로 복제하되 테이블명(`course_exam_questions`/`course_exam_options`)·리다이렉트 경로(`/admin/courses/${courseId}/exam`)만 교체하고, `moveQuestionUp`/`moveQuestionDown`(신규, `admin-categories.ts`의 `swapOrder` 로직 이식) 2개를 추가한다.
+
+### 4.6.5 강좌 목록/폼 — 시험 미등록 경고 (F-ADMC-9)
+
+- `/admin/courses` 목록의 강좌명 셀 옆에 `requiresExam && examQuestionCount === 0`인 행만 `StatusBadge tone="warning"`로 `시험 문제 미등록` 배지를 추가한다. `getAdminCourses()` 쿼리에 `examQuestionCount` 집계 컬럼 추가가 필요하다.
+- `/admin/courses/[id]` 저장 성공 메시지 바로 아래, 같은 조건이면 인라인 경고 배너를 추가한다: `"자격시험이 켜져 있지만 문항이 없어요. 이 상태에서는 학습자가 수료증을 받을 수 없어요."` + `[문제 등록하러 가기]`(`/admin/courses/${id}/exam`). 저장 자체는 계속 성공 처리(비차단).
+
+### 4.6.6 학습자 CurriculumSidebar — 자격시험 섹션 배치 (F-LRN-7 / Q3 답변)
+
+**결론: 교재 섹션 다음, 사이드바 맨 아래.** 최종 순서: `커리큘럼 목록 → ProgressBar → 교재(조건부) → 자격시험(조건부, requiresExam=true인 강좌만)`.
+
+이유: 교재는 "학습에 필요한 참고 자료"로 강의 목록과 밀접해 커리큘럼 바로 아래가 자연스럽고(이미 그렇게 구현돼 있음), 자격시험은 "커리큘럼을 다 마친 뒤 보는 최종 관문"이라 개념적으로도 실제 학습 순서상으로도 가장 마지막 단계다. menu-features 원문 "맨 아래 고정"과 일치하며, 교재가 없는 강좌(주교재/보조교재 미등록)에서도 자격시험 섹션은 항상 마지막 위치에 고정된다.
+
+```tsx
+// CurriculumSidebar.tsx — 교재 섹션 다음에 추가
+{requiresExam && (
+  <div>
+    <h2 className="mb-2 text-[13px] font-semibold text-n-9">자격시험</h2>
+    <Link
+      href={`/learn/${courseId}/exam`}
+      className={`flex items-center justify-between rounded-md px-3 py-2 text-[13px] ${
+        examStatus === 'locked' ? 'text-n-5' : 'font-semibold text-indigo bg-indigo/10'
+      }`}
+    >
+      <span>시험 응시하기</span>
+      <StatusBadge tone={EXAM_STATUS_TONE[examStatus]}>{EXAM_STATUS_LABEL[examStatus]}</StatusBadge>
+    </Link>
+  </div>
+)}
+```
+
+- `requiresExam`, `examStatus`(`'locked'|'not_ready'|'available'|'passed'|'exhausted'`)는 4.6.7의 판정 로직을 공유 함수(`getExamStatusForCourse(userId, courseId)`, `lib/supabase/classroom-queries.ts` 신규)로 뽑아 `CurriculumSidebar`를 렌더링하는 두 페이지(`/learn/[courseId]/[lessonId]`, 신규 `/learn/[courseId]/exam`) 모두에서 동일하게 계산해 props로 내려준다.
+- 잠금 상태에서도 링크는 클릭 가능하게 둔다(F-LRN-7b "섹션이 보이되 잠금"). 사이드바에서 아예 못 누르게 막기보다, 클릭하면 `/learn/[courseId]/exam`에서 왜 잠겼는지 설명하는 편이 F-LRN-7b의 의도("응시할 수 있어요" 안내를 실제로 보여주는 것)에 더 맞는다고 판단했다 — 최종 확정은 4.6.11 질문 #1 참고.
+
+### 4.6.7 `/learn/[courseId]/exam` 화면 — 상태 정의 (F-LRN-7b/8/10 / Q2 답변)
+
+공통 접근 가드: 로그인 필요 + `enrollments.status='approved'`(기존 `getClassroomAccess`/`ClassroomAccessNotice` 그대로 재사용 — 강의실과 동일 기준). `requiresExam=false`인 강좌로 이 URL에 직접 접근하면 `notFound()`(사이드바에 진입 링크 자체가 없어 정상 경로로는 도달 불가능).
+
+판정 순서(우선순위대로 위에서부터 확인):
+
+```
+1. 진도 100% && 과제 전건 승인?           아니면 → LOCKED
+2. course_exam_questions 개수 == 0?      맞으면 → NOT_READY
+3. 합격 기록(passed=true) 존재?           맞으면 → PASSED
+4. 응시 횟수(최근 리셋 이후) >= examMaxAttempts && 미합격?   맞으면 → EXHAUSTED
+5. 그 외                                             → AVAILABLE
+```
+
+| 상태 | 배지 | 헤드라인 | 본문 | CTA |
+|---|---|---|---|---|
+| LOCKED | `neutral` "잠김" | "모든 강의와 과제를 마치면 응시할 수 있어요" | "진도 {completed}/{total}" (+ 승인 대기 과제 있으면 "· 과제 승인 대기: {목록}", `CertificateAction` 문구 스타일과 동일) | 비활성 버튼 "시험 응시하기"(disabled, 회색 — `CertificateAction` 비활성 버튼과 동일 클래스) |
+| NOT_READY | `neutral` "준비중" | "시험을 준비하고 있어요" | "문항이 등록되면 응시할 수 있어요. 잠시만 기다려 주세요." | 없음(에러 화면 아님, F-LRN-10) |
+| AVAILABLE | `info` "응시 가능" | "시험에 응시할 수 있어요" | "합격 기준 {examPassScore}% · 남은 응시 횟수 {remaining}회" (+ 이전 응시 있으면 "지난 응시: {lastScore}점 (불합격)") | 활성 버튼 "시험 응시하기" → 같은 화면 하단에 `ExamForm`(문항 목록, `QuizForm`과 동일한 라디오+form 구조) 노출 |
+| PASSED | `success` "합격" | "합격했어요" | "{score}점 · {합격일자}" | 텍스트 링크(버튼 아님) "강의실로 돌아가 수료증 확인하기" → 강좌 첫 강의(`/learn/{courseId}/{firstLessonId}`) |
+| EXHAUSTED | `danger` "응시 횟수 소진" | "재응시 횟수를 모두 사용했어요" | "최근 점수 {lastScore}점 · 합격 기준 {examPassScore}%. 재응시 횟수를 모두 사용했습니다. 담당자에게 문의해 주세요."(F-LRN-8 원문 그대로) | 텍스트 링크 2개(Home `#contact` 섹션과 동일 스타일) `tel:` / `mailto:` — 신규 버튼 아님 |
+
+- 응시 제출은 `submit_course_exam(course_id, answers jsonb)` RPC(SECURITY DEFINER)를 호출하는 신규 서버 액션 `submitCourseExam`(`app/actions/classroom-exam.ts`)이 처리한다. 응답은 `{ score, passed }`만 반환하며 `correctOptionId`는 어떤 경우에도 포함하지 않는다(module-lms-5 `submit_quiz_attempt`의 정답 노출 취약점 수정 이력을 그대로 준수).
+- RPC 내부 재검증 항목: (a) `enrollments.status='approved'`, (b) 진도 100%+과제 전건 승인, (c) 문항 수 > 0, (d) 잔여 횟수 > 0, (e) 이미 합격한 적 없음(합격 후 재제출 시도는 거부). 클라이언트 상태 판정과 RPC가 어긋나도(레이스 컨디션) RPC가 최종 권위를 갖는다 — `issue_certificate_self`와 동일 원칙.
+- **아이콘 원칙**: "잠금"을 표현할 자물쇠 아이콘이 Design System에 없다(Icon 컴포넌트는 현재 Search/Success/Warning/Info 4종뿐). 이모지(🔒) 사용은 금지 원칙 위반이라, 별도 아이콘을 새로 그리지 않고 **`StatusBadge` 텍스트만으로 상태를 표현**한다 — ui-ux-designer 확인 필요(4.6.11 질문 #2).
+
+### 4.6.8 수료증 발급 게이팅 갱신 (F-LRN-9)
+
+`issue_certificate_self(course_id)` RPC의 검증 조건에 `(NOT requires_exam) OR EXISTS(course_exam_submissions WHERE user_id=... AND course_id=... AND passed=true)`를 추가한다. 미충족 시 기존 에러 패턴과 동일한 형태로 `'exam not passed'` 예외를 던진다. 클라이언트 쪽은 `ClassroomLessonPage`의 기존 `ERROR_MESSAGE['certificate-failed']`("아직 수료증을 발급받을 수 없어요.") 문구를 그대로 재사용한다 — 부족한 항목은 이미 `CertificateAction`의 비활성 버튼 하단 설명(4.6.1의 "· 자격시험 합격 필요" 포함)에서 충분히 드러나므로 에러 문구를 사유별로 세분화할 필요가 없다.
+
+### 4.6.9 Admin 수료 관리 화면 확장 (F-ADMCE-1/4/5 / Q6 답변)
+
+**결론: 신규 화면을 만들지 않고 기존 `/admin/certificates`에 섹션 2개를 추가한다.** menu-features 1절 사이트맵에서 자격시험 관련 신규 admin 라우트는 `/admin/courses/[id]/exam` 하나뿐이고, F-ADMCE-1/4/5는 전부 기존 `/admin/certificates` 산하 기능으로 정의돼 있어 새 라우트를 만들 근거가 없다.
+
+섹션 순서(기존 3개 + 신규 2개, 총 5개):
+
+```
+1. 수료 조건 충족자        (기존, 게이트에 "시험 합격" 조건 추가)
+2. [신규] 수료 보류 학습자   (F-ADMCE-1 "미충족 사유 배지")
+3. [신규] 시험 응시 현황     (F-ADMCE-5)
+4. 발급 이력               (기존, 변경 없음)
+5. 수동 수료 처리           (기존, 변경 없음 — 시험 불합격 구제도 이 폼을 그대로 사용, F-ADMCE-3)
+```
+
+**1) 수료 조건 충족자(기존 섹션 수정)**: `getCertificateEligibleLearners()` 쿼리 조건에 `AND (NOT c.requires_exam OR EXISTS(...passed=true))`를 추가한다. 화면 마크업 변경 없음.
+
+**2) 수료 보류 학습자(신규)**: `approved` 상태로 수강 중이며 아직 수료 조건을 다 채우지 못한 학습자를, 진도/과제/시험 3개 배지로 함께 보여준다 — "이 학습자는 왜 아직 수료증을 못 받았나요?"라는 문의에 한 화면에서 답하기 위한 목적(F-ADMCE-1).
+
+```tsx
+<li className="flex items-center justify-between rounded-lg border border-n-3 p-3 text-[13px]">
+  <span><span className="font-medium text-n-9">{userName}</span> · {courseTitle}</span>
+  <div className="flex items-center gap-1.5">
+    <StatusBadge tone={completed === total ? 'success' : 'warning'}>진도 {completed}/{total}</StatusBadge>
+    {hasAssignments && (
+      <StatusBadge tone={pendingAssignments === 0 ? 'success' : 'warning'}>
+        {pendingAssignments === 0 ? '과제 전건 승인' : `과제 승인대기 ${pendingAssignments}건`}
+      </StatusBadge>
+    )}
+    {requiresExam && <StatusBadge tone={EXAM_TONE[examState]}>{EXAM_LABEL[examState] /* 미응시|불합격(N/M회)|횟수소진|합격 */}</StatusBadge>}
+  </div>
+</li>
+{requiresExam && examState === '횟수소진' && (
+  <ConfirmDialog
+    triggerLabel="응시 횟수 리셋"
+    title="재응시 기회를 추가할까요?"
+    description="학습자가 다시 응시할 수 있게 돼요. 기존 응시 기록은 삭제되지 않고 그대로 남아요."
+    confirmLabel="리셋"
+    tone="neutral"
+    action={resetExamAttempts.bind(null, userId, courseId)}
+    reasonField={{ name: 'reason', label: '리셋 사유 (필수)', placeholder: '예: 시스템 오류로 인한 재응시 요청' }}
+  />
+)}
+```
+- **정정(ui-ux-designer 검토, 2026-09-09)**: `ConfirmDialog`(`components/ui/ConfirmDialog.tsx`)는 이미 `reasonField` prop을 지원하며, `/admin/enrollments`의 반려 사유 입력이 정확히 이 방식(네이티브 `<dialog>` + textarea)으로 구현돼 있다 — 별도 인라인 `<form>`을 새로 만들 필요가 없다(위 초안의 "ConfirmDialog에 사유 입력 필드 없음" 서술은 오류였다). `tone="neutral"`을 쓰는 이유: 삭제/반려 같은 파괴적 행위가 아니라 "기회를 더 주는" 조치라 확인 버튼을 danger(빨강)로 만들 이유가 없다.
+- `resetExamAttempts(userId, courseId, formData)` 서버 액션은 `course_exam_attempt_resets`에 사유와 함께 새 행을 insert한다. 이후 "잔여 횟수" 계산은 `examMaxAttempts − (가장 최근 리셋 시각 이후의 제출 수)`로 매긴다(F-ADMC-7~9 제약 #4, 기존 응시 이력은 삭제하지 않음).
+
+**3) 시험 응시 현황(신규, F-ADMCE-5)**: `requiresExam=true`인 강좌만 대상으로, 회원·강좌·최근 점수·합격여부·잔여 횟수·최근 응시일시를 `AdminTable`로 보여준다. 0건이면 "아직 응시 기록이 없어요."(기존 빈 상태 문구 톤 유지). 이 이력은 F-ADMM-2(회원 상세 패널)에도 그대로 노출해야 하므로, 조회 함수(`getCourseExamSubmissionHistory`)를 `lib/supabase/admin-queries.ts`에 공용으로 두고 `/admin/certificates`와 `/admin/members/[id]` 양쪽에서 재사용한다.
+
+### 4.6.10 열린 질문 — 구현 시 확정된 답 (2026-09-09)
+
+| # | 질문 | 확정 |
+|---|---|---|
+| 1 | 사이드바 LOCKED 상태의 "자격시험" 링크를 클릭 가능하게 둘지 | **클릭 가능**으로 구현(ui-ux-designer 승인) — 클릭 시 `/learn/[courseId]/exam`에서 왜 잠겼는지 안내 |
+| 2 | "잠금" 상태를 자물쇠 아이콘 없이 텍스트 배지만으로 표현해도 되는지 | **텍스트 배지로 충분**(ui-ux-designer 확인) — 신규 아이콘 추가 안 함 |
+| 3 | "응시 횟수 리셋" 사유 입력 UI 구현 방식 | **`ConfirmDialog`의 `reasonField` prop 사용**으로 확정(위 4.6.9 정정 참고) — 인라인 `<form>` 아님 |
+| 4 | PASSED 상태의 "강의실로 돌아가기" 링크 대상 | **첫 강의로 고정** — `lessons[0]` |
+| 5 | `course_exam_options` 보기 개수 | **자유(고정 없음)**로 구현 — 강의 퀴즈와 동일한 조작 방식 |
+| 6 | flows.md 동기화 | 이번 라운드에서는 미반영 — 후속 작업으로 남김(별도 요청 시 처리) |
+
+---
+
 ## 5. Error Handling
 
 | 상황 | 처리 방법 | UI 표현 | Figma 와이어프레임 |
@@ -1021,6 +1360,14 @@ Footer 컴포넌트는 이 값을 props가 아니라 `data/site-config.ts`에서
 | Admin 대시보드 "가입 추이" 30일 전부 0건 | — | 차트 대신 "최근 30일간 신규 가입이 없어요" 안내 문구로 대체(차트 자체를 렌더링하지 않음) | ☐ |
 | `auth.admin.listUsers()`(F-ADM-4 미인증 수) 조회 실패/타임아웃 | 예외를 상위로 전파해 대시보드 전체를 에러 페이지로 만들지 않는다 — 해당 카드만 값 자리에 "-" 표시, 나머지 카드·섹션은 정상 렌더링 | 카드에 "-" + "일시적으로 불러올 수 없어요" | ☐ |
 | KST 자정 헬퍼 도입 후 "오늘/이번주" 경계 회귀 | 자정 직전·직후(23:59↔00:00 KST) 유닛 테스트로 헬퍼 자체를 검증 | — (QA 항목, UI 없음) | ☐ |
+| 시험 응시 조건(진도/과제) 미충족 상태로 `/learn/[courseId]/exam` 접근 | UI가 LOCKED 상태로 표시, `submit_course_exam` RPC도 동일 조건 재검증(우회 차단) | "모든 강의와 과제를 마치면 응시할 수 있어요" + 비활성 CTA | ☐ |
+| `requires_exam=true`인데 문항 0건 상태로 응시 시도 | RPC가 거부, UI는 애초에 CTA를 숨김 | "시험을 준비하고 있어요"(에러 화면 아님, F-LRN-10) | ☐ |
+| 응시 횟수 소진 후 재제출 시도(직접 API 호출 포함) | RPC가 잔여 0으로 거부 | "재응시 횟수를 모두 사용했습니다. 담당자에게 문의해 주세요" + 문의 링크 | ☐ |
+| 이미 합격한 강좌에 재응시 시도 | RPC가 거부(합격 후 잠금) | "합격했어요" 상태 유지, CTA 없음 | ☐ |
+| `requires_exam=false`인 강좌의 `/learn/[courseId]/exam` 직접 접근 | `notFound()` | 404 페이지(기존 12 재사용) | ☐ |
+| 카테고리를 자격증 → 일반으로 변경 후 강좌 저장 | 서버가 `requires_exam`/`exam_pass_score`/`exam_max_attempts`를 강제 정규화, 기존 문항·응시 기록은 삭제하지 않음(되돌리면 복구) | 강좌 수정 성공 토스트만, 별도 경고 없음(정책상 허용된 동작) | ☐ |
+| 자격시험 응시 횟수 리셋 시 사유 미입력 | 폼 검증 실패 | "사유를 입력해주세요." | ☐ |
+| `requires_exam=true` + 문항 0건 강좌 목록 노출 | — | 강좌 목록에 `시험 문제 미등록` 경고 배지(StatusBadge warning) | ☐ |
 
 ---
 
@@ -1085,3 +1432,4 @@ Footer 컴포넌트는 이 값을 props가 아니라 `data/site-config.ts`에서
 | 0.1 | 2026-08-01 | 초안 작성 (bara-edu-lms.plan.md/flows.md 기반) | AI Team |
 | 1.1 | 2026-08-10 | 4.5절 홈(Home) 화면 설계 추가(bara-edu-lms.home.md 기반) — 히어로/카테고리/강좌/신청방법/브랜드소개·문의(Should)/Footer 전면 재설계, CourseCard·Badge·FilterChip `/courses`→공유 컴포넌트 추출 계획, 접근성(H-M10) 체크리스트. Figma F1~F8은 텍스트 산출물로 갈음(실물 Figma 반영은 후속) | UI/UX Designer |
 | 1.2 | 2026-09-09 | Admin 대시보드에 회원 가입 지표(F-ADM-2~5) 화면 정의 추가 — 카드 그룹 분리(신청·수료 / 회원가입, 미인증 카드는 비클릭), 배치 순서(가입 추이→최근 가입자를 카드 바로 아래로, 2단 배치는 기각), `SignupTrendChart`(라이브러리 없는 flex+인라인 style 막대, 라벨 5일 간격), 인증상태 배지는 `components/admin/StatusBadge.tsx`(success/warning) 재사용, 최근 가입자 행 클릭은 stretched-link 패턴. Error Handling 표에 관련 엣지케이스 4건 추가. Figma 05 Admin 대시보드 페이지 반영은 ui-ux-designer 후속 작업(F7 재검토 필요) | Service Planner |
+| 1.3 | 2026-09-09 | 4.6절 자격시험(Course Exam) 기능 설계 추가(F-ADMCAT-4/F-ADMC-7~9/F-LRN-7~10/F-ADMCE-1·4·5) — 데이터 모델 4테이블+3필드 확장, 카테고리 관리 자격증 플래그 토글, `CourseForm`을 `'use client'`로 전환하고 `CategoryPicker`에 `onLevel1Change` 콜백을 추가해 카테고리 실시간 연동(시험 설정 3필드는 CourseForm에 위치), 시험 문제 저작 화면(`/admin/courses/[id]/exam`, 퀴즈 저작 패턴 재사용+순서변경 추가), `CurriculumSidebar` 자격시험 섹션을 교재 섹션 다음 맨 아래 배치, `/learn/[courseId]/exam` 5개 상태(LOCKED/NOT_READY/AVAILABLE/PASSED/EXHAUSTED) 문구·CTA 정의, 수료증 발급 게이팅에 시험 합격 조건 추가, `/admin/certificates`에 "수료 보류 학습자"·"시험 응시 현황" 2섹션 신규(신규 라우트 없음). Error Handling 표에 엣지케이스 8건 추가. 열린 질문 6건(사이드바 잠금 클릭 가능 여부, Lock 아이콘 필요 여부, 리셋 사유 폼 형태, 보기 개수 고정 여부, flows.md 동기화 등)은 PO/ui-ux-designer/developer 확인 필요 | Service Planner |

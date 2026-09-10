@@ -35,6 +35,14 @@ export default function CertificateAction({
           진도 {eligibility.completedLessons}/{eligibility.totalLessons}
           {eligibility.pendingAssignmentLessonTitles.length > 0 &&
             ` · 과제 승인 대기: ${eligibility.pendingAssignmentLessonTitles.join(', ')}`}
+          {eligibility.examRequired && !eligibility.examPassed && (
+            <>
+              {' · 자격시험 합격 필요 '}
+              <Link href={`/learn/${courseId}/exam`} className="text-pink underline">
+                시험 응시하기
+              </Link>
+            </>
+          )}
         </p>
       </div>
     );

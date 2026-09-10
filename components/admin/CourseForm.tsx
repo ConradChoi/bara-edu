@@ -1,7 +1,13 @@
+'use client';
+
+import { useState } from 'react';
 import CategoryPicker from '@/components/admin/CategoryPicker';
 import type { Category, Course } from '@/lib/types';
 
 // 강좌 등록(/admin/courses/new)과 수정(/admin/courses/[id])이 공유하는 폼 마크업.
+// 카테고리가 "자격증"(F-ADMCAT-4)일 때만 시험 설정 블록을 실시간으로 보여줘야 해서
+// 'use client'로 전환했다(2026-09-09) — action prop은 서버 액션 참조를 그대로 전달받아
+// <form action={action}>에 연결하는 Next.js 공식 패턴이라 안전하다.
 export default function CourseForm({
   categories,
   action,
@@ -13,6 +19,22 @@ export default function CourseForm({
   defaultValues?: Course;
   submitLabel: string;
 }) {
+  const [level1, setLevel1] = useState<Category | null>(null);
+  const [examEnabled, setExamEnabled] = useState(defaultValues?.requiresExam ?? false);
+  const showExamBlock = level1?.isCertification === true;
+
+  // 카테고리를 자격증→일반→자격증으로 왕복하면 시험 설정 fieldset은 언마운트·재마운트되지만
+  // examEnabled state는 CourseForm(부모)이 들고 있어 그대로 유지된다 — 체크박스는
+  // defaultChecked로 새로 true로 보이는데 정작 점수/횟수 입력란은 안 나타나는 모순이
+  // 생겼다(qa-reviewer 지적, 2026-09-09). 자격증 카테고리로 진입할 때마다 저장된 값으로
+  // 다시 동기화한다.
+  function handleLevel1Change(category: Category | null) {
+    setLevel1(category);
+    if (category?.isCertification) {
+      setExamEnabled(defaultValues?.requiresExam ?? false);
+    }
+  }
+
   return (
     <form action={action} className="flex flex-col gap-4 rounded-lg border border-n-3 bg-n-0 p-5">
       <div className="grid grid-cols-2 gap-4">
@@ -40,7 +62,7 @@ export default function CourseForm({
 
       <div className="flex flex-col gap-1 text-[12.5px] text-n-7">
         카테고리
-        <CategoryPicker categories={categories} defaultCategoryId={defaultValues?.categoryId} />
+        <CategoryPicker categories={categories} defaultCategoryId={defaultValues?.categoryId} onLevel1Change={handleLevel1Change} />
       </div>
 
       <label className="flex flex-col gap-1 text-[12.5px] text-n-7">
@@ -159,6 +181,48 @@ export default function CourseForm({
         />
         수강신청 시 주소·자격증 사진 필수 입력 (자격과정이 아니면 체크 해제)
       </label>
+
+      {showExamBlock && (
+        <fieldset className="flex flex-col gap-3 rounded-lg border border-n-3 bg-n-1 p-4">
+          <label className="flex items-center gap-2 text-[12.5px] text-n-7">
+            <input
+              type="checkbox"
+              name="requiresExam"
+              checked={examEnabled}
+              onChange={(e) => setExamEnabled(e.target.checked)}
+              className="h-4 w-4"
+            />
+            자격시험 응시 필요
+          </label>
+          {examEnabled && (
+            <div className="grid grid-cols-2 gap-4">
+              <label className="flex flex-col gap-1 text-[12.5px] text-n-7">
+                합격 기준 점수(%)
+                <input
+                  name="examPassScore"
+                  type="number"
+                  min={1}
+                  max={100}
+                  required
+                  defaultValue={defaultValues?.examPassScore ?? 60}
+                  className="h-10 rounded-md border border-n-3 bg-n-0 px-2.5 text-[13px]"
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-[12.5px] text-n-7">
+                최대 응시 횟수
+                <input
+                  name="examMaxAttempts"
+                  type="number"
+                  min={1}
+                  required
+                  defaultValue={defaultValues?.examMaxAttempts ?? 3}
+                  className="h-10 rounded-md border border-n-3 bg-n-0 px-2.5 text-[13px]"
+                />
+              </label>
+            </div>
+          )}
+        </fieldset>
+      )}
 
       <button type="submit" className="h-11 rounded-pill bg-pink text-[14px] font-semibold text-white">
         {submitLabel}

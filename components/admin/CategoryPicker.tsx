@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { Category } from '@/lib/types';
 
 // 강좌 등록/수정 폼에서 1~3Depth 카테고리를 순차 선택한다(F-ADMC-4).
@@ -9,12 +9,23 @@ export default function CategoryPicker({
   categories,
   defaultCategoryId,
   name = 'categoryId',
+  onLevel1Change,
 }: {
   categories: Category[];
   defaultCategoryId?: string;
   name?: string;
+  // 1Depth 선택이 바뀔 때마다 해당 Category(또는 null)를 부모에 알린다 — CourseForm이
+  // 자격증 카테고리 선택 시에만 시험 설정 블록을 실시간으로 보여주는 데 사용한다
+  // (F-ADMC-7, 2026-09-09).
+  onLevel1Change?: (category: Category | null) => void;
 }) {
   const [selected, setSelected] = useState<(string | null)[]>(() => buildPath(defaultCategoryId, categories));
+
+  // 수정 화면 진입 시(defaultCategoryId 있음)에도 최초 1회 부모에 알려야 한다.
+  useEffect(() => {
+    onLevel1Change?.(categories.find((c) => c.id === selected[0]) ?? null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const level1 = useMemo(() => categories.filter((c) => c.depth === 1), [categories]);
   const level2 = useMemo(
@@ -33,7 +44,11 @@ export default function CategoryPicker({
       <input type="hidden" name={name} value={value} required />
       <select
         value={selected[0] ?? ''}
-        onChange={(e) => setSelected([e.target.value || null, null, null])}
+        onChange={(e) => {
+          const id = e.target.value || null;
+          setSelected([id, null, null]);
+          onLevel1Change?.(categories.find((c) => c.id === id) ?? null);
+        }}
         className="h-10 flex-1 rounded-md border border-n-3 bg-n-0 px-2 text-[13px]"
       >
         <option value="">1Depth 선택</option>

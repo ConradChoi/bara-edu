@@ -3,6 +3,27 @@
 import { redirect } from 'next/navigation';
 import { requireAdminClient } from '@/lib/supabase/require-admin';
 
+// F-ADMCE-4: 응시 횟수 소진 학습자에게 재응시 기회를 준다. 기존 응시 기록은 지우지
+// 않고, "잔여 횟수"는 이 리셋 이후 시각 기준으로 다시 계산된다(course_exam_attempt_resets,
+// submit_course_exam()/getCourseExamState()가 같은 기준으로 잔여 횟수를 산정).
+export async function resetExamAttempts(userId: string, courseId: string, formData: FormData) {
+  const reason = (formData.get('reason') as string | null)?.trim();
+  if (!reason) redirect('/admin/certificates?error=note-required');
+
+  const supabase = await requireAdminClient();
+  const {
+    data: { user: admin },
+  } = await supabase.auth.getUser();
+  if (!admin) redirect('/admin/certificates?error=failed');
+
+  const { error } = await supabase
+    .from('course_exam_attempt_resets')
+    .insert({ user_id: userId, course_id: courseId, reason, reset_by: admin!.id });
+
+  if (error) redirect('/admin/certificates?error=failed');
+  redirect('/admin/certificates?success=examReset');
+}
+
 // 수료 관리 (F-ADMCE-1~3). certificates에는 unique(user_id, course_id)가 있어
 // "재발급"은 새 행을 만드는 게 아니라 기존 행을 갱신하는 것으로 구현한다(admin_delete
 // 정책도 없음 — 이 코드베이스에는 파일 재생성 파이프라인이 없어 issued_at만 다시 찍는다).

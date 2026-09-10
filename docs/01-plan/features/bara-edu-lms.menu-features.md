@@ -43,12 +43,14 @@ graph TD
   USER --> U2["/learn/[courseId] 강의실"]
   U2 --> U2a["커리큘럼 목록"]
   U2 --> U2b["영상 플레이어"]
-  U2 --> U2c["퀴즈"]
+  U2 --> U2c["퀴즈 (강의별 연습, 무제한)"]
   U2 --> U2d["과제 제출"]
+  U2 --> U2e["/learn/[courseId]/exam 자격시험 (강좌 단위, 횟수 제한)"]
 
   ROOT --> ADMIN["(admin) 운영자 전용 (role=admin)"]
   ADMIN --> M1["/admin 대시보드"]
   ADMIN --> M2["/admin/courses 강좌 관리"]
+  M2 --> M2a["/admin/courses/[id]/exam 자격시험 문제 저작 (자격증 카테고리 강좌만)"]
   ADMIN --> M3["/admin/members 회원 관리 (탈퇴 회원 조회 포함)"]
   ADMIN --> M4["/admin/enrollments 신청·입금 관리"]
   ADMIN --> M5["/admin/certificates 수료 관리"]
@@ -114,9 +116,14 @@ graph TD
 | F-LRN-1b | 커리큘럼 사이드바 | 교재 노출 | 승인된 신청자에게 주교재/보조교재 목록(F-PUB-4b와 동일 데이터) 노출, 강좌 상세와 이중 노출(2026-08-30 추가) | Should | `course_materials` |
 | F-LRN-2 | 영상 플레이어 | 외부 링크 임베드 | 업로드 아님, 링크만 | Must | `lessons` |
 | F-LRN-3 | 영상 플레이어 | 학습 완료 표시 | 자동완료 아님, 사용자가 직접 클릭 | Must | `progress` |
-| F-LRN-4 | 퀴즈 | 객관식 응시/채점 | 즉시 채점, 재응시 무제한(Q5) | Must | `quiz_submissions` |
+| F-LRN-4 | 퀴즈 | 객관식 응시/채점 | 강의(lesson) 단위 **연습 퀴즈**. 즉시 채점, 재응시 무제한(Q5), **수료 조건과 무관**. F-LRN-7 자격시험과 별개 기능이므로 화면 라벨에서 "퀴즈"와 "시험"을 반드시 다르게 부른다 | Must | `quiz_submissions` |
 | F-LRN-5 | 과제 | 텍스트/링크 제출 | 기한 초과해도 제출 가능, 감점 없음(Q6) | Must | `assignment_submissions` |
 | F-LRN-6 | 공통 | 미승인 접근 차단 | `enrollments.status≠approved` 시 진입 불가 | Must | `enrollments` |
+| F-LRN-7 | 자격시험 | 강좌 단위 시험 응시 | `courses.requires_exam=true`인 강좌만. 커리큘럼 사이드바 **맨 아래 고정 "자격시험" 섹션**에서 진입 → `/learn/[courseId]/exam` 별도 화면에서 응시. 객관식(단일 정답), 서버 채점(`submit_course_exam` RPC, SECURITY DEFINER). 정답은 어떤 응답에도 포함하지 않는다(F-LRN-4 기존 취약점 수정 이력 준수)(2026-09-09 추가) | Must | `course_exam_questions`, `course_exam_options`, `course_exam_submissions` |
+| F-LRN-7b | 자격시험 | 응시 자격 게이팅 | 시험은 "교육 이수 후" 응시 — **진도 100% + 과제 전건 승인** 전에는 섹션이 보이되 잠금(자물쇠 + "모든 강의·과제를 완료하면 응시할 수 있어요"). 조건 충족 시 CTA 활성. 서버(RPC)에서도 동일 조건을 재검증한다 | Must | `progress`, `assignment_submissions` |
+| F-LRN-8 | 자격시험 | 결과·잔여 응시 횟수 표시 | 제출 즉시 점수/합격여부 + **남은 응시 횟수 N회** 표시. 합격 시 재응시 불가(잠금)하고 수료증 발급 CTA로 연결. 불합격+잔여 있음 → 재응시 버튼. 불합격+잔여 0 → "재응시 횟수를 모두 사용했습니다. 담당자에게 문의해 주세요" + 문의 안내(F-ADMCE-4 수동 구제 경로) | Must | `course_exam_submissions` |
+| F-LRN-9 | 수료증 발급 | 수료 조건에 시험 합격 추가 | `requires_exam=true`인 강좌는 기존 조건(진도 100% + 과제 전건 승인)에 **시험 합격**까지 충족해야 발급. `issue_certificate_self(course_id)` RPC **내부에서 재검증**하며, 클라이언트가 보낸 합격 여부는 신뢰하지 않는다. 조건 미충족 시 기존 에러 패턴과 동일하게 `exam not passed` 예외 | Must | `certificates`, `course_exam_submissions` |
+| F-LRN-10 | 자격시험 | 시험 문제 미등록 안내 | `requires_exam=true`인데 등록된 문항이 0건이면 응시 CTA 대신 "시험 준비 중입니다" 안내(에러 화면 아님). 수료증은 계속 발급 불가 — 데이터 정합성을 우선하고, 해소는 관리자 경고(F-ADMC-9)로 처리 | Must | `course_exam_questions` |
 
 ### 2.5 (admin) 대시보드 `/admin`
 
@@ -145,6 +152,30 @@ graph TD
 | F-ADMC-4 | 등록/수정 폼 | 카테고리 선택 | 최대 3Depth 계층형 선택기(1Depth→2Depth→3Depth 순차 선택), leaf가 아닌 상위 depth도 선택 가능 | Must | `categories` |
 | F-ADMC-5 | 등록/수정 폼 | 자격증 발급 정보 필수 여부 | 체크박스(기본 켜짐) — 끄면 F-PUB-5b(주소·사진)가 신청 확인 화면에서 아예 안 보임. 자격과정이 아닌 보수교육·일반교육용(2026-08-29 추가) | Must | `courses.requires_certificate_info` |
 | F-ADMC-6 | 등록/수정 폼 | 교재 관리 | 주교재(강좌당 1개, 선택)/보조교재(여러 개, 선택) 등록·수정·삭제 — 항목: 교재명·출판사·구매 가능 URL. 보조교재는 실물 교재뿐 아니라 유인물·PPT 등 자료 전반을 포괄(2026-08-30 추가) | Should | `course_materials` |
+| F-ADMC-7 | 등록/수정 폼 | 시험 여부 + 시험 정책 설정 | **1Depth 카테고리가 "자격증"일 때만 실시간으로 나타나는** 블록(`CategoryPicker`가 이미 `'use client'`라 부모 폼 state로 연동). 항목 3개: ① 시험 여부 체크박스(기본 꺼짐) ② 합격 기준 점수(%, 1~100, 기본 60) ③ 최대 응시 횟수(1~N회, 기본 3, **무제한 옵션 없음**). ②③은 체크 시에만 노출·필수(2026-09-09 추가) | Must | `courses.requires_exam`, `courses.exam_pass_score`, `courses.exam_max_attempts` |
+| F-ADMC-8 | 시험 문제 저작 | 문항 CRUD | `/admin/courses/[id]/exam` — 객관식(단일 정답) 문항·선택지 등록/수정/삭제/순서 변경. **문항 수 상한 없음**(강의 퀴즈와 동일), 단 시험 활성화에는 최소 1문항 필요. 문항 간 배점은 균등(가중치 없음) — 합격 기준이 퍼센트라 문항 수와 무관하게 동작. `requires_exam=false`인 강좌는 진입 메뉴 미노출(2026-09-09 추가) | Must | `course_exam_questions`, `course_exam_options` |
+| F-ADMC-9 | 목록·폼 | 시험 미등록 경고 | `requires_exam=true` + 문항 0건 강좌는 **강좌 목록에 경고 배지("시험 문제 미등록")**, 등록/수정 폼 저장 후 인라인 경고 배너 + "문제 등록하러 가기" 링크. **저장 자체는 차단하지 않는다**(강좌를 먼저 만들고 문항을 나중에 넣는 실제 운영 순서를 막으면 안 됨). 다만 이 상태의 학습자는 수료증을 영구 발급받을 수 없으므로 경고는 Must(2026-09-09 추가) | Must | `courses`, `course_exam_questions` |
+
+> **F-ADMC-7~9 자격시험 정책 확정 (2026-09-09, 관리자 확인 완료 — 재논의 대상 아님)**
+>
+> | # | 쟁점 | 확정 |
+> |---|---|---|
+> | 1 | 시험 노출 조건 | 1Depth 카테고리 "자격증" 선택 시에만 폼에 노출. 다른 카테고리로 바꾸면 즉시 사라짐 |
+> | 2 | 수료 게이팅 | `requires_exam=true` → 진도 100% + 과제 전건 승인 + **시험 합격** 3개 모두 충족해야 수료증 발급 |
+> | 3 | 합격 기준 | 강좌별 퍼센트 설정 |
+> | 4 | 재응시 | 강좌별 횟수 제한(**무제한 아님**). 강의 퀴즈(F-LRN-4, 무제한)와 규칙이 정반대 |
+>
+> **구현 전 반드시 확인할 제약**
+> 1. **기존 `quiz_questions`/`quiz_options`/`quiz_submissions`를 재사용하지 않는다.** 강의 퀴즈는 "무제한 재응시·수료 무관 연습"이고 자격시험은 "횟수 제한·수료 게이팅"이라 규칙이 정반대다. 한 테이블에 섞으면 `submit_quiz_attempt()`의 무제한 재응시 로직이 곧 수료 게이팅 우회 경로가 된다. `course_exam_*` 3종으로 분리하고, 문항 직접 select는 관리자만 허용 + 학습자는 RPC 경유(기존 퀴즈와 동일한 정답 비노출 원칙)를 그대로 따른다.
+> 2. **"자격증" 카테고리를 문자열로 하드코딩 금지.** `categories`에는 `name`만 있고 slug/code가 없어(스키마 57~64행) 관리자가 `/admin/categories`에서 이름을 바꾸면 기능이 조용히 사라진다. 1Depth 카테고리에 **안정적 식별 플래그(F-ADMCAT-4)**를 두고 그 값으로 판정한다.
+> 3. **폼에서 숨기는 것만으로는 부족하다.** 카테고리를 자격증 → 타 카테고리로 바꿔 저장하면 서버가 `requires_exam=false`로 강제 정규화한다(클라이언트 hidden 값 신뢰 금지). 단 **이미 등록된 문항·응시 기록은 삭제하지 않는다** — 카테고리를 되돌리면 그대로 복구된다.
+> 4. **정책 변경의 소급 적용 규칙**
+>    - `requires_exam` **true→false**: 응시 기록 보존, 수료 게이팅만 즉시 해제(기존에 막혀 있던 학습자는 바로 발급 가능).
+>    - `requires_exam` **false→true**: 이미 합격 기록이 있으면 인정, 미응시자는 응시 필요. **이미 발급된 수료증은 회수하지 않는다.**
+>    - **합격 점수 변경**: 소급 적용 없음. 합격 여부는 응시 시점 기준으로 `course_exam_submissions.passed`에 **스냅샷 저장**하고 이후 재계산하지 않는다(지난 응시가 나중에 불합격으로 뒤집히면 안 됨). 변경은 이후 응시부터 적용.
+>    - **재응시 횟수 변경**: 즉시 적용(잔여 = 새 한도 − 기존 응시 수). 한도를 줄여 이미 초과한 학습자는 잔여 0이 되지만 **기존 합격은 유지**된다.
+> 5. **문항 0건 상태는 "영구 수료 불가"를 만든다.** 학습자에게는 에러가 아닌 "시험 준비 중"(F-LRN-10), 관리자에게는 경고 배지(F-ADMC-9)로 드러낸다. 수료 조건 자체를 느슨하게 풀지 않는다(0건이라고 자동 통과 처리 금지).
+> 6. **횟수 소진 불합격자에게 자동 구제는 없다.** 관리자 수동 경로 2종(F-ADMCE-4)만 인정한다.
 
 ### 2.7 (admin) 회원 관리 `/admin/members`
 
@@ -168,9 +199,12 @@ graph TD
 
 | ID | 메뉴/화면 | 기능명 | 설명 | 우선순위 | 관련 데이터 |
 |---|---|---|---|:---:|---|
-| F-ADMCE-1 | 목록 | 수료 조건 충족자 조회 | 진도 100% + 과제 승인(Q7) | Must | `progress`, `certificates` |
+| F-ADMCE-1 | 목록 | 수료 조건 충족자 조회 | 진도 100% + 과제 승인(Q7) **+ (requires_exam=true인 강좌는) 시험 합격**. 미충족 사유를 배지로 구분 표시(진도/과제/시험)해야 문의 대응이 가능(2026-09-09 갱신) | Must | `progress`, `certificates`, `course_exam_submissions` |
 | F-ADMCE-2 | 발급 | 수료증 발급/재발급 | | Must | `certificates` |
-| F-ADMCE-3 | 예외 처리 | 수동 수료 처리 | 오프라인 보강 등 사유 기록(Q9) | Should | `certificates` |
+| F-ADMCE-3 | 예외 처리 | 수동 수료 처리 | 오프라인 보강 등 사유 기록(Q9). 시험 불합격자 구제에도 이 경로를 그대로 사용(`certificates.is_manual_override=true`) | Should | `certificates` |
+| F-ADMCE-4 | 예외 처리 | 응시 횟수 리셋 | 재응시 횟수를 소진한 학습자에게 **추가 기회 부여**(사유 입력 필수, 기록 보존). 기존 응시 이력은 삭제하지 않고 "리셋 이후 응시분"만 새로 카운트한다. 시험을 아예 면제하려면 F-ADMCE-3(수동 수료)을 쓴다 — **두 경로 모두 사유가 남아야 하며, 자동 구제는 없다**(2026-09-09 추가) | Should | `course_exam_attempt_resets`, `course_exam_submissions` |
+| F-ADMCE-5 | 목록 | 시험 응시 현황 조회 | 강좌별 응시자·점수·합격여부·잔여 횟수 조회. 회원 상세(F-ADMM-2)에도 동일 이력 노출 | Should | `course_exam_submissions` |
+| F-ADMCE-6 | 시험 | 서술형·자동 타이머·문제은행 랜덤출제·부정행위 방지(웹캠/탭이탈 감지) | 채점 자동화·감독 요구가 커져 MVP 범위를 벗어난다. 오픈 후 실제 자격과정 운영 데이터를 보고 재검토 | **Won't (Later)** | — |
 
 ### 2.10 (admin) 카테고리 관리 `/admin/categories`
 
@@ -179,6 +213,7 @@ graph TD
 | F-ADMCAT-1 | 트리 뷰 | 카테고리 CRUD | 1~3Depth 등록/수정/삭제, 드래그 또는 화살표로 순서 변경 | Must | `categories` |
 | F-ADMCAT-2 | 트리 뷰 | Depth 제한 | 3Depth 초과 하위 카테고리 생성 차단 | Must | `categories` |
 | F-ADMCAT-3 | 삭제 | 강좌가 연결된 카테고리 보호 | 해당 카테고리(또는 하위)를 쓰는 강좌가 있으면 삭제 대신 비활성화만 허용 | Must | `categories`, `courses` |
+| F-ADMCAT-4 | 트리 뷰 | 자격증 카테고리 지정 | **1Depth 카테고리에만** 걸 수 있는 플래그. 이 플래그가 켜진 트리 아래의 강좌에서만 F-ADMC-7 시험 설정이 노출된다. 카테고리명 "자격증"을 코드에 하드코딩하지 않기 위한 안정적 식별자 — 이름을 바꿔도 기능이 유지된다. 초기 1건(자격증)만 켜짐(2026-09-09 추가) | Must | `categories.is_certification` |
 
 ### 2.11 (admin) 약관·정책 CMS `/admin/cms`
 
@@ -209,4 +244,17 @@ graph TD
 ```
 ui-ux-designer: Figma "Components" 페이지 생성 → Design System 구축 시작
 (완료 후) 기존 01~09 화면을 컴포넌트 인스턴스 기반으로 재조립
+```
+
+### 4.1 자격시험 기능 (2026-09-09 승인, 다음 담당)
+
+```
+service-planner: F-LRN-7/7b/8 학습자 시험 플로우 상세화
+  - 강의실 사이드바 "자격시험" 섹션의 잠금/활성/합격/소진 4개 상태 화면 정의
+  - /learn/[courseId]/exam 응시 화면(문항 이동·제출 확인·결과) 구성
+  - F-ADMC-8 문제 저작 화면 구성 (기존 /admin/courses/[id]/lessons/[lessonId]/quiz 패턴 재사용)
+(그 다음) ui-ux-designer F1~F8 → PO F9 승인 → backend-developer API 계약 → 구현
+※ 개인정보 취급 변화는 없으나(시험 점수는 학습 이력), 수료 게이팅을 바꾸므로
+  qa-reviewer 리뷰는 필수. 배포 전 privacy-security-officer는 RPC 권한(정답 비노출,
+  타인 명의 제출 차단, 횟수 우회) 관점으로만 점검한다.
 ```

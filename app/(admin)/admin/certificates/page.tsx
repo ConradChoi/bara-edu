@@ -1,10 +1,14 @@
 import type { Metadata } from 'next';
-import { issueCertificate, manualIssueCertificate, reissueCertificate } from '@/app/actions/admin-certificates';
+import { issueCertificate, manualIssueCertificate, reissueCertificate, resetExamAttempts } from '@/app/actions/admin-certificates';
+import StatusBadge from '@/components/admin/StatusBadge';
+import AdminTable from '@/components/admin/AdminTable';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import {
   getAdminCourses,
   getAdminMembers,
   getCertificateEligibleLearners,
+  getCertificatePendingLearners,
+  getCourseExamSubmissionHistory,
   getIssuedCertificates,
 } from '@/lib/supabase/admin-queries';
 
@@ -13,11 +17,25 @@ export const metadata: Metadata = { title: '수료 관리 | 관리자' };
 const SUCCESS_MESSAGE: Record<string, string> = {
   issued: '수료증을 발급했어요.',
   reissued: '재발급 처리했어요 (발급일이 갱신돼요).',
+  examReset: '응시 횟수를 리셋했어요.',
 };
 const ERROR_MESSAGE: Record<string, string> = {
   'already-issued': '이미 발급된 수료증이에요.',
-  'note-required': '수동 처리 사유를 입력해주세요.',
+  'note-required': '사유를 입력해주세요.',
   failed: '처리 중 문제가 발생했어요.',
+};
+
+const EXAM_STATE_LABEL: Record<string, string> = {
+  not_attempted: '미응시',
+  failed: '불합격',
+  exhausted: '횟수소진',
+  passed: '합격',
+};
+const EXAM_STATE_TONE: Record<string, 'neutral' | 'warning' | 'danger' | 'success'> = {
+  not_attempted: 'neutral',
+  failed: 'warning',
+  exhausted: 'danger',
+  passed: 'success',
 };
 
 export default async function AdminCertificatesPage({
@@ -26,8 +44,10 @@ export default async function AdminCertificatesPage({
   searchParams: Promise<{ success?: string; error?: string }>;
 }) {
   const { success, error } = await searchParams;
-  const [eligible, issued, members, courses] = await Promise.all([
+  const [eligible, pending, examSubmissions, issued, members, courses] = await Promise.all([
     getCertificateEligibleLearners(),
+    getCertificatePendingLearners(),
+    getCourseExamSubmissionHistory(),
     getIssuedCertificates(),
     getAdminMembers({ status: 'active' }),
     getAdminCourses(),
@@ -75,6 +95,76 @@ export default async function AdminCertificatesPage({
               </li>
             ))}
           </ul>
+        )}
+      </section>
+
+      <section className="flex flex-col gap-2">
+        <h2 className="text-[15px] font-semibold text-n-9">수료 보류 학습자</h2>
+        <p className="text-[12px] text-n-5">진도·과제·자격시험 중 무엇이 부족해 아직 수료증을 받지 못했는지 보여줘요.</p>
+        {pending.length === 0 ? (
+          <p className="text-[13px] text-n-6">대상자가 없어요.</p>
+        ) : (
+          <ul className="flex flex-col gap-2">
+            {pending.map((p) => (
+              <li key={`${p.userId}-${p.courseId}`} className="rounded-lg border border-n-3 p-3 text-[13px]">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span>
+                    <span className="font-medium text-n-9">{p.userName}</span> · {p.courseTitle}
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <StatusBadge tone={p.completedLessons === p.totalLessons ? 'success' : 'warning'}>
+                      진도 {p.completedLessons}/{p.totalLessons}
+                    </StatusBadge>
+                    {p.pendingAssignmentCount > 0 && <StatusBadge tone="warning">과제 승인대기 {p.pendingAssignmentCount}건</StatusBadge>}
+                    {p.requiresExam && <StatusBadge tone={EXAM_STATE_TONE[p.examState]}>{EXAM_STATE_LABEL[p.examState]}</StatusBadge>}
+                  </div>
+                </div>
+                {p.requiresExam && p.examState === 'exhausted' && (
+                  <ConfirmDialog
+                    triggerLabel="응시 횟수 리셋"
+                    triggerClassName="mt-2 rounded-pill border border-n-3 px-2.5 py-1 text-[11.5px] text-n-7"
+                    title="재응시 기회를 추가할까요?"
+                    description="학습자가 다시 응시할 수 있게 돼요. 기존 응시 기록은 삭제되지 않고 그대로 남아요."
+                    confirmLabel="리셋"
+                    action={resetExamAttempts.bind(null, p.userId, p.courseId)}
+                    reasonField={{ name: 'reason', label: '리셋 사유 (필수)', placeholder: '예: 시스템 오류로 인한 재응시 요청' }}
+                  />
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="flex flex-col gap-2">
+        <h2 className="text-[15px] font-semibold text-n-9">시험 응시 현황</h2>
+        {examSubmissions.length === 0 ? (
+          <p className="text-[13px] text-n-6">아직 응시 기록이 없어요.</p>
+        ) : (
+          <AdminTable>
+            <thead>
+              <tr>
+                <th>회원</th>
+                <th>강좌</th>
+                <th>점수</th>
+                <th>합격여부</th>
+                <th>응시일시</th>
+              </tr>
+            </thead>
+            <tbody>
+              {examSubmissions.map((s, i) => (
+                <tr key={`${s.userId}-${s.courseId}-${s.attemptNo}-${i}`}>
+                  <td>{s.userName}</td>
+                  <td>{s.courseTitle}</td>
+                  <td>{s.score}점</td>
+                  <td>
+                    <StatusBadge tone={s.passed ? 'success' : 'warning'}>{s.passed ? '합격' : '불합격'}</StatusBadge>
+                  </td>
+                  <td>{new Date(s.submittedAt).toLocaleString('ko-KR')}</td>
+                </tr>
+              ))}
+            </tbody>
+          </AdminTable>
         )}
       </section>
 

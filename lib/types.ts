@@ -34,6 +34,7 @@ export interface Category {
   depth: 1 | 2 | 3;
   order: number;
   isActive: boolean; // 삭제 대신 비활성화 (F-ADMCAT-3)
+  isCertification: boolean; // 1Depth에서만 의미 있음(F-ADMCAT-4) — 자격시험 기능의 카테고리 판정 기준
 }
 
 export type CourseStatus = 'active' | 'upcoming' | 'closed';
@@ -56,6 +57,9 @@ export interface Course {
   requiresCertificateInfo: boolean; // 수강신청 시 주소·사진(자격증 발급용) 필수 요구 여부
   governmentSupport: boolean;
   status: CourseStatus;
+  requiresExam: boolean; // 자격시험 응시 필요 여부(F-ADMC-7). 1Depth 카테고리가 자격증일 때만 true 허용
+  examPassScore: number | null; // 합격 기준(%), requiresExam=true일 때만 값 존재
+  examMaxAttempts: number | null; // 최대 응시 횟수, requiresExam=true일 때만 값 존재
 }
 
 export type LessonMode = 'video' | 'online' | 'offline';
@@ -89,6 +93,46 @@ export interface CourseMaterial {
   purchaseUrl: string | null;
   order: number;
 }
+
+// 강좌 자격시험(2026-09-09 추가). 강의 퀴즈(QuizQuestionWithOptions)와 완전히 분리된
+// 별도 개념 — 강좌 전체 단위(course_id)이고, 합격이 수료증 발급을 게이팅하며 재응시
+// 횟수 제한이 있다. 학습자 화면용 타입도 is_correct 필드를 두지 않는다(정답 유출 방지,
+// get_course_exam() RPC 응답과 1:1 대응). 관리자 전용(isCorrect 포함) 타입은
+// lib/supabase/admin-queries.ts에 별도로 둔다(퀴즈와 동일한 패턴).
+export type CourseExamOption = {
+  id: string;
+  label: string;
+  order: number;
+};
+
+export type CourseExamQuestionWithOptions = {
+  id: string;
+  question: string;
+  order: number;
+  options: CourseExamOption[];
+};
+
+export type CourseExamSubmission = {
+  id: string;
+  userId: string;
+  courseId: string;
+  score: number;
+  passed: boolean; // 응시 시점 examPassScore 기준 스냅샷 — 이후 합격기준이 바뀌어도 재계산하지 않음
+  attemptNo: number; // 가장 최근 리셋 이후 1부터 재기산
+  submittedAt: string;
+};
+
+export type CourseExamAttemptReset = {
+  id: string;
+  userId: string;
+  courseId: string;
+  reason: string;
+  resetAt: string;
+  resetBy: string;
+};
+
+// 학습자 강의실 사이드바/응시 화면에서 공유하는 5가지 상태(F-LRN-7b/8/10).
+export type CourseExamStatus = 'locked' | 'not_ready' | 'available' | 'passed' | 'exhausted';
 
 // 학습자 화면용 퀴즈 타입 — is_correct 필드가 없다(정답 유출 방지).
 // get_quiz_for_lesson() RPC 응답과 1:1 대응. 관리자 전용(isCorrect 포함) 타입은

@@ -5,8 +5,10 @@ import {
   moveCategoryDown,
   moveCategoryUp,
   toggleCategoryActive,
+  toggleCategoryCertification,
   updateCategory,
 } from '@/app/actions/admin-categories';
+import StatusBadge from '@/components/admin/StatusBadge';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import { getCategoryCourseCounts } from '@/lib/supabase/admin-queries';
 import { collectDescendantIds, getCategoryTree } from '@/lib/supabase/queries';
@@ -125,8 +127,17 @@ function CategoryNode({
         </form>
 
         <span className="text-[11px] text-n-5">강좌 {usage}건</span>
+        {category.isCertification && <StatusBadge tone="info">자격증</StatusBadge>}
 
         <div className="flex gap-1">
+          {category.depth === 1 && (
+            <form action={toggleCategoryCertification.bind(null, category.id)}>
+              <input type="hidden" name="current" value={String(category.isCertification)} />
+              <button type="submit" className="rounded-pill border border-n-3 px-2.5 py-1 text-[11.5px] text-n-7">
+                {category.isCertification ? '자격증 해제' : '자격증 지정'}
+              </button>
+            </form>
+          )}
           <form action={moveCategoryUp.bind(null, category.id)}>
             <button type="submit" className="rounded-pill border border-n-3 px-2 py-1 text-[11px] text-n-7">
               ▲

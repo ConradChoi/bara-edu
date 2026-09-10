@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import StatusBadge from '@/components/admin/StatusBadge';
-import { getAdminMemberDetail } from '@/lib/supabase/admin-queries';
+import { getAdminMemberDetail, getCourseExamSubmissionHistory } from '@/lib/supabase/admin-queries';
 import type { EnrollmentStatus } from '@/lib/types';
 
 export const metadata: Metadata = { title: '회원 상세 | 관리자' };
@@ -19,6 +19,7 @@ export default async function AdminMemberDetailPage({ params }: { params: Promis
   if (!detail) notFound();
 
   const { profile, photoSignedUrl, enrollments, certificates } = detail;
+  const examSubmissions = await getCourseExamSubmissionHistory({ userId: id });
 
   return (
     <div className="flex max-w-[640px] flex-col gap-6">
@@ -83,6 +84,25 @@ export default async function AdminMemberDetailPage({ params }: { params: Promis
           </ul>
         )}
       </section>
+
+      {examSubmissions.length > 0 && (
+        <section className="flex flex-col gap-2">
+          <h2 className="text-[15px] font-semibold text-n-9">자격시험 응시 이력</h2>
+          <ul className="flex flex-col gap-2">
+            {examSubmissions.map((s, i) => (
+              <li key={`${s.courseId}-${s.attemptNo}-${i}`} className="flex items-center justify-between rounded-lg border border-n-3 p-3 text-[13px]">
+                <span className="font-medium text-n-9">{s.courseTitle}</span>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-n-6">
+                    {s.score}점 · {new Date(s.submittedAt).toLocaleString('ko-KR')}
+                  </span>
+                  <StatusBadge tone={s.passed ? 'success' : 'warning'}>{s.passed ? '합격' : '불합격'}</StatusBadge>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <section className="flex flex-col gap-2">
         <h2 className="text-[15px] font-semibold text-n-9">수료 이력</h2>

@@ -11,6 +11,7 @@ import QuizResult from '@/components/classroom/QuizResult';
 import {
   getCertificateEligibilityForCourse,
   getClassroomAccess,
+  getCourseExamState,
   getCourseForClassroom,
   getLatestAssignmentSubmissionsForCourse,
   getLessonsForClassroom,
@@ -66,11 +67,12 @@ export default async function ClassroomLessonPage({
   const currentLesson = lessons.find((l) => l.id === lessonId);
   if (!currentLesson) notFound();
 
-  const [completedLessonIds, latestAssignments, eligibility, materials] = await Promise.all([
+  const [completedLessonIds, latestAssignments, eligibility, materials, examState] = await Promise.all([
     getProgressLessonIds(user.id, courseId),
     getLatestAssignmentSubmissionsForCourse(user.id, courseId),
     getCertificateEligibilityForCourse(user.id, courseId),
     getCourseMaterialsForCourse(courseId),
+    getCourseExamState(user.id, courseId),
   ]);
 
   const quizQuestions = currentLesson.hasQuiz ? await getQuizForLesson(currentLesson.id) : [];
@@ -87,6 +89,7 @@ export default async function ClassroomLessonPage({
         courseId={courseId}
         currentLessonId={currentLesson.id}
         materials={materials}
+        examStatus={examState?.status ?? null}
       />
 
       <div className="flex flex-1 flex-col gap-5">

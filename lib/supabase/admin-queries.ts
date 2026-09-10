@@ -47,6 +47,9 @@ type CourseRow = {
   requires_certificate_info: boolean;
   government_support: boolean;
   status: CourseStatus;
+  requires_exam: boolean;
+  exam_pass_score: number | null;
+  exam_max_attempts: number | null;
 };
 
 function mapCourseRow(row: CourseRow): Course {
@@ -66,6 +69,9 @@ function mapCourseRow(row: CourseRow): Course {
     requiresCertificateInfo: row.requires_certificate_info,
     governmentSupport: row.government_support,
     status: row.status,
+    requiresExam: row.requires_exam,
+    examPassScore: row.exam_pass_score,
+    examMaxAttempts: row.exam_max_attempts,
   };
 }
 
@@ -354,18 +360,25 @@ type ApprovedEnrollmentProgressStat = {
   assignmentLessonIds: string[];
   approvedAssignmentLessonIds: Set<string>;
   hasCertificate: boolean;
+  requiresExam: boolean;
+  examQuestionCount: number;
+  examMaxAttempts: number | null;
+  examPassed: boolean;
+  examAttemptsSinceReset: number;
+  examLastScore: number | null;
 };
 
-// 승인된 신청 건별로 진도/과제 승인 현황을 계산한다. 대시보드 "수료임박"과 Admin 수료관리
-// "수료 조건 충족자" 목록이 동일한 원자료를 서로 다른 기준으로 거르므로 여기서 한 번만 조회한다.
-// module-lms-5(강의실)가 아직 없어 progress/assignment_submissions에 데이터가 쌓이지
-// 않으므로, 이 함수는 당분간 빈 배열에 가까운 결과를 반환한다 — 의도된 동작이다.
+// 승인된 신청 건별로 진도/과제/시험 승인 현황을 계산한다. 대시보드 "수료임박"과 Admin
+// 수료관리 "수료 조건 충족자"/"수료 보류 학습자" 목록이 동일한 원자료를 서로 다른 기준으로
+// 거르므로 여기서 한 번만 조회한다(2026-09-09: 자격시험 데이터 추가).
 async function getApprovedEnrollmentProgressStats(): Promise<ApprovedEnrollmentProgressStat[]> {
   const supabase = await createClient();
 
   const { data: enrollmentRows, error: enrollmentError } = await supabase
     .from('enrollments')
-    .select('user_id, course_id, profiles(name), courses(title, lessons(id, has_assignment))')
+    .select(
+      'user_id, course_id, profiles(name), courses(title, requires_exam, exam_max_attempts, lessons(id, has_assignment), course_exam_questions(id))'
+    )
     .eq('status', 'approved');
   if (enrollmentError) throw new Error(enrollmentError.message);
 
@@ -373,21 +386,31 @@ async function getApprovedEnrollmentProgressStats(): Promise<ApprovedEnrollmentP
     user_id: string;
     course_id: string;
     profiles: { name: string };
-    courses: { title: string; lessons: { id: string; has_assignment: boolean }[] };
+    courses: {
+      title: string;
+      requires_exam: boolean;
+      exam_max_attempts: number | null;
+      lessons: { id: string; has_assignment: boolean }[];
+      course_exam_questions: { id: string }[];
+    };
   }[];
   const candidates = rows.filter((r) => r.courses.lessons.length > 0);
   if (candidates.length === 0) return [];
 
   const userIds = [...new Set(candidates.map((r) => r.user_id))];
 
-  const [certRes, progressRes, assignmentRes] = await Promise.all([
+  const [certRes, progressRes, assignmentRes, examSubmissionRes, examResetRes] = await Promise.all([
     supabase.from('certificates').select('user_id, course_id'),
     supabase.from('progress').select('user_id, lesson_id').in('user_id', userIds).not('completed_at', 'is', null),
     supabase.from('assignment_submissions').select('user_id, lesson_id').in('user_id', userIds).eq('status', 'approved'),
+    supabase.from('course_exam_submissions').select('user_id, course_id, score, passed, submitted_at').in('user_id', userIds),
+    supabase.from('course_exam_attempt_resets').select('user_id, course_id, reset_at').in('user_id', userIds),
   ]);
   if (certRes.error) throw new Error(certRes.error.message);
   if (progressRes.error) throw new Error(progressRes.error.message);
   if (assignmentRes.error) throw new Error(assignmentRes.error.message);
+  if (examSubmissionRes.error) throw new Error(examSubmissionRes.error.message);
+  if (examResetRes.error) throw new Error(examResetRes.error.message);
 
   const certifiedSet = new Set(
     (certRes.data as { user_id: string; course_id: string }[]).map((c) => `${c.user_id}:${c.course_id}`)
@@ -405,9 +428,29 @@ async function getApprovedEnrollmentProgressStats(): Promise<ApprovedEnrollmentP
     approvedAssignmentsByUser.get(a.user_id)!.add(a.lesson_id);
   }
 
+  const lastResetAtByPair = new Map<string, number>();
+  for (const r of examResetRes.data as { user_id: string; course_id: string; reset_at: string }[]) {
+    const key = `${r.user_id}:${r.course_id}`;
+    const ms = new Date(r.reset_at).getTime();
+    if (!lastResetAtByPair.has(key) || ms > lastResetAtByPair.get(key)!) lastResetAtByPair.set(key, ms);
+  }
+
+  const examSubmissionsByPair = new Map<string, { score: number; passed: boolean; submitted_at: string }[]>();
+  for (const s of examSubmissionRes.data as { user_id: string; course_id: string; score: number; passed: boolean; submitted_at: string }[]) {
+    const key = `${s.user_id}:${s.course_id}`;
+    if (!examSubmissionsByPair.has(key)) examSubmissionsByPair.set(key, []);
+    examSubmissionsByPair.get(key)!.push(s);
+  }
+
   return candidates.map((r) => {
     const completedSet = completedLessonsByUser.get(r.user_id) ?? new Set<string>();
     const approvedSet = approvedAssignmentsByUser.get(r.user_id) ?? new Set<string>();
+    const pairKey = `${r.user_id}:${r.course_id}`;
+    const submissions = (examSubmissionsByPair.get(pairKey) ?? []).slice().sort((a, b) => (a.submitted_at < b.submitted_at ? 1 : -1));
+    const lastResetAtMs = lastResetAtByPair.get(pairKey) ?? null;
+    const submissionsSinceReset =
+      lastResetAtMs === null ? submissions : submissions.filter((s) => new Date(s.submitted_at).getTime() > lastResetAtMs);
+
     return {
       userId: r.user_id,
       userName: r.profiles.name,
@@ -417,7 +460,13 @@ async function getApprovedEnrollmentProgressStats(): Promise<ApprovedEnrollmentP
       completedLessons: r.courses.lessons.filter((l) => completedSet.has(l.id)).length,
       assignmentLessonIds: r.courses.lessons.filter((l) => l.has_assignment).map((l) => l.id),
       approvedAssignmentLessonIds: approvedSet,
-      hasCertificate: certifiedSet.has(`${r.user_id}:${r.course_id}`),
+      hasCertificate: certifiedSet.has(pairKey),
+      requiresExam: r.courses.requires_exam,
+      examQuestionCount: r.courses.course_exam_questions.length,
+      examMaxAttempts: r.courses.exam_max_attempts,
+      examPassed: submissions.some((s) => s.passed),
+      examAttemptsSinceReset: submissionsSinceReset.length,
+      examLastScore: submissions[0]?.score ?? null,
     };
   });
 }
@@ -454,13 +503,125 @@ export async function getNearCompletionLearners(): Promise<NearCompletionLearner
 
 export type CertificateEligibleLearner = { userId: string; userName: string; courseId: string; courseTitle: string };
 
-// 수료 조건(flows.md Q7): 진도 100% + (과제가 있는 강의는 전부) 과제 승인, 미발급.
+// 수료 조건(flows.md Q7 + F-LRN-9): 진도 100% + (과제가 있는 강의는 전부) 과제 승인 +
+// (자격시험이 있는 강좌는) 시험 합격, 미발급.
 export async function getCertificateEligibleLearners(): Promise<CertificateEligibleLearner[]> {
   const stats = await getApprovedEnrollmentProgressStats();
   return stats
     .filter((s) => !s.hasCertificate && s.completedLessons === s.totalLessons)
     .filter((s) => s.assignmentLessonIds.every((id) => s.approvedAssignmentLessonIds.has(id)))
+    .filter((s) => !s.requiresExam || s.examPassed)
     .map((s) => ({ userId: s.userId, userName: s.userName, courseId: s.courseId, courseTitle: s.courseTitle }));
+}
+
+export type CertificatePendingReason = 'progress' | 'assignment' | 'exam';
+
+export type CertificatePendingLearner = {
+  userId: string;
+  userName: string;
+  courseId: string;
+  courseTitle: string;
+  completedLessons: number;
+  totalLessons: number;
+  pendingAssignmentCount: number;
+  requiresExam: boolean;
+  examState: 'not_applicable' | 'not_attempted' | 'failed' | 'exhausted' | 'passed';
+  examAttemptsSinceReset: number;
+  examMaxAttempts: number | null;
+  reasons: CertificatePendingReason[];
+};
+
+// F-ADMCE-1: "이 학습자는 왜 아직 수료증을 못 받았나요?"에 한 화면에서 답하기 위한 목록.
+// 미발급 + (진도/과제/시험 중 하나라도 미충족)인 승인된 신청 건 전부를 대상으로 한다.
+export async function getCertificatePendingLearners(): Promise<CertificatePendingLearner[]> {
+  const stats = await getApprovedEnrollmentProgressStats();
+
+  return stats
+    .filter((s) => !s.hasCertificate)
+    .map((s) => {
+      const progressDone = s.completedLessons === s.totalLessons;
+      const pendingAssignmentCount = s.assignmentLessonIds.filter((id) => !s.approvedAssignmentLessonIds.has(id)).length;
+      const assignmentDone = pendingAssignmentCount === 0;
+
+      let examState: CertificatePendingLearner['examState'] = 'not_applicable';
+      if (s.requiresExam) {
+        if (s.examPassed) examState = 'passed';
+        else if (s.examMaxAttempts !== null && s.examAttemptsSinceReset >= s.examMaxAttempts) examState = 'exhausted';
+        else if (s.examAttemptsSinceReset > 0) examState = 'failed';
+        else examState = 'not_attempted';
+      }
+      const examDone = !s.requiresExam || examState === 'passed';
+
+      const reasons: CertificatePendingReason[] = [];
+      if (!progressDone) reasons.push('progress');
+      if (!assignmentDone) reasons.push('assignment');
+      if (!examDone) reasons.push('exam');
+
+      return {
+        userId: s.userId,
+        userName: s.userName,
+        courseId: s.courseId,
+        courseTitle: s.courseTitle,
+        completedLessons: s.completedLessons,
+        totalLessons: s.totalLessons,
+        pendingAssignmentCount,
+        requiresExam: s.requiresExam,
+        examState,
+        examAttemptsSinceReset: s.examAttemptsSinceReset,
+        examMaxAttempts: s.examMaxAttempts,
+        reasons,
+      };
+    })
+    .filter((s) => s.reasons.length > 0);
+}
+
+export type AdminCourseExamSubmission = {
+  userId: string;
+  userName: string;
+  courseId: string;
+  courseTitle: string;
+  score: number;
+  passed: boolean;
+  attemptNo: number;
+  submittedAt: string;
+};
+
+// F-ADMCE-5: requiresExam=true인 강좌의 전체 응시 이력. /admin/certificates와
+// /admin/members/[id](F-ADMM-2) 양쪽에서 재사용하는 공용 조회 함수.
+export async function getCourseExamSubmissionHistory(filters?: { courseId?: string; userId?: string }): Promise<AdminCourseExamSubmission[]> {
+  const supabase = await createClient();
+  let query = supabase
+    .from('course_exam_submissions')
+    .select('user_id, course_id, score, passed, attempt_no, submitted_at, profiles(name), courses(title)')
+    .order('submitted_at', { ascending: false });
+
+  if (filters?.courseId) query = query.eq('course_id', filters.courseId);
+  if (filters?.userId) query = query.eq('user_id', filters.userId);
+
+  const { data, error } = await query;
+  if (error) throw new Error(error.message);
+
+  return (
+    data as unknown as {
+      user_id: string;
+      course_id: string;
+      score: number;
+      passed: boolean;
+      attempt_no: number;
+      submitted_at: string;
+      profiles: { name: string };
+      courses: { title: string };
+    }[]
+  ).map((row) => ({
+    userId: row.user_id,
+    userName: row.profiles.name,
+    courseId: row.course_id,
+    courseTitle: row.courses.title,
+    score: row.score,
+    passed: row.passed,
+    attemptNo: row.attempt_no,
+    submittedAt: row.submitted_at,
+  }));
 }
 
 export type AdminCertificateListItem = {
@@ -518,6 +679,8 @@ export type AdminCourseListItem = {
   approvedCount: number;
   enrollmentCount: number; // 상태 무관 전체 — 삭제 가드(F-ADMC-3)
   certificateCount: number; // 삭제 가드
+  requiresExam: boolean;
+  examQuestionCount: number; // requiresExam=true인데 0이면 목록에 경고 배지(F-ADMC-9)
 };
 
 export async function getEnrollmentCountsByCourse(courseIds: string[]): Promise<Record<string, number>> {
@@ -550,7 +713,7 @@ export async function getAdminCourses(filters?: {
   const supabase = await createClient();
   let query = supabase
     .from('courses')
-    .select('id, slug, title, fee, seats, status, categories(name)')
+    .select('id, slug, title, fee, seats, status, requires_exam, categories(name), course_exam_questions(id)')
     .order('created_at', { ascending: false });
 
   if (filters?.status && filters.status !== 'all') query = query.eq('status', filters.status);
@@ -567,7 +730,9 @@ export async function getAdminCourses(filters?: {
     fee: number;
     seats: number;
     status: CourseStatus;
+    requires_exam: boolean;
     categories: { name: string } | null;
+    course_exam_questions: { id: string }[];
   }[];
   const courseIds = rows.map((c) => c.id);
 
@@ -588,6 +753,8 @@ export async function getAdminCourses(filters?: {
     approvedCount: approvedCounts[c.id] ?? 0,
     enrollmentCount: enrollmentCounts[c.id] ?? 0,
     certificateCount: certificateCounts[c.id] ?? 0,
+    requiresExam: c.requires_exam,
+    examQuestionCount: c.course_exam_questions.length,
   }));
 }
 
@@ -598,7 +765,7 @@ export async function getAdminCourseById(id: string): Promise<AdminCourseDetail 
   const { data, error } = await supabase
     .from('courses')
     .select(
-      'id, slug, title, category_id, description, instructor, fee, seats, total_hours, start_date, end_date, schedule_type, requires_certificate_info, government_support, status, lessons(id, course_id, title, video_url, order, has_quiz, has_assignment, assignment_due_at, lesson_mode, online_meeting_url, online_scheduled_at, offline_location_name, offline_address), course_materials(id, course_id, kind, title, publisher, purchase_url, order)'
+      'id, slug, title, category_id, description, instructor, fee, seats, total_hours, start_date, end_date, schedule_type, requires_certificate_info, government_support, status, requires_exam, exam_pass_score, exam_max_attempts, lessons(id, course_id, title, video_url, order, has_quiz, has_assignment, assignment_due_at, lesson_mode, online_meeting_url, online_scheduled_at, offline_location_name, offline_address), course_materials(id, course_id, kind, title, publisher, purchase_url, order)'
     )
     .eq('id', id)
     .maybeSingle();
@@ -920,6 +1087,41 @@ export async function getQuizQuestionsForLesson(lessonId: string): Promise<Admin
     question: row.question,
     order: row.order,
     options: row.quiz_options
+      .slice()
+      .sort((a, b) => a.order - b.order)
+      .map((o) => ({ id: o.id, label: o.label, order: o.order, isCorrect: o.is_correct })),
+  }));
+}
+
+// ===================== 자격시험 저작 (/admin/courses/[id]/exam, 2026-09-09) =====================
+// isCorrect를 포함하는 관리자 전용 타입 — quiz와 동일한 정답 비노출 패턴.
+
+export type AdminCourseExamOption = { id: string; label: string; order: number; isCorrect: boolean };
+export type AdminCourseExamQuestion = { id: string; courseId: string; question: string; order: number; options: AdminCourseExamOption[] };
+
+export async function getCourseExamQuestionsForCourse(courseId: string): Promise<AdminCourseExamQuestion[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('course_exam_questions')
+    .select('id, course_id, question, order, course_exam_options(id, label, is_correct, order)')
+    .eq('course_id', courseId)
+    .order('order', { ascending: true });
+  if (error) throw new Error(error.message);
+
+  return (
+    data as unknown as {
+      id: string;
+      course_id: string;
+      question: string;
+      order: number;
+      course_exam_options: { id: string; label: string; is_correct: boolean; order: number }[];
+    }[]
+  ).map((row) => ({
+    id: row.id,
+    courseId: row.course_id,
+    question: row.question,
+    order: row.order,
+    options: row.course_exam_options
       .slice()
       .sort((a, b) => a.order - b.order)
       .map((o) => ({ id: o.id, label: o.label, order: o.order, isCorrect: o.is_correct })),

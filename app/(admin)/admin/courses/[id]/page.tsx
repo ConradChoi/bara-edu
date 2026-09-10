@@ -15,7 +15,7 @@ import Link from 'next/link';
 import CourseForm from '@/components/admin/CourseForm';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import { formatKstDatetimeLocal } from '@/lib/kst';
-import { getAdminCourseById } from '@/lib/supabase/admin-queries';
+import { getAdminCourseById, getCourseExamQuestionsForCourse } from '@/lib/supabase/admin-queries';
 import { getCategoryTree } from '@/lib/supabase/queries';
 
 export const metadata: Metadata = { title: '강좌 수정 | 관리자' };
@@ -53,6 +53,8 @@ export default async function AdminCourseDetailPage({
   const [course, categories] = await Promise.all([getAdminCourseById(id), getCategoryTree()]);
   if (!course) notFound();
 
+  const examQuestionCount = course.requiresExam ? (await getCourseExamQuestionsForCourse(id)).length : 0;
+
   const message = Object.keys(SUCCESS_MESSAGE).find((key) => search[key]);
   const errorMessage = search.error && ERROR_MESSAGE[search.error];
   const mainMaterial = course.materials.find((m) => m.kind === 'main');
@@ -76,6 +78,25 @@ export default async function AdminCourseDetailPage({
       <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
         <div className="flex flex-col gap-6 lg:w-[640px] lg:shrink-0">
           <CourseForm categories={categories} action={updateCourse.bind(null, id)} defaultValues={course} submitLabel="저장" />
+
+          {course.requiresExam && (
+            <div className="flex flex-col gap-1.5 rounded-lg border border-n-3 bg-n-0 p-4">
+              <div className="flex items-center justify-between">
+                <p className="text-[13px] font-medium text-n-9">자격시험 문항 {examQuestionCount}개</p>
+                <Link
+                  href={`/admin/courses/${id}/exam`}
+                  className="rounded-pill border border-n-3 px-3 py-1.5 text-[12px] font-medium text-n-7"
+                >
+                  문항 관리
+                </Link>
+              </div>
+              {examQuestionCount === 0 && (
+                <p className="text-[12px] text-warning">
+                  자격시험이 켜져 있지만 문항이 없어요. 이 상태에서는 학습자가 수료증을 받을 수 없어요.
+                </p>
+              )}
+            </div>
+          )}
 
           <section className="flex flex-col gap-3">
             <h2 className="text-[15px] font-semibold text-n-9">교재</h2>

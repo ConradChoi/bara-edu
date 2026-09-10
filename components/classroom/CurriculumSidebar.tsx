@@ -1,6 +1,22 @@
 import Link from 'next/link';
 import ProgressBar from '@/components/classroom/ProgressBar';
-import type { CourseMaterial, Lesson } from '@/lib/types';
+import StatusBadge from '@/components/admin/StatusBadge';
+import type { CourseExamStatus, CourseMaterial, Lesson } from '@/lib/types';
+
+const EXAM_STATUS_LABEL: Record<CourseExamStatus, string> = {
+  locked: '잠김',
+  not_ready: '준비중',
+  available: '응시 가능',
+  passed: '합격',
+  exhausted: '응시 횟수 소진',
+};
+const EXAM_STATUS_TONE: Record<CourseExamStatus, 'neutral' | 'info' | 'success' | 'danger'> = {
+  locked: 'neutral',
+  not_ready: 'neutral',
+  available: 'info',
+  passed: 'success',
+  exhausted: 'danger',
+};
 
 // F-LRN-1: 완료(✓)/진행중(▶)/예정(○) 표시, 자유 수강(Q4 — 잠금 없음).
 // 모바일(390px)에서는 <details>로 접고 펼친다 — client JS 없이 순수 HTML로 처리.
@@ -10,12 +26,15 @@ export default function CurriculumSidebar({
   courseId,
   currentLessonId,
   materials,
+  examStatus,
 }: {
   lessons: Lesson[];
   completedLessonIds: Set<string>;
   courseId: string;
   currentLessonId: string;
   materials: CourseMaterial[];
+  // requiresExam=false인 강좌는 null — 섹션 자체를 숨긴다(F-LRN-7).
+  examStatus?: CourseExamStatus | null;
 }) {
   const list = (
     <ul className="flex flex-col gap-1">
@@ -77,6 +96,20 @@ export default function CurriculumSidebar({
               </li>
             ))}
           </ul>
+        </div>
+      )}
+      {examStatus && (
+        <div className="border-t border-n-3 pt-4">
+          <h2 className="mb-2 text-[13px] font-semibold text-n-9">자격시험</h2>
+          <Link
+            href={`/learn/${courseId}/exam`}
+            className={`flex items-center justify-between rounded-md px-3 py-2 text-[13px] ${
+              examStatus === 'locked' ? 'text-n-5' : 'font-semibold text-indigo bg-indigo/10'
+            }`}
+          >
+            <span>시험 응시하기</span>
+            <StatusBadge tone={EXAM_STATUS_TONE[examStatus]}>{EXAM_STATUS_LABEL[examStatus]}</StatusBadge>
+          </Link>
         </div>
       )}
     </div>

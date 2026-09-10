@@ -75,9 +75,12 @@ export default async function AdminCoursesPage({
             courses.map((c) => (
               <tr key={c.id}>
                 <td>
-                  <Link href={`/admin/courses/${c.id}`} className="font-medium text-n-9">
-                    {c.title}
-                  </Link>
+                  <div className="flex items-center gap-1.5">
+                    <Link href={`/admin/courses/${c.id}`} className="font-medium text-n-9">
+                      {c.title}
+                    </Link>
+                    {c.requiresExam && c.examQuestionCount === 0 && <StatusBadge tone="warning">시험 문제 미등록</StatusBadge>}
+                  </div>
                 </td>
                 <td>{c.categoryName ?? '-'}</td>
                 <td>{c.fee.toLocaleString('ko-KR')}원</td>
