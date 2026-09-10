@@ -2,8 +2,8 @@
 // admin-queries.ts(관리자)와 동일한 컨벤션(createClient() → select → camelCase 매핑 →
 // error 시 throw)을 따르되, 강의실 전용 조회가 많아 파일을 분리했다.
 
+import { COURSE_COLUMNS, getMyEnrollmentForCourse, mapCourseRow, type CourseRow } from '@/lib/supabase/queries';
 import { createClient } from '@/lib/supabase/server';
-import { getMyEnrollmentForCourse } from '@/lib/supabase/queries';
 import type {
   AssignmentSubmissionStatus,
   Course,
@@ -14,50 +14,8 @@ import type {
 } from '@/lib/types';
 
 // ===================== 공통 매핑 =====================
-
-type CourseRow = {
-  id: string;
-  slug: string;
-  title: string;
-  category_id: string;
-  description: string;
-  instructor: string;
-  fee: number;
-  seats: number;
-  total_hours: number | null;
-  start_date: string | null;
-  end_date: string | null;
-  schedule_type: Course['scheduleType'];
-  requires_certificate_info: boolean;
-  government_support: boolean;
-  status: Course['status'];
-  requires_exam: boolean;
-  exam_pass_score: number | null;
-  exam_max_attempts: number | null;
-};
-
-function mapCourseRow(row: CourseRow): Course {
-  return {
-    id: row.id,
-    slug: row.slug,
-    title: row.title,
-    categoryId: row.category_id,
-    description: row.description,
-    instructor: row.instructor,
-    fee: row.fee,
-    seats: row.seats,
-    totalHours: row.total_hours,
-    startDate: row.start_date,
-    endDate: row.end_date,
-    scheduleType: row.schedule_type,
-    requiresCertificateInfo: row.requires_certificate_info,
-    governmentSupport: row.government_support,
-    status: row.status,
-    requiresExam: row.requires_exam,
-    examPassScore: row.exam_pass_score,
-    examMaxAttempts: row.exam_max_attempts,
-  };
-}
+// courses 관련 타입/매핑(CourseRow/mapCourseRow/COURSE_COLUMNS)은 lib/supabase/queries.ts가
+// canonical source다(2026-09-10, 3파일 중복 동기화 기술부채 해소).
 
 type LessonRow = {
   id: string;
@@ -93,7 +51,6 @@ function mapLessonRow(row: LessonRow): Lesson {
   };
 }
 
-const COURSE_COLUMNS = 'id, slug, title, category_id, description, instructor, fee, seats, total_hours, start_date, end_date, schedule_type, requires_certificate_info, government_support, status, requires_exam, exam_pass_score, exam_max_attempts';
 const LESSON_COLUMNS =
   'id, course_id, title, video_url, order, has_quiz, has_assignment, assignment_due_at, lesson_mode, online_meeting_url, online_scheduled_at, offline_location_name, offline_address';
 

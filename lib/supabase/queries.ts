@@ -23,7 +23,14 @@ function mapCategory(row: CategoryRow): Category {
   };
 }
 
-type CourseRow = {
+// admin-queries.ts/classroom-queries.ts도 courses 테이블을 그대로 조회하므로, 컬럼 목록·행
+// 타입·매핑 함수를 여기서 한 번만 정의하고 재사용한다 — 이전에는 courses 필드를 추가할
+// 때마다(total_hours/start_date/end_date/schedule_type/requires_certificate_info/
+// requires_exam 등) 세 파일을 전부 손으로 동기화해야 했다(반복 지적된 기술부채, 2026-09-10 해소).
+export const COURSE_COLUMNS =
+  'id, slug, title, category_id, description, instructor, fee, seats, total_hours, start_date, end_date, schedule_type, requires_certificate_info, government_support, status, requires_exam, exam_pass_score, exam_max_attempts';
+
+export type CourseRow = {
   id: string;
   slug: string;
   title: string;
@@ -44,7 +51,7 @@ type CourseRow = {
   exam_max_attempts: number | null;
 };
 
-function mapCourse(row: CourseRow): Course {
+export function mapCourseRow(row: CourseRow): Course {
   return {
     id: row.id,
     slug: row.slug,
@@ -103,7 +110,7 @@ export async function getPublicCourses(categoryId?: string): Promise<Course[]> {
   const supabase = await createClient();
   let query = supabase
     .from('courses')
-    .select('id, slug, title, category_id, description, instructor, fee, seats, total_hours, start_date, end_date, schedule_type, requires_certificate_info, government_support, status, requires_exam, exam_pass_score, exam_max_attempts')
+    .select(COURSE_COLUMNS)
     .in('status', ['active', 'upcoming']);
 
   if (categoryId) {
@@ -115,7 +122,7 @@ export async function getPublicCourses(categoryId?: string): Promise<Course[]> {
   const { data, error } = await query.order('created_at', { ascending: false });
 
   if (error) throw new Error(error.message);
-  return (data as CourseRow[]).map(mapCourse);
+  return (data as CourseRow[]).map(mapCourseRow);
 }
 
 // status 필터는 애플리케이션 코드가 아니라 RLS(courses_public_select/courses_enrolled_select)에
@@ -125,12 +132,12 @@ export async function getCourseBySlug(slug: string): Promise<Course | null> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from('courses')
-    .select('id, slug, title, category_id, description, instructor, fee, seats, total_hours, start_date, end_date, schedule_type, requires_certificate_info, government_support, status, requires_exam, exam_pass_score, exam_max_attempts')
+    .select(COURSE_COLUMNS)
     .eq('slug', slug)
     .maybeSingle();
 
   if (error) throw new Error(error.message);
-  return data ? mapCourse(data as CourseRow) : null;
+  return data ? mapCourseRow(data as CourseRow) : null;
 }
 
 export async function getCategoryById(id: string, categories: Category[]): Promise<Category | undefined> {

@@ -4,6 +4,7 @@
 // RLS(is_admin())가 서버에서 이미 강제하므로 여기서 role을 다시 확인하지 않는다 — 이 함수들은
 // admin 라우트(app/(admin)/*, proxy.ts가 role='admin'만 통과시킴)에서만 호출된다는 전제.
 
+import { headers } from 'next/headers';
 import { getKstStartOfDaysAgoIso, getKstStartOfTodayIso, getKstStartOfWeekIso, formatKstWeekRangeLabel, toKstDateKey } from '@/lib/kst';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { requireAdminClient } from '@/lib/supabase/require-admin';
@@ -14,7 +15,10 @@ import {
   getApprovedSeatsTaken,
   getMyEnrollments,
   mapCourseMaterialRow,
+  mapCourseRow,
+  COURSE_COLUMNS,
   type CourseMaterialRow,
+  type CourseRow,
 } from '@/lib/supabase/queries';
 import type {
   AssignmentSubmissionStatus,
@@ -30,50 +34,10 @@ import type {
 } from '@/lib/types';
 
 // ===================== 공통 매핑 헬퍼 =====================
-
-type CourseRow = {
-  id: string;
-  slug: string;
-  title: string;
-  category_id: string;
-  description: string;
-  instructor: string;
-  fee: number;
-  seats: number;
-  total_hours: number | null;
-  start_date: string | null;
-  end_date: string | null;
-  schedule_type: Course['scheduleType'];
-  requires_certificate_info: boolean;
-  government_support: boolean;
-  status: CourseStatus;
-  requires_exam: boolean;
-  exam_pass_score: number | null;
-  exam_max_attempts: number | null;
-};
-
-function mapCourseRow(row: CourseRow): Course {
-  return {
-    id: row.id,
-    slug: row.slug,
-    title: row.title,
-    categoryId: row.category_id,
-    description: row.description,
-    instructor: row.instructor,
-    fee: row.fee,
-    seats: row.seats,
-    totalHours: row.total_hours,
-    startDate: row.start_date,
-    endDate: row.end_date,
-    scheduleType: row.schedule_type,
-    requiresCertificateInfo: row.requires_certificate_info,
-    governmentSupport: row.government_support,
-    status: row.status,
-    requiresExam: row.requires_exam,
-    examPassScore: row.exam_pass_score,
-    examMaxAttempts: row.exam_max_attempts,
-  };
-}
+// courses 관련 타입/매핑(CourseRow/mapCourseRow/COURSE_COLUMNS)은 lib/supabase/queries.ts가
+// canonical source다 — courses 필드 추가 시 세 파일(queries/admin-queries/classroom-queries)을
+// 매번 손으로 맞추던 반복 지적된 기술부채를 여기서 해소한다(2026-09-10). lessons/
+// course_materials는 admin 전용 조인이 필요해(getAdminCourseById) 이 파일에 그대로 둔다.
 
 type LessonRow = {
   id: string;
@@ -765,7 +729,7 @@ export async function getAdminCourseById(id: string): Promise<AdminCourseDetail 
   const { data, error } = await supabase
     .from('courses')
     .select(
-      'id, slug, title, category_id, description, instructor, fee, seats, total_hours, start_date, end_date, schedule_type, requires_certificate_info, government_support, status, requires_exam, exam_pass_score, exam_max_attempts, lessons(id, course_id, title, video_url, order, has_quiz, has_assignment, assignment_due_at, lesson_mode, online_meeting_url, online_scheduled_at, offline_location_name, offline_address), course_materials(id, course_id, kind, title, publisher, purchase_url, order)'
+      `${COURSE_COLUMNS}, lessons(id, course_id, title, video_url, order, has_quiz, has_assignment, assignment_due_at, lesson_mode, online_meeting_url, online_scheduled_at, offline_location_name, offline_address), course_materials(id, course_id, kind, title, publisher, purchase_url, order)`
     )
     .eq('id', id)
     .maybeSingle();
@@ -873,6 +837,36 @@ export type AdminMemberDetail = {
   certificates: { id: string; courseId: string; courseTitle: string; issuedAt: string; isManualOverride: boolean; note: string | null }[];
 };
 
+// 제8조 5항(개인정보처리시스템 접속기록) 대응. 위변조 방지를 위해 RLS에 update/delete 정책이
+// 없고, 유일한 삭제 경로는 1년 경과분만 지우는 purge_old_admin_access_logs() RPC(pg_cron)뿐이다.
+// 로그 기록 실패가 실제 조회 자체를 막으면 안 되므로(가용성 우선) 에러는 삼키고 무시한다.
+async function logAdminAccess(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  targetUserId: string,
+  action: string,
+  detail?: string
+) {
+  try {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const h = await headers();
+    const ip = h.get('x-forwarded-for')?.split(',')[0]?.trim() || h.get('x-real-ip') || null;
+
+    await supabase.from('admin_access_logs').insert({
+      admin_id: user.id,
+      target_user_id: targetUserId,
+      action,
+      detail: detail ?? null,
+      ip_address: ip,
+    });
+  } catch {
+    // 접속기록은 감사 목적 부가 기능이라 실패해도 본 조회 흐름을 막지 않는다.
+  }
+}
+
 export async function getAdminMemberDetail(userId: string): Promise<AdminMemberDetail | null> {
   const supabase = await createClient();
   const { data: profileRow, error: profileError } = await supabase
@@ -882,6 +876,8 @@ export async function getAdminMemberDetail(userId: string): Promise<AdminMemberD
     .maybeSingle();
   if (profileError) throw new Error(profileError.message);
   if (!profileRow) return null;
+
+  await logAdminAccess(supabase, userId, '조회', '회원 상세(주소/사진/신청내역/수료이력)');
 
   const [enrollments, certRows, signedUrlRes] = await Promise.all([
     getMyEnrollments(userId),

@@ -1438,3 +1438,95 @@ begin
   return query select v_cert_id, v_issued_at;
 end;
 $$;
+
+-- ===================== module: 미인증 계정 자동 파기 + 관리자 접속기록 (2026-09-10) =====================
+-- 관리자 결정(2026-09-10): (1) 이메일 미인증 가입은 가입일로부터 7일 경과 시 행 자체를
+-- 완전 삭제(사전 안내 없음), (2) 개인정보처리시스템 접속기록(제8조 5항)은 최대 1년 보관.
+-- 둘 다 앱 서버 없이도 항상 실행되도록 pg_cron으로 DB 안에서 직접 스케줄링한다(Amplify는
+-- 상시 구동 서버가 아니라 앱 코드의 setInterval 등으로는 스케줄을 보장할 수 없다).
+do $$ begin
+  create extension if not exists pg_cron;
+exception when insufficient_privilege then
+  raise notice 'pg_cron 확장 설치 권한이 없습니다 — Supabase 대시보드 Database > Extensions에서 pg_cron을 먼저 켜주세요.';
+end $$;
+
+-- 개인정보처리시스템 접속기록. 위변조 방지를 위해 update/delete 정책을 두지 않는다 —
+-- 유일한 삭제 경로는 아래 purge_old_admin_access_logs()(1년 경과분만, SECURITY DEFINER)뿐이다.
+create table if not exists admin_access_logs (
+  id uuid primary key default gen_random_uuid(),
+  admin_id uuid not null references profiles(id),
+  target_user_id uuid references profiles(id) on delete set null,
+  action text not null, -- '조회' | '수정' | '삭제' | '다운로드' 등 수행업무
+  detail text,
+  ip_address text,
+  created_at timestamptz not null default now()
+);
+create index if not exists admin_access_logs_admin_id_idx on admin_access_logs(admin_id);
+create index if not exists admin_access_logs_target_user_id_idx on admin_access_logs(target_user_id);
+create index if not exists admin_access_logs_created_at_idx on admin_access_logs(created_at);
+
+alter table admin_access_logs enable row level security;
+
+drop policy if exists "admin_access_logs_admin_select" on admin_access_logs;
+create policy "admin_access_logs_admin_select" on admin_access_logs for select using (is_admin());
+drop policy if exists "admin_access_logs_admin_insert" on admin_access_logs;
+create policy "admin_access_logs_admin_insert" on admin_access_logs for insert with check (
+  is_admin() and admin_id = auth.uid()
+);
+
+-- ===================== RPC: 미인증 계정 자동 파기 =====================
+-- auth.users를 직접 delete하면 profiles.id의 on delete cascade로 profiles 행도 함께 삭제된다
+-- (사전 안내 없음, 관리자 결정). role='admin'은 절대 대상이 아니다.
+create or replace function public.purge_unverified_signups()
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_deleted_count integer;
+begin
+  with target as (
+    select p.id
+    from profiles p
+    where p.role = 'learner'
+      and p.created_at < now() - interval '7 days'
+      and not exists (
+        select 1 from auth.users u where u.id = p.id and u.email_confirmed_at is not null
+      )
+  )
+  delete from auth.users where id in (select id from target);
+  get diagnostics v_deleted_count = row_count;
+  return v_deleted_count;
+end;
+$$;
+
+-- ===================== RPC: 관리자 접속기록 보관기간(1년) 초과분 파기 =====================
+create or replace function public.purge_old_admin_access_logs()
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_deleted_count integer;
+begin
+  delete from admin_access_logs where created_at < now() - interval '1 year';
+  get diagnostics v_deleted_count = row_count;
+  return v_deleted_count;
+end;
+$$;
+
+-- 두 함수 모두 PostgREST/RPC로 호출될 이유가 없다(pg_cron이 DB 내부에서만 실행) — 클라이언트
+-- 노출을 차단한다(anon/authenticated에게 EXECUTE 권한 자체를 주지 않음).
+revoke execute on function public.purge_unverified_signups() from public, anon, authenticated;
+revoke execute on function public.purge_old_admin_access_logs() from public, anon, authenticated;
+
+-- 매일 새벽 3시(KST) = 18:00 UTC에 실행. cron.schedule은 동일 job_name이 이미 있으면
+-- 스케줄을 갱신하므로(신규 생성이 아님) 재실행해도 안전(idempotent)하다.
+do $$ begin
+  perform cron.schedule('purge-unverified-signups-daily', '0 18 * * *', $cron$select public.purge_unverified_signups();$cron$);
+  perform cron.schedule('purge-old-admin-access-logs-daily', '10 18 * * *', $cron$select public.purge_old_admin_access_logs();$cron$);
+exception when undefined_table or undefined_function then
+  raise notice 'pg_cron이 아직 활성화되지 않았습니다 — Supabase 대시보드 Database > Extensions에서 pg_cron을 켠 뒤 이 스키마를 다시 실행해주세요.';
+end $$;

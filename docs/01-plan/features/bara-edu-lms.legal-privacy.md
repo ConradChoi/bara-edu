@@ -6,13 +6,14 @@ version: 1
 is_published: true
 effective_at: 2026-08-06
 author: product-manager (PO)
-reviewed_by: security-officer (module-lms-7 통합 점검, 2026-08-09 완료 — 본문이 실제 구현과 일치함을 확인). 2026-08-28 주소/사진 수집 추가분도 같은 날 qa-reviewer+security-officer 병렬 검토 완료(치명적 1건·개선 다수 수정 반영) — 아래 stale하던 플래그 정정(2026-09-09). ⚠️ 2026-09-09 Admin 대시보드 가입통계/최근가입자 노출분(아래 pm_notes)은 privacy-security-officer가 "미인증 계정 보관·파기 기준 미비", "접속기록 보관 미구현(제8조 5항과 불일치)" 2건을 지적 — 변호사/전문가 검토 필요, 아직 반영 전
+reviewed_by: security-officer (module-lms-7 통합 점검, 2026-08-09 완료 — 본문이 실제 구현과 일치함을 확인). 2026-08-28 주소/사진 수집 추가분도 같은 날 qa-reviewer+security-officer 병렬 검토 완료(치명적 1건·개선 다수 수정 반영) — 아래 stale하던 플래그 정정(2026-09-09). 2026-09-09 privacy-security-officer가 지적한 "미인증 계정 보관·파기 기준 미비"/"접속기록 보관 미구현" 2건은 2026-09-10 관리자 확정값(미인증 7일 완전삭제·접속기록 최대 1년)으로 구현 완료 — 본문(제3조/제8조 5항) 반영됨. 단, 이 두 수치 자체가 변호사 검토를 거친 값은 아니며 관리자 판단으로 정한 것이므로, 정식 법률 자문 시 재확인 권장.
 source_of_truth:
   - app/actions/auth.ts (회원가입 수집 항목)
   - components/auth/AuthForm.tsx (필수/선택 구분)
-  - supabase/schema.sql (profiles, enrollments, progress, quiz_submissions, assignment_submissions, certificates, bank_accounts, storage.objects)
+  - supabase/schema.sql (profiles, enrollments, progress, quiz_submissions, assignment_submissions, certificates, bank_accounts, storage.objects, admin_access_logs, purge_unverified_signups(), purge_old_admin_access_logs())
   - app/actions/enrollment.ts (수강신청 처리, 주소/사진 수집·저장)
   - app/actions/account.ts (회원탈퇴 처리, 주소/사진 파기)
+  - lib/supabase/admin-queries.ts (logAdminAccess, getAdminMemberDetail 접속기록 기록)
   - docs/01-plan/features/bara-edu-lms.flows.md 6절 Q10~Q12
 placeholders:
   - (없음 — 2026-08-06 대표 확인 완료: 주소/대표전화/보호책임자/사업자등록번호/Supabase 리전(ap-northeast-2, 서울))
@@ -22,6 +23,7 @@ pm_notes:
   - "법정 보존기간(5년/3년/6개월/3개월)은 법령상 기준을 인용한 것이며 security-officer 확인 완료(2026-08-09)."
   - "(2026-08-28 신규, 검토 완료) 수강신청 확인 화면에서 주소·자격증 발급용 사진 1매를 신규로 필수 수집하도록 확장. 사진은 private Storage 버킷에 저장하고 본인+관리자만 서명 URL로 열람 가능. 탈퇴 시 주소는 null 처리, 사진 파일은 스토리지에서 삭제하도록 구현. 같은 날 qa-reviewer+security-officer 병렬 검토 완료, 발견사항(photo_path 자기변조 가능 등 치명적 1건 포함) 전부 수정 반영됨."
   - "(2026-09-09 신규, 검토 완료·문서 반영 대기) Admin 대시보드에 회원가입 통계(오늘/이번주 신규가입, 가입추이 차트)와 최근 가입자 10명 목록(이름·마스킹이메일·가입일시·이메일인증상태)을 신규 노출. privacy-security-officer 점검 결과 치명적 이슈는 없었으나(1) 미인증 계정을 언제까지 보관·언제 파기할지 방침에 기준이 없다는 점(대시보드가 '7일 초과 방치' 건수를 보여주면서도 실제 파기 루틴은 없음), (2) 제8조 5항 '접속 기록 보관' 문구와 달리 개인정보취급자(관리자) 접속기록을 남기는 테이블이 실제로 없다는 점 2가지를 지적받음 — 둘 다 이번 기능 이전부터 있던 갭이지만 노출 화면이 늘어난 만큼 우선순위 상향 권고. 본문(제2조 이용목적 등) 반영 및 파기 기준 수립은 변호사/전문가 검토를 거쳐 별도로 진행 필요."
+  - "(2026-09-10 신규, 구현 완료) 미인증 계정 자동 파기(가입일로부터 7일, 완전삭제, 사전안내 없음) + 관리자 접속기록(제8조 5항) 신규 구현. 둘 다 pg_cron으로 DB 내부에서 매일 자동 실행(앱 서버 상시 구동에 의존하지 않음). 접속기록은 우선 회원 상세 조회(`getAdminMemberDetail`) 1곳만 계측했고, 회원목록·신청관리 등 다른 개인정보 조회 화면은 아직 미계측 — 필요 시 후속 확장 대상. 보관기간(7일/1년) 수치는 관리자가 직접 정한 값이며 변호사 검토를 거치지는 않음."
   - "(2026-09-10 신규, 검토 완료) 자격증 카테고리 강좌에 한해 자격시험 기능 추가 — 응시 점수·합격여부·응시일시가 학습 활동 정보로 신규 생성됨. 제3조 학습 활동 항목과 회원탈퇴 즉시파기 항목에 반영 완료(본문 갱신). privacy-security-officer가 신규 RPC 3종(get_course_exam/submit_course_exam/set_course_exam_correct_option)의 권한 경계를 점검, qa-reviewer와 공통으로 치명적 레이스컨디션 1건(동시 제출 시 재응시 횟수 제한 우회 가능)을 발견해 advisory lock+DB unique 제약으로 수정. 탈퇴 시 자격시험 응시기록·리셋이력도 함께 파기하도록 app/actions/account.ts에 추가 완료."
 ---
 
@@ -113,8 +115,12 @@ pm_notes:
 | 표시·광고에 관한 기록 | 6개월 | 전자상거래 등에서의 소비자보호에 관한 법률 |
 | 접속 로그(로그인 기록 등) | 3개월 | 통신비밀보호법 |
 | 수료 사실에 관한 기록 (수료 강좌, 발급 일시) | 5년 | 수료 사실의 진위 확인 및 분쟁 대응 |
+| 이메일 인증을 완료하지 않은 가입 시도 정보 | 가입일로부터 7일 | 목적 달성 불가능한 개인정보의 지체 없는 파기 (개인정보 보호법 제21조) |
+| 개인정보처리시스템 접속 기록(관리자) | 최대 1년 | 개인정보의 안전성 확보조치 기준 |
 
 법령에 따라 보존하는 기록은 그 보존 목적에만 이용되며, 다른 개인정보와 분리하여 관리합니다.
+
+> **이메일 미인증 가입의 자동 파기**: 회원가입 시 이메일 인증 안내를 발송하며, 가입일로부터 7일 이내에 인증을 완료하지 않으면 사전 안내 없이 매일 자동으로 해당 계정 정보를 완전히 삭제합니다. 인증을 완료한 회원의 정보는 이 파기 대상에 포함되지 않습니다.
 
 ### 2. 회원 탈퇴 시 처리 (중요)
 
@@ -192,7 +198,7 @@ pm_notes:
 2. **비밀번호 암호화**: 비밀번호는 단방향 암호화하여 저장하며 평문으로 보관하지 않습니다.
 3. **전송 구간 암호화**: 서비스의 모든 통신 구간에 HTTPS를 적용합니다.
 4. **관리적 조치**: 개인정보 취급자를 최소한으로 지정하고, 권한 부여·변경·말소 기록을 관리합니다.
-5. **접속 기록 보관**: 개인정보처리시스템 접속 기록을 보관하고 위·변조를 방지합니다.
+5. **접속 기록 보관**: 개인정보취급자(관리자)가 회원의 개인정보를 조회·처리할 때마다 접속 계정, 접속 일시, 접속 IP, 처리한 정보주체, 수행업무를 기록하여 최대 1년간 보관하며, 위·변조 방지를 위해 수정·삭제 기능 없이 보관 기간이 지난 기록만 자동으로 파기합니다.
 
 ---
 
