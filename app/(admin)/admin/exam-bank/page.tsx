@@ -14,7 +14,7 @@ import {
 } from '@/app/actions/admin-exam-bank';
 import StatusBadge from '@/components/admin/StatusBadge';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
-import { getCertificationCategories, getExamBankQuestionsForCategory } from '@/lib/supabase/admin-queries';
+import { getExamBankCategories, getExamBankQuestionsForCategory } from '@/lib/supabase/admin-queries';
 
 export const metadata: Metadata = { title: '문제은행 관리 | 관리자' };
 
@@ -42,7 +42,7 @@ export default async function AdminExamBankPage({
 }) {
   const { categoryId, success, error } = await searchParams;
 
-  const categories = await getCertificationCategories();
+  const categories = await getExamBankCategories();
   if (!categoryId && categories.length > 0) {
     redirect(`/admin/exam-bank?categoryId=${categories[0].id}`);
   }
@@ -54,12 +54,12 @@ export default async function AdminExamBankPage({
     <div className="flex max-w-[640px] flex-col gap-6">
       <div className="flex flex-col gap-1">
         <h1 className="text-[20px] font-semibold text-n-9">문제은행 관리</h1>
-        <p className="text-[12.5px] text-n-6">같은 자격증 카테고리에 속한 강좌들은 여기서 만든 문항을 공유해서 시험에 쓸 수 있어요.</p>
+        <p className="text-[12.5px] text-n-6">같은 세부과정(예: &quot;2급&quot;)에 속한 강좌들은 여기서 만든 문항을 공유해서 시험에 쓸 수 있어요.</p>
       </div>
 
       {categories.length === 0 ? (
         <p className="text-[13px] text-n-6">
-          자격증으로 지정된 1Depth 카테고리가 없어요.{' '}
+          자격증으로 지정된 카테고리가 없어요.{' '}
           <Link href="/admin/categories" className="underline">
             카테고리 관리
           </Link>
@@ -75,7 +75,7 @@ export default async function AdminExamBankPage({
                 category.id === categoryId ? 'border-pink bg-pink/10 text-pink' : 'border-n-3 text-n-7'
               }`}
             >
-              {category.name}
+              {category.label}
             </Link>
           ))}
         </div>

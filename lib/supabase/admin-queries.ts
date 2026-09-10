@@ -752,20 +752,36 @@ export async function getAdminCourseById(id: string): Promise<AdminCourseDetail 
 
 // ===================== 카테고리 관리 (/admin/categories) =====================
 
-// 문제은행 관리 화면(/admin/exam-bank)의 카테고리 선택기용 — 1Depth이자 자격증으로
-// 지정된 카테고리만 문제은행을 가질 수 있다(2026-09-10).
-export type AdminCertificationCategory = { id: string; name: string };
+// 문제은행 관리 화면(/admin/exam-bank)의 카테고리 선택기용. 처음엔 1Depth(자격증) 전체를
+// 하나의 문제은행으로 공유했으나, 관리자 피드백으로 "1Depth 전체 공용은 너무 넓다 —
+// 같은 자격증이라도 2급/1급처럼 2Depth 세부과정마다 문항이 달라 찾기 어렵다"는 지적을
+// 받아 **2Depth 단위**로 좁혔다(2026-09-10). 세부과정을 안 나눈 자격증(1Depth에 직접
+// 강좌를 배정)을 위해 1Depth 루트 자체도 옵션으로 함께 보여준다 — `getCourseExamBankCategoryId()`가
+// depth 1~2는 그대로, depth 3은 부모(depth 2)로 캡핑하는 것과 동일한 기준.
+export type AdminExamBankCategory = { id: string; label: string };
 
-export async function getCertificationCategories(): Promise<AdminCertificationCategory[]> {
+export async function getExamBankCategories(): Promise<AdminExamBankCategory[]> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from('categories')
-    .select('id, name')
-    .eq('depth', 1)
-    .eq('is_certification', true)
+    .select('id, name, depth, parent_id, is_certification')
+    .lte('depth', 2)
     .order('order', { ascending: true });
   if (error) throw new Error(error.message);
-  return data as AdminCertificationCategory[];
+
+  const rows = data as { id: string; name: string; depth: number; parent_id: string | null; is_certification: boolean }[];
+  const byId = new Map(rows.map((row) => [row.id, row]));
+
+  const categories: AdminExamBankCategory[] = [];
+  for (const row of rows) {
+    if (row.depth === 1) {
+      if (row.is_certification) categories.push({ id: row.id, label: row.name });
+    } else if (row.depth === 2) {
+      const parent = row.parent_id ? byId.get(row.parent_id) : undefined;
+      if (parent?.is_certification) categories.push({ id: row.id, label: `${parent.name} > ${row.name}` });
+    }
+  }
+  return categories;
 }
 
 export async function getCategoryCourseCounts(): Promise<Record<string, number>> {
@@ -1106,8 +1122,11 @@ export async function getQuizQuestionsForLesson(lessonId: string): Promise<Admin
 }
 
 // ===================== 자격시험 문제은행 + 강좌 연결 (2026-09-10 재설계) =====================
-// 처음엔 문항을 강좌별로 독립 저장했으나, 관리자 요청으로 "같은 자격증(1Depth 카테고리) 안의
-// 강좌끼리는 문제를 공유해서 쓸 수 있어야 한다"는 요구가 추가돼 문제은행 구조로 바뀌었다.
+// 처음엔 문항을 강좌별로 독립 저장했으나, 관리자 요청으로 "같은 자격증 안의 강좌끼리는
+// 문제를 공유해서 쓸 수 있어야 한다"는 요구가 추가돼 문제은행 구조로 바뀌었다. 스코프는
+// 처음엔 1Depth(자격증) 전체였다가, "1Depth 전체 공용은 너무 넓어 문항 찾기가 어렵다"는
+// 관리자 피드백으로 같은 날 다시 2Depth(세부과정, 예: "2급"/"1급") 단위로 좁혔다 —
+// getExamBankCategories()/getCourseExamBankCategoryId() 참고.
 // isCorrect를 포함하는 관리자 전용 타입 — quiz와 동일한 정답 비노출 패턴.
 
 export type AdminExamBankOption = { id: string; label: string; order: number; isCorrect: boolean };
@@ -1142,19 +1161,28 @@ export async function getExamBankQuestionsForCategory(categoryId: string): Promi
   }));
 }
 
-// 강좌의 category_id에서 1Depth 조상까지 거슬러 올라간다 — DB의 get_root_category_id()를
-// 그대로 재사용해 판정 로직이 앱/DB 두 곳에 따로 존재하지 않게 한다.
-async function getCourseRootCategoryId(
+// 강좌가 속한 "문제은행 스코프" categoryId를 계산한다 — depth 1~2는 그대로, depth 3은
+// 부모(depth 2)로 캡핑한다(2026-09-10, 관리자 피드백으로 1Depth 전체 공용에서 2Depth
+// 단위로 좁힘 — getExamBankCategories() 주석 참고). "이 강좌가 이미 자격시험 카테고리에
+// 속해있다"는 전제는 호출부(exam 화면은 requiresExam=true인 강좌만 진입)에서 이미
+// 보장되므로 여기서 is_certification을 다시 확인하지 않는다.
+async function getCourseExamBankCategoryId(
   supabase: Awaited<ReturnType<typeof createClient>>,
   courseId: string
 ): Promise<string | null> {
   const { data: course, error: courseError } = await supabase.from('courses').select('category_id').eq('id', courseId).maybeSingle();
   if (courseError) throw new Error(courseError.message);
-  if (!course) return null;
+  if (!course || !course.category_id) return null;
 
-  const { data, error } = await supabase.rpc('get_root_category_id', { p_category_id: course.category_id });
-  if (error) throw new Error(error.message);
-  return data as string | null;
+  const { data: category, error: categoryError } = await supabase
+    .from('categories')
+    .select('depth, parent_id')
+    .eq('id', course.category_id)
+    .maybeSingle();
+  if (categoryError) throw new Error(categoryError.message);
+  if (!category) return null;
+
+  return category.depth >= 3 ? category.parent_id : (course.category_id as string);
 }
 
 export type AdminCourseExamLink = {
@@ -1195,16 +1223,16 @@ export async function getCourseExamQuestionsForCourse(courseId: string): Promise
   }));
 }
 
-// "문제은행 관리로 이동" 링크용 — 강좌가 속한 1Depth 자격증 카테고리 id.
+// "문제은행 관리로 이동" 링크용 — 강좌가 속한 문제은행 스코프 카테고리 id.
 export async function getCourseCertificationCategoryId(courseId: string): Promise<string | null> {
   const supabase = await createClient();
-  return getCourseRootCategoryId(supabase, courseId);
+  return getCourseExamBankCategoryId(supabase, courseId);
 }
 
-// "문제은행에서 추가" 피커용 — 강좌의 자격증 카테고리 안에서 아직 이 강좌에 연결되지 않은 문항.
+// "문제은행에서 추가" 피커용 — 강좌의 문제은행 스코프 안에서 아직 이 강좌에 연결되지 않은 문항.
 export async function getAvailableBankQuestionsForCourse(courseId: string): Promise<AdminExamBankQuestion[]> {
   const supabase = await createClient();
-  const rootCategoryId = await getCourseRootCategoryId(supabase, courseId);
+  const rootCategoryId = await getCourseExamBankCategoryId(supabase, courseId);
   if (!rootCategoryId) return [];
 
   const [bankQuestions, linkRows] = await Promise.all([

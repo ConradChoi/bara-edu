@@ -4,7 +4,10 @@ import { redirect } from 'next/navigation';
 import { requireAdminClient } from '@/lib/supabase/require-admin';
 
 // 자격증 문제은행 저작 (2026-09-10 신규 — 강좌마다 문항을 새로 만들어야 했던 걸, 같은
-// 자격증(1Depth 카테고리) 안에서는 여러 강좌가 문항을 공유해 쓸 수 있도록 분리했다).
+// 자격증 안에서는 여러 강좌가 문항을 공유해 쓸 수 있도록 분리했다). 스코프는 처음엔
+// 1Depth(자격증) 전체였다가, "전체 공용은 너무 넓어 문항 찾기가 어렵다"는 관리자 피드백으로
+// 같은 날 2Depth(세부과정, 예: "2급"/"1급") 단위로 좁혔다 — 세부과정이 없는 자격증은
+// 1Depth 루트 자체가 스코프가 된다(admin-queries.ts의 getExamBankCategories() 참고).
 // admin-exam.ts(강좌↔문항 "연결" 관리)와 역할이 분리되어 있다 — 이 파일은 문항 내용
 // (질문/보기/정답) 자체만 다룬다. admin-quiz.ts를 거의 그대로 복제하되 테이블명
 // (exam_question_bank/exam_bank_options)과 categoryId 기준, 리다이렉트 경로만 다르다.
@@ -13,17 +16,31 @@ function bankPath(categoryId: string) {
   return `/admin/exam-bank?categoryId=${categoryId}`;
 }
 
-// categoryId가 실제로 1Depth이자 자격증 지정된 카테고리인지 서버에서 재검증한다 —
-// 클라이언트가 임의의 categoryId(예: 2Depth "프론트엔드")를 보내면 문제은행이 엉뚱한
-// 카테고리에 만들어질 수 있다(폼 hidden 값을 신뢰하지 않는다는 기존 원칙과 동일).
+// categoryId가 실제로 문제은행 스코프로 유효한 카테고리인지 서버에서 재검증한다 —
+// 1Depth라면 그 자체가 자격증으로 지정돼 있어야 하고, 2Depth라면 부모(1Depth)가
+// 자격증으로 지정돼 있어야 한다(3Depth는 애초에 스코프가 될 수 없음). 클라이언트가
+// 임의의 categoryId(예: 자격증 아닌 카테고리)를 보내면 문제은행이 엉뚱한 카테고리에
+// 만들어질 수 있다(폼 hidden 값을 신뢰하지 않는다는 기존 원칙과 동일).
 async function assertCertificationCategory(
   supabase: Awaited<ReturnType<typeof requireAdminClient>>,
   categoryId: string
 ) {
-  const { data: category } = await supabase.from('categories').select('depth, is_certification').eq('id', categoryId).maybeSingle();
-  if (!category || category.depth !== 1 || !category.is_certification) {
-    redirect('/admin/exam-bank?error=invalid-category');
+  const { data: category } = await supabase
+    .from('categories')
+    .select('depth, parent_id, is_certification')
+    .eq('id', categoryId)
+    .maybeSingle();
+  if (!category) redirect('/admin/exam-bank?error=invalid-category');
+
+  if (category.depth === 1) {
+    if (!category.is_certification) redirect('/admin/exam-bank?error=invalid-category');
+    return;
   }
+  if (category.depth === 2 && category.parent_id) {
+    const { data: parent } = await supabase.from('categories').select('is_certification').eq('id', category.parent_id).maybeSingle();
+    if (parent?.is_certification) return;
+  }
+  redirect('/admin/exam-bank?error=invalid-category');
 }
 
 export async function addBankQuestion(categoryId: string, formData: FormData) {

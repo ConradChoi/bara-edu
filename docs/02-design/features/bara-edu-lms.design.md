@@ -1363,6 +1363,17 @@ export default function CourseForm({ categories, action, defaultValues, submitLa
 - 시험 문항은 **내용을 복제하지 않고 문제은행 참조(`bank_question_id`)만 복사** — 원본/복사본 강좌가 같은 문제은행을 계속 공유해서 쓴다(문제은행을 도입한 이유와 동일: 문항을 두 번 만들 필요 없음).
 - 진입점: `/admin/courses` 목록 각 행에 "복사" 버튼(비파괴적 작업이라 `ConfirmDialog` 없이 즉시 실행하는 폼 submit). 완료 후 새 강좌의 수정 화면(`/admin/courses/[id]?duplicated=1`)으로 이동, "제목·slug·일정 등 필요한 부분을 수정해주세요" 안내.
 
+### 4.6.12 배포 전 발견 사항 3건 수정 (2026-09-10, 4.6.11 같은 날 후속)
+
+1. **치명적 버그 발견·수정 — 학습자 시험 상태 조회가 admin-only RLS에 막혀 있었음.** qa-reviewer 배경 리뷰에서 `lib/supabase/classroom-queries.ts`의 `getCourseExamState()`가 드랍된 옛 테이블을 여전히 직접 select하고 있는 걸 발견. 조사 결과 이건 4.6.11의 마이그레이션 누락이 아니라 **9/9 최초 출시 때부터 있던 잠재 버그** — 옛 `course_exam_questions`/`course_exam_options`도 처음부터 admin-only select RLS였는데(4.6.0 참고), 이 함수는 학습자 본인 세션(anon key+쿠키, RLS 그대로 적용)으로 직접 select해왔다. RLS는 조용히 빈 결과만 돌려주므로 `questionCount`가 항상 0으로 계산돼 시험 섹션이 모든 학습자에게 계속 'not_ready'로만 보였을 가능성이 있다(실제로 진도 100%에 도달한 학습자가 아직 없어 미발견 상태였을 수 있음). `get_my_exam_reset_at()`과 동일한 패턴으로 신규 RPC `get_course_exam_readiness(p_course_id)`(SECURITY DEFINER, 문항 수·정답 미설정 여부 2개 값만 반환 — 문항 내용은 노출 안 함)를 추가해 우회.
+2. **`duplicateCourse` 원자성 보강.** 복사 중 어느 단계에서 실패해도 이미 만들어진 새 강좌 row가 그대로 남아 `status='upcoming'`이면 공개 목록(`getPublicCourses`)에 미완성 강좌가 노출될 위험이 있었다(qa-reviewer 지적). 새 강좌를 항상 `status='closed'`로 먼저 만들고, 커리큘럼·교재·시험연결 복사가 전부 성공한 뒤 마지막 단계에서만 `upcoming`으로 전환하도록 변경. 강좌 시작/종료일과 강의별 과제 마감일·온라인 세션 일시는 원본이 이미 지났을 수 있어 복사 시 null로 초기화.
+3. **문제은행 스코프를 1Depth→2Depth로 재조정.** 관리자가 실제 `/admin/exam-bank` 화면을 써보고 "카테고리(1Depth) 안에 문항이 다 모여 있으면 강좌에 맞는 문항을 찾기 어렵다"고 피드백 — 같은 자격증이라도 "2급"/"1급"처럼 2Depth 세부과정마다 실제 출제 내용이 다르므로, 1Depth 전체 공용은 실무에서 너무 넓은 스코프였다. 대응:
+   - `exam_question_bank.category_id`가 이제 (원칙적으로) 2Depth id를 담는다. 세부과정을 안 나눈 자격증(강좌가 1Depth에 직접 배정)은 1Depth 루트 자체가 스코프로 남는다.
+   - `getCourseExamBankCategoryId()`(이전 `getCourseRootCategoryId`를 대체) — 강좌 category depth가 1~2면 그대로, 3이면 부모(2Depth)로 캡핑. 기존 `get_root_category_id()` DB RPC(1Depth 고정)는 이 목적엔 더 이상 쓰지 않지만, 정의 자체는 남겨둠(다른 곳에서 참조 안 하므로 무해).
+   - `getExamBankCategories()`(이전 `getCertificationCategories()`를 대체) — 1Depth 자격증 카테고리 자신 + 그 자식인 2Depth 카테고리를 모두 후보로 반환(`"부모명 > 자식명"` 라벨). `/admin/exam-bank` picker가 이 목록을 그대로 pill 버튼으로 노출.
+   - `admin-exam-bank.ts`의 `assertCertificationCategory()`도 "1Depth 자체가 자격증" 또는 "2Depth이고 부모가 자격증"인 경우 모두 허용하도록 확장.
+   - **기존 데이터 보정**: 4.6.11 마이그레이션이 이미 1Depth id로 만들어둔 기존 문항(도형기질활용지도자 2급 강좌의 문항 1개)은, 실제로 연결된 강좌의 카테고리를 역으로 조회해 올바른 2Depth id로 재계산하는 결정론적 `update` 문을 schema.sql에 추가해 자동 보정(재실행해도 항상 같은 값으로 수렴해 안전, 연결된 강좌가 없는 문항은 그대로 둠).
+
 ---
 
 ## 5. Error Handling

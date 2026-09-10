@@ -51,7 +51,7 @@ graph TD
   ADMIN --> M1["/admin 대시보드"]
   ADMIN --> M2["/admin/courses 강좌 관리"]
   M2 --> M2a["/admin/courses/[id]/exam 강좌 시험 문항 연결 (자격증 카테고리 강좌만)"]
-  ADMIN --> M2b["/admin/exam-bank 문제은행 관리 (1Depth 자격증 카테고리별 공용 문항)"]
+  ADMIN --> M2b["/admin/exam-bank 문제은행 관리 (2Depth 세부과정별 공용 문항)"]
   ADMIN --> M3["/admin/members 회원 관리 (탈퇴 회원 조회 포함)"]
   ADMIN --> M4["/admin/enrollments 신청·입금 관리"]
   ADMIN --> M5["/admin/certificates 수료 관리"]
@@ -154,8 +154,8 @@ graph TD
 | F-ADMC-5 | 등록/수정 폼 | 자격증 발급 정보 필수 여부 | 체크박스(기본 켜짐) — 끄면 F-PUB-5b(주소·사진)가 신청 확인 화면에서 아예 안 보임. 자격과정이 아닌 보수교육·일반교육용(2026-08-29 추가) | Must | `courses.requires_certificate_info` |
 | F-ADMC-6 | 등록/수정 폼 | 교재 관리 | 주교재(강좌당 1개, 선택)/보조교재(여러 개, 선택) 등록·수정·삭제 — 항목: 교재명·출판사·구매 가능 URL. 보조교재는 실물 교재뿐 아니라 유인물·PPT 등 자료 전반을 포괄(2026-08-30 추가) | Should | `course_materials` |
 | F-ADMC-7 | 등록/수정 폼 | 시험 여부 + 시험 정책 설정 | **1Depth 카테고리가 "자격증"일 때만 실시간으로 나타나는** 블록(`CategoryPicker`가 이미 `'use client'`라 부모 폼 state로 연동). 항목 3개: ① 시험 여부 체크박스(기본 꺼짐) ② 합격 기준 점수(%, 1~100, 기본 60) ③ 최대 응시 횟수(1~N회, 기본 3, **무제한 옵션 없음**). ②③은 체크 시에만 노출·필수(2026-09-09 추가) | Must | `courses.requires_exam`, `courses.exam_pass_score`, `courses.exam_max_attempts` |
-| F-ADMC-8 | 시험 문제 저작(강좌 측) | 문제은행 문항 연결 | `/admin/courses/[id]/exam` — 문항 내용은 F-ADMC-8b 문제은행 소유라 여기서는 **연결/해제/순서 변경만** 다룬다(내용은 읽기 전용 표시). "문제은행에서 추가" 섹션에서 같은 자격증 카테고리의 미연결 문항을 골라 연결한다. `requires_exam=false`인 강좌는 진입 메뉴 미노출(2026-09-09 추가, 2026-09-10 문제은행 구조로 재설계) | Must | `course_exam_question_links` |
-| F-ADMC-8b | 시험 문제 저작(공용) | 문제은행 관리 | `/admin/exam-bank` — 1Depth 자격증 카테고리별 문제은행. 객관식(단일 정답) 문항·선택지 등록/수정/삭제/순서 변경. **같은 카테고리에 속한 모든 강좌가 문항을 공유**해서 쓸 수 있어 강좌마다 문항을 새로 만들 필요가 없다(관리자 요청, 2026-09-10 추가). 문항 삭제 시 그 문항을 쓰던 모든 강좌의 시험 연결도 함께 사라짐(cascade) | Must | `exam_question_bank`, `exam_bank_options` |
+| F-ADMC-8 | 시험 문제 저작(강좌 측) | 문제은행 문항 연결 | `/admin/courses/[id]/exam` — 문항 내용은 F-ADMC-8b 문제은행 소유라 여기서는 **연결/해제/순서 변경만** 다룬다(내용은 읽기 전용 표시). "문제은행에서 추가" 섹션에서 같은 세부과정(2Depth) 문제은행의 미연결 문항을 골라 연결한다. `requires_exam=false`인 강좌는 진입 메뉴 미노출(2026-09-09 추가, 2026-09-10 문제은행 구조로 재설계) | Must | `course_exam_question_links` |
+| F-ADMC-8b | 시험 문제 저작(공용) | 문제은행 관리 | `/admin/exam-bank` — **2Depth(세부과정) 단위** 문제은행(예: "도형기질활용지도자 > 2급"). 객관식(단일 정답) 문항·선택지 등록/수정/삭제/순서 변경. **같은 세부과정에 속한 모든 강좌가 문항을 공유**해서 쓸 수 있어 강좌마다 문항을 새로 만들 필요가 없다(관리자 요청, 2026-09-10 추가). 처음엔 1Depth(자격증) 전체 공용이었으나, "전체 공용은 너무 넓어 문항 찾기가 어렵다"는 같은 날 관리자 피드백으로 2Depth 단위로 좁힘 — 세부과정을 안 나눈 자격증은 1Depth 루트 자체가 스코프. 문항 삭제 시 그 문항을 쓰던 모든 강좌의 시험 연결도 함께 사라짐(cascade) | Must | `exam_question_bank`, `exam_bank_options` |
 | F-ADMC-9 | 목록·폼 | 시험 미등록 경고 | `requires_exam=true` + **연결된 문항 0건** 강좌는 **강좌 목록에 경고 배지("시험 문제 미등록")**, 등록/수정 폼 저장 후 인라인 경고 배너 + "문제 등록하러 가기" 링크. **저장 자체는 차단하지 않는다**(강좌를 먼저 만들고 문항을 나중에 넣는 실제 운영 순서를 막으면 안 됨). 다만 이 상태의 학습자는 수료증을 영구 발급받을 수 없으므로 경고는 Must(2026-09-09 추가) | Must | `courses`, `course_exam_question_links` |
 | F-ADMC-10 | 목록 | 강좌 복사 | `/admin/courses` 목록의 "복사" 버튼 — 기본정보(제목에 "(복사본)", slug는 `-copy`/`-copy-2`... 자동 채번, 상태는 항상 `upcoming`으로 초기화) + 커리큘럼(강의, 강의별 퀴즈 포함) + 교재(주교재/보조교재) + 시험설정(문항 "연결"만 복사 — 문제은행은 공유하므로 문항 내용은 복제하지 않음)을 한 번에 복제한다. 매 강좌 등록마다 반복 입력해야 했던 부담을 줄이기 위해 관리자가 직접 확정한 범위(2026-09-10 추가) | Should | `courses`, `lessons`, `quiz_questions`, `quiz_options`, `course_materials`, `course_exam_question_links` |
 
@@ -169,7 +169,7 @@ graph TD
 > | 4 | 재응시 | 강좌별 횟수 제한(**무제한 아님**). 강의 퀴즈(F-LRN-4, 무제한)와 규칙이 정반대 |
 >
 > **구현 전 반드시 확인할 제약**
-> 1. **기존 `quiz_questions`/`quiz_options`/`quiz_submissions`를 재사용하지 않는다.** 강의 퀴즈는 "무제한 재응시·수료 무관 연습"이고 자격시험은 "횟수 제한·수료 게이팅"이라 규칙이 정반대다. 한 테이블에 섞으면 `submit_quiz_attempt()`의 무제한 재응시 로직이 곧 수료 게이팅 우회 경로가 된다. 시험 전용 테이블로 분리하고, 문항 직접 select는 관리자만 허용 + 학습자는 RPC 경유(기존 퀴즈와 동일한 정답 비노출 원칙)를 그대로 따른다. (초기엔 `course_exam_questions`/`course_exam_options`로 강좌 소유 구조였으나, 2026-09-10 관리자 요청으로 "같은 자격증 카테고리 강좌끼리 문항을 공유"해야 한다는 요구가 추가돼 `exam_question_bank`/`exam_bank_options`(카테고리 소유) + `course_exam_question_links`(강좌↔문항 연결) 구조로 재설계했다 — F-ADMC-8b 참고.)
+> 1. **기존 `quiz_questions`/`quiz_options`/`quiz_submissions`를 재사용하지 않는다.** 강의 퀴즈는 "무제한 재응시·수료 무관 연습"이고 자격시험은 "횟수 제한·수료 게이팅"이라 규칙이 정반대다. 한 테이블에 섞으면 `submit_quiz_attempt()`의 무제한 재응시 로직이 곧 수료 게이팅 우회 경로가 된다. 시험 전용 테이블로 분리하고, 문항 직접 select는 관리자만 허용 + 학습자는 RPC 경유(기존 퀴즈와 동일한 정답 비노출 원칙)를 그대로 따른다. (초기엔 `course_exam_questions`/`course_exam_options`로 강좌 소유 구조였으나, 2026-09-10 관리자 요청으로 "같은 자격증 카테고리 강좌끼리 문항을 공유"해야 한다는 요구가 추가돼 `exam_question_bank`/`exam_bank_options`(카테고리 소유) + `course_exam_question_links`(강좌↔문항 연결) 구조로 재설계했다. 처음엔 카테고리 소유 단위가 1Depth였으나, 같은 날 후속 피드백으로 2Depth(세부과정) 단위로 좁혔다 — F-ADMC-8b 참고.)
 > 2. **"자격증" 카테고리를 문자열로 하드코딩 금지.** `categories`에는 `name`만 있고 slug/code가 없어(스키마 57~64행) 관리자가 `/admin/categories`에서 이름을 바꾸면 기능이 조용히 사라진다. 1Depth 카테고리에 **안정적 식별 플래그(F-ADMCAT-4)**를 두고 그 값으로 판정한다.
 > 3. **폼에서 숨기는 것만으로는 부족하다.** 카테고리를 자격증 → 타 카테고리로 바꿔 저장하면 서버가 `requires_exam=false`로 강제 정규화한다(클라이언트 hidden 값 신뢰 금지). 단 **이미 등록된 문항·응시 기록은 삭제하지 않는다** — 카테고리를 되돌리면 그대로 복구된다.
 > 4. **정책 변경의 소급 적용 규칙**

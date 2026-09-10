@@ -1069,6 +1069,26 @@ begin
   end if;
 end $$;
 
+-- 문제은행 스코프를 1Depth 전체 공용에서 2Depth(세부과정) 단위로 좁히면서(2026-09-10,
+-- 관리자 피드백: "1Depth 전체 공용은 너무 넓어 문항 찾기가 어렵다"), 위 마이그레이션이
+-- 이미 1Depth id로 만들어둔 기존 문항의 category_id를 실제로 연결된 강좌 기준으로
+-- 재계산한다. 결정론적 재계산이라 몇 번을 재실행해도 항상 같은 결과로 수렴해 안전하고,
+-- 연결된 강좌가 없는(관리자가 아직 아무 강좌에도 안 붙인) 문항은 그대로 둔다.
+update exam_question_bank eb
+set category_id = resolved.bank_category_id
+from (
+  select distinct on (l.bank_question_id)
+    l.bank_question_id,
+    case when cat.depth >= 3 then cat.parent_id else c.category_id end as bank_category_id
+  from course_exam_question_links l
+  join courses c on c.id = l.course_id
+  join categories cat on cat.id = c.category_id
+  order by l.bank_question_id, l.id
+) resolved
+where resolved.bank_question_id = eb.id
+  and resolved.bank_category_id is not null
+  and resolved.bank_category_id <> eb.category_id;
+
 -- 응시 기록. passed는 응시 시점 exam_pass_score 기준 스냅샷으로, 이후 합격 기준이
 -- 바뀌어도 재계산하지 않는다(지난 합격이 나중에 뒤집히면 안 됨 — product-manager 확정).
 -- attempt_no는 "가장 최근 리셋 이후" 1부터 재기산한다(잔여 응시 횟수 계산 기준).
