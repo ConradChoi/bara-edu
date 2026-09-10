@@ -1373,6 +1373,7 @@ export default function CourseForm({ categories, action, defaultValues, submitLa
    - `getExamBankCategories()`(이전 `getCertificationCategories()`를 대체) — 1Depth 자격증 카테고리 자신 + 그 자식인 2Depth 카테고리를 모두 후보로 반환(`"부모명 > 자식명"` 라벨). `/admin/exam-bank` picker가 이 목록을 그대로 pill 버튼으로 노출.
    - `admin-exam-bank.ts`의 `assertCertificationCategory()`도 "1Depth 자체가 자격증" 또는 "2Depth이고 부모가 자격증"인 경우 모두 허용하도록 확장.
    - **기존 데이터 보정**: 4.6.11 마이그레이션이 이미 1Depth id로 만들어둔 기존 문항(도형기질활용지도자 2급 강좌의 문항 1개)은, 실제로 연결된 강좌의 카테고리를 역으로 조회해 올바른 2Depth id로 재계산하는 결정론적 `update` 문을 schema.sql에 추가해 자동 보정(재실행해도 항상 같은 값으로 수렴해 안전, 연결된 강좌가 없는 문항은 그대로 둠).
+   - **(같은 날 추가 조정)** 실제 화면(도형기질활용지도자/에니어그램처럼 2Depth 세부과정이 있는 자격증)에서 써보니, picker에 함께 뜨는 1Depth "자격증" 자체 pill이 실질적으로 거의 안 쓰이면서 혼란만 준다는 지적 → `getExamBankCategories()`가 **2Depth 세부과정이 하나라도 있는 1Depth는 그 자체를 목록에서 제외**하도록 수정(세부과정을 아예 안 나눈 자격증만 1Depth 루트가 노출). `getCourseExamBankCategoryId()`의 depth1~2 그대로/depth3 캡핑 로직은 변경 없음 — 세부과정 없이 1Depth에 직접 배정된 강좌는 여전히 정상 동작하되, 그 문제은행은 picker 목록에 없으므로 자격시험 화면의 "문제은행 관리로 이동" 딥링크로만 접근 가능하다(현재로선 실사용 사례가 없어 허용 가능한 트레이드오프로 판단). 스키마 변경 없음(순수 앱 레이어 필터링).
 
 ---
 

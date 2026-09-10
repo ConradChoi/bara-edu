@@ -755,9 +755,13 @@ export async function getAdminCourseById(id: string): Promise<AdminCourseDetail 
 // 문제은행 관리 화면(/admin/exam-bank)의 카테고리 선택기용. 처음엔 1Depth(자격증) 전체를
 // 하나의 문제은행으로 공유했으나, 관리자 피드백으로 "1Depth 전체 공용은 너무 넓다 —
 // 같은 자격증이라도 2급/1급처럼 2Depth 세부과정마다 문항이 달라 찾기 어렵다"는 지적을
-// 받아 **2Depth 단위**로 좁혔다(2026-09-10). 세부과정을 안 나눈 자격증(1Depth에 직접
-// 강좌를 배정)을 위해 1Depth 루트 자체도 옵션으로 함께 보여준다 — `getCourseExamBankCategoryId()`가
-// depth 1~2는 그대로, depth 3은 부모(depth 2)로 캡핑하는 것과 동일한 기준.
+// 받아 **2Depth 단위**로 좁혔다(2026-09-10). 1Depth 루트 자체는 "그 밑에 2Depth 세부과정이
+// 하나도 없을 때만" 옵션으로 보여준다 — 세부과정이 있는데도 항상 노출하면 실제로는 거의
+// 쓰이지 않는 pill이 계속 떠 있어 혼란만 준다는 관리자 지적으로 같은 날 추가 조정.
+// (`getCourseExamBankCategoryId()`가 depth 1~2는 그대로, depth 3은 부모로 캡핑하는 건
+// 그대로라 — 세부과정 없는 자격증에 직접 배정된 강좌는 여전히 1Depth를 스코프로 쓴다.
+// 다만 이 화면 picker 목록에는 안 뜨므로, 그런 강좌는 자격시험 화면의
+// "문제은행 관리로 이동" 딥링크로만 접근 가능하다.)
 export type AdminExamBankCategory = { id: string; label: string };
 
 export async function getExamBankCategories(): Promise<AdminExamBankCategory[]> {
@@ -771,11 +775,12 @@ export async function getExamBankCategories(): Promise<AdminExamBankCategory[]> 
 
   const rows = data as { id: string; name: string; depth: number; parent_id: string | null; is_certification: boolean }[];
   const byId = new Map(rows.map((row) => [row.id, row]));
+  const parentIdsWithChildren = new Set(rows.filter((row) => row.depth === 2 && row.parent_id).map((row) => row.parent_id as string));
 
   const categories: AdminExamBankCategory[] = [];
   for (const row of rows) {
     if (row.depth === 1) {
-      if (row.is_certification) categories.push({ id: row.id, label: row.name });
+      if (row.is_certification && !parentIdsWithChildren.has(row.id)) categories.push({ id: row.id, label: row.name });
     } else if (row.depth === 2) {
       const parent = row.parent_id ? byId.get(row.parent_id) : undefined;
       if (parent?.is_certification) categories.push({ id: row.id, label: `${parent.name} > ${row.name}` });
