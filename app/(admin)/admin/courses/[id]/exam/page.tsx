@@ -36,7 +36,9 @@ export default async function AdminCourseExamPage({
     getAvailableBankQuestionsForCourse(courseId),
     getCourseCertificationCategoryId(courseId),
   ]);
-  const unresolvedCount = links.filter((l) => !l.options.some((o) => o.isCorrect)).length;
+  const unresolvedCount = links.filter((l) =>
+    l.questionType === 'short_answer' ? !l.answerText?.trim() : !l.options.some((o) => o.isCorrect)
+  ).length;
 
   return (
     <div className="flex max-w-[640px] flex-col gap-6">
@@ -100,6 +102,7 @@ export default async function AdminCourseExamPage({
               <div className="flex items-start gap-2">
                 <span className="mt-0.5 text-[12px] text-n-5">{index + 1}.</span>
                 <p className="flex-1 text-[13px] font-medium text-n-9">{link.question}</p>
+                <StatusBadge tone="neutral">{link.questionType === 'short_answer' ? '주관식' : '객관식'}</StatusBadge>
                 <form action={moveCourseExamLinkUp.bind(null, link.linkId, courseId)}>
                   <button type="submit" className="rounded-pill border border-n-3 px-2 py-1 text-[11px] text-n-7">
                     ▲
@@ -121,14 +124,20 @@ export default async function AdminCourseExamPage({
                 />
               </div>
 
-              <ul className="mt-3 flex flex-col gap-1 pl-6">
-                {link.options.map((option) => (
-                  <li key={option.id} className="flex items-center gap-2 text-[12.5px] text-n-7">
-                    <span>{option.label}</span>
-                    {option.isCorrect && <StatusBadge tone="success">정답</StatusBadge>}
-                  </li>
-                ))}
-              </ul>
+              {link.questionType === 'short_answer' ? (
+                <p className="mt-3 pl-6 text-[12.5px] text-n-7">
+                  정답: <span className="font-medium text-n-9">{link.answerText ?? '(미설정)'}</span>
+                </p>
+              ) : (
+                <ul className="mt-3 flex flex-col gap-1 pl-6">
+                  {link.options.map((option) => (
+                    <li key={option.id} className="flex items-center gap-2 text-[12.5px] text-n-7">
+                      <span>{option.label}</span>
+                      {option.isCorrect && <StatusBadge tone="success">정답</StatusBadge>}
+                    </li>
+                  ))}
+                </ul>
+              )}
             </li>
           ))}
         </ul>
@@ -150,6 +159,7 @@ export default async function AdminCourseExamPage({
             {availableQuestions.map((q) => (
               <li key={q.id} className="flex items-center gap-2">
                 <span className="flex-1 text-[12.5px] text-n-8">{q.question}</span>
+                <StatusBadge tone="neutral">{q.questionType === 'short_answer' ? '주관식' : '객관식'}</StatusBadge>
                 <form action={linkBankQuestionToCourse.bind(null, courseId, q.id)}>
                   <button type="submit" className="rounded-pill bg-pink px-3 py-1 text-[11.5px] font-semibold text-white">
                     추가

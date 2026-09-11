@@ -423,17 +423,28 @@ export async function getCourseExamQuestions(courseId: string): Promise<CourseEx
     question_id: string;
     question: string;
     question_order: number;
-    option_id: string;
-    option_label: string;
-    option_order: number;
+    question_type: 'multiple_choice' | 'short_answer';
+    option_id: string | null;
+    option_label: string | null;
+    option_order: number | null;
   }[];
 
+  // 주관식 문항은 option_id가 null인 행 1개로 온다(get_course_exam()의 left join) — 옵션을
+  // 추가하지 않고 문항만 등록한다.
   const questions = new Map<string, CourseExamQuestionWithOptions>();
   for (const row of rows) {
     if (!questions.has(row.question_id)) {
-      questions.set(row.question_id, { id: row.question_id, question: row.question, order: row.question_order, options: [] });
+      questions.set(row.question_id, {
+        id: row.question_id,
+        question: row.question,
+        order: row.question_order,
+        questionType: row.question_type,
+        options: [],
+      });
     }
-    questions.get(row.question_id)!.options.push({ id: row.option_id, label: row.option_label, order: row.option_order });
+    if (row.option_id !== null) {
+      questions.get(row.question_id)!.options.push({ id: row.option_id, label: row.option_label!, order: row.option_order! });
+    }
   }
 
   return [...questions.values()].sort((a, b) => a.order - b.order);

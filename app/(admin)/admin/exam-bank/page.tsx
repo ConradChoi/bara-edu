@@ -48,7 +48,9 @@ export default async function AdminExamBankPage({
   }
 
   const questions = categoryId ? await getExamBankQuestionsForCategory(categoryId) : [];
-  const unresolvedCount = questions.filter((q) => !q.options.some((o) => o.isCorrect)).length;
+  const unresolvedCount = questions.filter((q) =>
+    q.questionType === 'short_answer' ? !q.answerText?.trim() : !q.options.some((o) => o.isCorrect)
+  ).length;
 
   return (
     <div className="flex max-w-[640px] flex-col gap-6">
@@ -114,10 +116,19 @@ export default async function AdminExamBankPage({
                         defaultValue={q.question}
                         className="h-9 flex-1 rounded-md border border-n-3 bg-n-1 px-2.5 text-[13px]"
                       />
+                      {q.questionType === 'short_answer' && (
+                        <input
+                          name="answerText"
+                          defaultValue={q.answerText ?? ''}
+                          placeholder="정답"
+                          className="h-9 w-[160px] rounded-md border border-n-3 bg-n-1 px-2.5 text-[13px]"
+                        />
+                      )}
                       <button type="submit" className="rounded-pill border border-n-3 px-2.5 py-1 text-[11.5px] text-n-7">
                         저장
                       </button>
                     </form>
+                    <StatusBadge tone="neutral">{q.questionType === 'short_answer' ? '주관식' : '객관식'}</StatusBadge>
                     <form action={moveBankQuestionUp.bind(null, q.id, categoryId)}>
                       <button type="submit" className="rounded-pill border border-n-3 px-2 py-1 text-[11px] text-n-7">
                         ▲
@@ -139,61 +150,82 @@ export default async function AdminExamBankPage({
                     />
                   </div>
 
-                  <ul className="mt-3 flex flex-col gap-1.5 pl-6">
-                    {q.options.map((option) => (
-                      <li key={option.id} className="flex items-center gap-2">
-                        <form
-                          action={updateBankOption.bind(null, option.id, q.id, categoryId)}
-                          className="flex flex-1 items-center gap-2"
-                        >
-                          <input
-                            name="label"
-                            defaultValue={option.label}
-                            className="h-8 flex-1 rounded-md border border-n-3 bg-n-0 px-2 text-[12.5px]"
-                          />
-                          <button type="submit" className="rounded-pill border border-n-3 px-2 py-1 text-[11px] text-n-7">
-                            저장
-                          </button>
-                        </form>
-                        {option.isCorrect ? (
-                          <StatusBadge tone="success">정답</StatusBadge>
-                        ) : (
-                          <form action={setBankCorrectOption.bind(null, option.id, q.id, categoryId)}>
-                            <button type="submit" className="rounded-pill border border-n-3 px-2 py-1 text-[11px] text-n-7">
-                              정답으로 설정
-                            </button>
-                          </form>
-                        )}
-                        <form action={deleteBankOption.bind(null, option.id, q.id, categoryId)}>
-                          <button type="submit" className="rounded-pill border border-danger px-2 py-1 text-[11px] text-danger">
-                            삭제
-                          </button>
-                        </form>
-                      </li>
-                    ))}
-                  </ul>
+                  {q.questionType === 'multiple_choice' && (
+                    <>
+                      <ul className="mt-3 flex flex-col gap-1.5 pl-6">
+                        {q.options.map((option) => (
+                          <li key={option.id} className="flex items-center gap-2">
+                            <form
+                              action={updateBankOption.bind(null, option.id, q.id, categoryId)}
+                              className="flex flex-1 items-center gap-2"
+                            >
+                              <input
+                                name="label"
+                                defaultValue={option.label}
+                                className="h-8 flex-1 rounded-md border border-n-3 bg-n-0 px-2 text-[12.5px]"
+                              />
+                              <button type="submit" className="rounded-pill border border-n-3 px-2 py-1 text-[11px] text-n-7">
+                                저장
+                              </button>
+                            </form>
+                            {option.isCorrect ? (
+                              <StatusBadge tone="success">정답</StatusBadge>
+                            ) : (
+                              <form action={setBankCorrectOption.bind(null, option.id, q.id, categoryId)}>
+                                <button type="submit" className="rounded-pill border border-n-3 px-2 py-1 text-[11px] text-n-7">
+                                  정답으로 설정
+                                </button>
+                              </form>
+                            )}
+                            <form action={deleteBankOption.bind(null, option.id, q.id, categoryId)}>
+                              <button type="submit" className="rounded-pill border border-danger px-2 py-1 text-[11px] text-danger">
+                                삭제
+                              </button>
+                            </form>
+                          </li>
+                        ))}
+                      </ul>
 
-                  <form action={addBankOption.bind(null, q.id, categoryId)} className="mt-2 flex items-center gap-2 pl-6">
-                    <input
-                      name="label"
-                      placeholder="보기 추가"
-                      className="h-8 flex-1 rounded-md border border-n-3 bg-n-0 px-2 text-[12.5px]"
-                    />
-                    <button type="submit" className="rounded-pill border border-n-3 px-2.5 py-1 text-[11.5px] text-n-7">
-                      추가
-                    </button>
-                  </form>
+                      <form action={addBankOption.bind(null, q.id, categoryId)} className="mt-2 flex items-center gap-2 pl-6">
+                        <input
+                          name="label"
+                          placeholder="보기 추가"
+                          className="h-8 flex-1 rounded-md border border-n-3 bg-n-0 px-2 text-[12.5px]"
+                        />
+                        <button type="submit" className="rounded-pill border border-n-3 px-2.5 py-1 text-[11.5px] text-n-7">
+                          추가
+                        </button>
+                      </form>
+                    </>
+                  )}
                 </li>
               ))}
             </ul>
           )}
 
-          <form action={addBankQuestion.bind(null, categoryId)} className="flex items-center gap-2 rounded-lg border border-n-3 bg-n-1 p-3">
-            <input name="question" placeholder="새 문항" className="h-9 flex-1 rounded-md border border-n-3 bg-n-0 px-2.5 text-[13px]" />
-            <button type="submit" className="rounded-pill bg-pink px-4 py-1.5 text-[12.5px] font-semibold text-white">
-              문항 추가
-            </button>
-          </form>
+          <div className="flex flex-col gap-3 md:flex-row">
+            <form
+              action={addBankQuestion.bind(null, categoryId)}
+              className="flex flex-1 items-center gap-2 rounded-lg border border-n-3 bg-n-1 p-3"
+            >
+              <input type="hidden" name="questionType" value="multiple_choice" />
+              <input name="question" placeholder="새 객관식 문항" className="h-9 flex-1 rounded-md border border-n-3 bg-n-0 px-2.5 text-[13px]" />
+              <button type="submit" className="rounded-pill bg-pink px-4 py-1.5 text-[12.5px] font-semibold text-white">
+                객관식 추가
+              </button>
+            </form>
+            <form
+              action={addBankQuestion.bind(null, categoryId)}
+              className="flex flex-1 items-center gap-2 rounded-lg border border-n-3 bg-n-1 p-3"
+            >
+              <input type="hidden" name="questionType" value="short_answer" />
+              <input name="question" placeholder="새 주관식 문항" className="h-9 flex-1 rounded-md border border-n-3 bg-n-0 px-2.5 text-[13px]" />
+              <input name="answerText" placeholder="정답" className="h-9 w-[140px] rounded-md border border-n-3 bg-n-0 px-2.5 text-[13px]" />
+              <button type="submit" className="rounded-pill bg-pink px-4 py-1.5 text-[12.5px] font-semibold text-white">
+                주관식 추가
+              </button>
+            </form>
+          </div>
         </>
       )}
     </div>

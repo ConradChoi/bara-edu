@@ -40,6 +40,12 @@ do $$ begin
   create type course_material_kind as enum ('main', 'supplementary');
 exception when duplicate_object then null; end $$;
 
+-- 문제은행 문항 유형(2026-09-11 추가) — 객관식만 지원하다가 관리자 요청으로 주관식(단답형,
+-- 정답 텍스트 일치 자동채점) 추가.
+do $$ begin
+  create type exam_question_type as enum ('multiple_choice', 'short_answer');
+exception when duplicate_object then null; end $$;
+
 -- ===================== Tables =====================
 
 -- 회원 프로필 (auth.users 1:1)
@@ -991,6 +997,12 @@ create table if not exists exam_question_bank (
 );
 create index if not exists exam_question_bank_category_id_idx on exam_question_bank(category_id);
 
+-- 주관식(단답형) 지원(2026-09-11 추가). question_type='short_answer'인 문항은
+-- exam_bank_options에 보기 행이 없고, answer_text에 저장된 정답과 학습자 답안을 대소문자·
+-- 앞뒤 공백 무시하고 일치시켜 자동채점한다(submit_course_exam() RPC 참고).
+alter table exam_question_bank add column if not exists question_type exam_question_type not null default 'multiple_choice';
+alter table exam_question_bank add column if not exists answer_text text;
+
 create table if not exists exam_bank_options (
   id uuid primary key default gen_random_uuid(),
   bank_question_id uuid not null references exam_question_bank(id) on delete cascade,
@@ -1202,11 +1214,16 @@ $$;
 -- 낮지만, 자격시험 문항은 재작성 비용이 커 진도100%+과제승인(LOCKED 게이트)까지 통과한
 -- 학습자에게만 열람을 허용한다(privacy-security-officer 지적, 2026-09-09) — 제출 게이팅
 -- (submit_course_exam)과 동일한 조건을 열람에도 적용.
-create or replace function public.get_course_exam(p_course_id uuid)
+-- 반환 컬럼에 question_type을 추가하면서 리턴 타입이 바뀌어(2026-09-11, 주관식 지원)
+-- create or replace로는 안 되므로 먼저 drop한다. answer_text(주관식 정답)는 절대
+-- 포함하지 않는다 — 정답 유출 방지 원칙은 객관식/주관식 동일하게 적용.
+drop function if exists public.get_course_exam(uuid);
+create function public.get_course_exam(p_course_id uuid)
 returns table (
   question_id uuid,
   question text,
   question_order integer,
+  question_type exam_question_type,
   option_id uuid,
   option_label text,
   option_order integer
@@ -1259,11 +1276,14 @@ begin
     raise exception 'assignment not approved';
   end if;
 
+  -- 주관식 문항은 exam_bank_options에 보기 행이 없으므로 left join — inner join이면
+  -- 그런 문항이 통째로 결과에서 사라져(존재하는데도 학습자에게 안 보임) 응시 자체가
+  -- 불가능해진다(qa-reviewer 지적, 2026-09-11).
   return query
-    select eb.id, eb.question, l."order", ebo.id, ebo.label, ebo."order"
+    select eb.id, eb.question, l."order", eb.question_type, ebo.id, ebo.label, ebo."order"
     from course_exam_question_links l
     join exam_question_bank eb on eb.id = l.bank_question_id
-    join exam_bank_options ebo on ebo.bank_question_id = eb.id
+    left join exam_bank_options ebo on ebo.bank_question_id = eb.id
     where l.course_id = p_course_id
     order by l."order", ebo."order";
 end;
@@ -1317,12 +1337,18 @@ begin
     raise exception 'not authorized';
   end if;
 
+  -- 2026-09-11: 주관식(short_answer) 문항은 보기가 없으므로 "정답 미설정" 판정 기준이
+  -- 객관식과 다르다(answer_text 비어있음 여부) — submit_course_exam()의 동일 조건과 맞춘다.
   return query
     select
       count(*)::integer,
-      coalesce(bool_or(not exists (
-        select 1 from exam_bank_options o where o.bank_question_id = eb.id and o.is_correct
-      )), false)
+      coalesce(bool_or(
+        (eb.question_type = 'multiple_choice' and not exists (
+          select 1 from exam_bank_options o where o.bank_question_id = eb.id and o.is_correct
+        ))
+        or
+        (eb.question_type = 'short_answer' and coalesce(btrim(eb.answer_text), '') = '')
+      ), false)
     from course_exam_question_links l
     join exam_question_bank eb on eb.id = l.bank_question_id
     where l.course_id = p_course_id;
@@ -1332,9 +1358,14 @@ $$;
 -- ===================== RPC: 시험 제출·즉시 채점 =====================
 -- issue_certificate_self()와 동일한 진도100%+과제승인 재검증에 더해, 문항 존재/잔여
 -- 응시횟수/기합격 여부까지 서버에서 재검증한다. auth.uid()를 내부에서만 사용해 타인 명의
--- 제출을 차단하고, 응답에는 correct_option_id를 절대 포함하지 않는다(submit_quiz_attempt
--- 정답 유출 수정 이력과 동일 원칙).
-create or replace function public.submit_course_exam(p_course_id uuid, p_selected_option_ids uuid[])
+-- 제출을 차단하고, 응답에는 correct_option_id/answer_text를 절대 포함하지 않는다
+-- (submit_quiz_attempt 정답 유출 수정 이력과 동일 원칙).
+-- p_answers 형식(2026-09-11, 주관식 지원으로 uuid[]에서 jsonb로 변경 — 파라미터 타입이
+-- 바뀌면 create or replace가 아니라 새 오버로드가 생기므로 먼저 옛 시그니처를 drop한다):
+-- [{"question_id": "...", "option_id": "..."}, {"question_id": "...", "answer_text": "..."}]
+-- 문항 하나당 항목 하나만 허용 — option_id/answer_text 중 그 문항 유형에 맞는 쪽만 채운다.
+drop function if exists public.submit_course_exam(uuid, uuid[]);
+create function public.submit_course_exam(p_course_id uuid, p_answers jsonb)
 returns table (score integer, passed boolean, attempt_no integer)
 language plpgsql
 security definer
@@ -1350,7 +1381,8 @@ declare
   v_max_attempts integer;
   v_total_questions integer;
   v_unresolved_questions integer;
-  v_duplicate_question_count integer;
+  v_answer_count integer;
+  v_distinct_question_count integer;
   v_correct_count integer;
   v_score integer;
   v_passed boolean;
@@ -1417,33 +1449,35 @@ begin
     raise exception 'exam not found for course';
   end if;
 
-  -- 정답이 하나도 설정되지 않은 문항이 있으면 그 문항은 항상 오답 처리돼(아래 grading의
-  -- inner join에서 분자 대상에서 빠짐) 100% 합격이 구조적으로 불가능해진다 — 관리자
-  -- 실수로 학습자가 응시 횟수만 소모하지 않도록, 응시 자체를 막는다(횟수 미소모).
-  -- 관리자 화면(admin/courses/[id]/exam)의 경고 배너와 동일한 조건이다(qa-reviewer 지적, 2026-09-09).
+  -- 정답이 하나도 설정되지 않은 문항(객관식)이나 정답 텍스트가 비어있는 문항(주관식)이
+  -- 있으면 그 문항은 항상 오답 처리돼(아래 grading에서 분자 대상에서 빠짐) 100% 합격이
+  -- 구조적으로 불가능해진다 — 관리자 실수로 학습자가 응시 횟수만 소모하지 않도록, 응시
+  -- 자체를 막는다(횟수 미소모). 관리자 화면(admin/courses/[id]/exam)의 경고 배너와
+  -- 동일한 조건이다(qa-reviewer 지적, 2026-09-09, 2026-09-11 주관식 조건 추가).
   select count(*) into v_unresolved_questions
   from course_exam_question_links l
   join exam_question_bank eb on eb.id = l.bank_question_id
   where l.course_id = p_course_id
-    and not exists (select 1 from exam_bank_options o where o.bank_question_id = eb.id and o.is_correct = true);
+    and (
+      (eb.question_type = 'multiple_choice'
+        and not exists (select 1 from exam_bank_options o where o.bank_question_id = eb.id and o.is_correct = true))
+      or
+      (eb.question_type = 'short_answer' and coalesce(btrim(eb.answer_text), '') = '')
+    );
   if v_unresolved_questions > 0 then
     raise exception 'exam not ready';
   end if;
 
-  -- 문항당 선택지를 2개 이상 제출하면 채점 쿼리의 lateral join이 어떤 걸 고를지 순서가
-  -- 보장되지 않는다(privacy-security-officer 지적, 2026-09-09) — 라디오 그룹은 UI 제약일
-  -- 뿐이라 REST로 직접 호출하면 우회 가능하므로 서버에서 명시적으로 거부한다.
-  select count(*) into v_duplicate_question_count
-  from (
-    select o.bank_question_id
-    from exam_bank_options o
-    where o.id = any(p_selected_option_ids)
-      and o.bank_question_id in (select bank_question_id from course_exam_question_links where course_id = p_course_id)
-    group by o.bank_question_id
-    having count(*) > 1
-  ) dup;
-  if v_duplicate_question_count > 0 then
-    raise exception 'invalid submission: multiple options selected for a question';
+  -- 문항 하나당 답을 2개 이상 제출하면 채점 쿼리의 lateral join이 어떤 걸 고를지 순서가
+  -- 보장되지 않는다(privacy-security-officer 지적, 2026-09-09 — 원래는 "선택지 2개 이상"
+  -- 이었으나 2026-09-11 주관식 추가로 "문항당 answers 배열 항목 1개"로 일반화). 폼 구조가
+  -- 애초에 문항당 1개만 만들지만, REST 직접 호출로 우회 가능하므로 서버에서 명시적으로 거부한다.
+  select count(*), count(distinct (elem->>'question_id'))
+  into v_answer_count, v_distinct_question_count
+  from jsonb_array_elements(p_answers) elem;
+
+  if v_answer_count <> v_distinct_question_count then
+    raise exception 'invalid submission: duplicate answer for a question';
   end if;
 
   select exists(
@@ -1466,16 +1500,28 @@ begin
     raise exception 'attempts exhausted';
   end if;
 
-  select count(*) filter (where sel.option_id is not null and sel.option_id = correct_opt.id)
+  -- 객관식은 제출된 option_id가 정답 옵션과 일치하는지, 주관식은 제출된 answer_text가
+  -- (대소문자·앞뒤공백 무시) 저장된 정답과 일치하는지로 채점한다. correct_opt는 객관식에만
+  -- 존재하므로 left join(주관식 문항은 correct_opt가 전부 null).
+  select count(*) filter (
+    where
+      (eb.question_type = 'multiple_choice' and ans.option_id is not null and ans.option_id = correct_opt.id)
+      or
+      (eb.question_type = 'short_answer' and ans.answer_text is not null
+        and lower(btrim(ans.answer_text)) = lower(btrim(eb.answer_text)))
+  )
   into v_correct_count
   from course_exam_question_links l
-  join exam_bank_options correct_opt on correct_opt.bank_question_id = l.bank_question_id and correct_opt.is_correct = true
+  join exam_question_bank eb on eb.id = l.bank_question_id
+  left join exam_bank_options correct_opt on correct_opt.bank_question_id = eb.id and correct_opt.is_correct = true
   left join lateral (
-    select o.id as option_id
-    from exam_bank_options o
-    where o.bank_question_id = l.bank_question_id and o.id = any(p_selected_option_ids)
+    select
+      nullif(elem->>'option_id', '')::uuid as option_id,
+      elem->>'answer_text' as answer_text
+    from jsonb_array_elements(p_answers) elem
+    where (elem->>'question_id')::uuid = l.bank_question_id
     limit 1
-  ) sel on true
+  ) ans on true
   where l.course_id = p_course_id;
 
   v_score := round(100.0 * v_correct_count / v_total_questions);

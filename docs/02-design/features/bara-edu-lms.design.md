@@ -1375,6 +1375,22 @@ export default function CourseForm({ categories, action, defaultValues, submitLa
    - **기존 데이터 보정**: 4.6.11 마이그레이션이 이미 1Depth id로 만들어둔 기존 문항(도형기질활용지도자 2급 강좌의 문항 1개)은, 실제로 연결된 강좌의 카테고리를 역으로 조회해 올바른 2Depth id로 재계산하는 결정론적 `update` 문을 schema.sql에 추가해 자동 보정(재실행해도 항상 같은 값으로 수렴해 안전, 연결된 강좌가 없는 문항은 그대로 둠).
    - **(같은 날 추가 조정)** 실제 화면(도형기질활용지도자/에니어그램처럼 2Depth 세부과정이 있는 자격증)에서 써보니, picker에 함께 뜨는 1Depth "자격증" 자체 pill이 실질적으로 거의 안 쓰이면서 혼란만 준다는 지적 → `getExamBankCategories()`가 **2Depth 세부과정이 하나라도 있는 1Depth는 그 자체를 목록에서 제외**하도록 수정(세부과정을 아예 안 나눈 자격증만 1Depth 루트가 노출). `getCourseExamBankCategoryId()`의 depth1~2 그대로/depth3 캡핑 로직은 변경 없음 — 세부과정 없이 1Depth에 직접 배정된 강좌는 여전히 정상 동작하되, 그 문제은행은 picker 목록에 없으므로 자격시험 화면의 "문제은행 관리로 이동" 딥링크로만 접근 가능하다(현재로선 실사용 사례가 없어 허용 가능한 트레이드오프로 판단). 스키마 변경 없음(순수 앱 레이어 필터링).
 
+### 4.6.13 주관식(단답형) 문항 추가 (2026-09-11)
+
+> **계기**: "문제은행에서 시험문제는 객관식만 가능한가요?"라는 관리자 질문에 답한 뒤 "주관식도 있어야 합니다"로 요청 확정. AskUserQuestion으로 채점 방식을 먼저 확인 — 자유 서술형은 즉시 채점을 포기하고 관리자 수동 채점 큐를 새로 만들어야 하는 큰 구조 변경이라, "정답 텍스트 일치 자동채점(대소문자·공백 무시)"으로 확정해 기존 F-LRN-8 "제출 즉시 결과 표시" 흐름을 그대로 유지했다(자유 서술형 채점은 F-ADMCE-6에 계속 Won't로 남음).
+
+**데이터 모델**: `exam_question_bank`에 `question_type`(신규 enum `exam_question_type`: `multiple_choice`/`short_answer`, 기본값 `multiple_choice`) + `answer_text`(nullable, 주관식 정답) 컬럼 추가. 주관식 문항은 `exam_bank_options`에 보기 행을 만들지 않는다 — 유형은 생성 시 정해지면 이후 변경 불가(퀴즈 저작 화면과 동일한 단순함 유지 원칙, 바꾸려면 삭제 후 재생성).
+
+**RPC 변경** — 아래 2개는 파라미터/반환 타입이 바뀌어 `create or replace`가 아니라 `drop function if exists ...` 후 재생성해야 했다(idempotent하게 매 재실행마다 drop 후 재생성):
+- `get_course_exam(p_course_id)` — 반환에 `question_type` 컬럼 추가, `exam_bank_options` join을 inner→**left**로 변경(주관식 문항은 보기 행이 없어 inner join이면 그 문항 자체가 결과에서 통째로 사라짐 — 학습자에게 "존재하는데 안 보이는" 문항이 생겨 시험 자체가 불가능해질 뻔한 걸 리뷰 중 발견). `answer_text`는 여기 절대 포함하지 않는다(정답 유출 방지 원칙 유지).
+- `submit_course_exam(p_course_id, p_answers)` — 파라미터가 `p_selected_option_ids uuid[]`에서 `p_answers jsonb`로 변경. 형식: `[{"question_id","option_id"} | {"question_id","answer_text"}]`(문항 하나당 항목 하나). 채점은 문항 유형별로 분기(`case`형 `filter` 조건) — 객관식은 기존과 동일, 주관식은 `lower(btrim(제출값)) = lower(btrim(저장된 정답))`. "정답 미설정 문항이 있으면 응시 자체 차단"(기존 F-ADMC-9/qa-reviewer 지적) 조건도 주관식(`answer_text`가 빈 문자열)까지 확장. "문항당 답 2개 이상 제출 금지" 가드도 옛 "선택지 2개 이상"에서 "jsonb 배열 안 question_id 중복 금지"로 일반화.
+- `get_course_exam_readiness(p_course_id)`(4.6.12에서 추가된 학습자용 게이팅 RPC)도 "정답 미설정" 판정 기준을 객관식/주관식 양쪽으로 확장 — 안 그러면 주관식만 있는 강좌가 문항이 있는데도 계속 `not_ready`로 보임.
+
+**화면 변경**:
+- `/admin/exam-bank` — "새 객관식 문항 추가"/"새 주관식 문항 추가" 두 개의 별도 폼(이 프로젝트는 client 컴포넌트로 유형 토글을 만드는 대신, 폼을 분리하는 기존 컨벤션—교재 주교재/보조교재 분리 폼과 동일—을 따름). 문항 목록에도 "객관식"/"주관식" `StatusBadge`를 붙이고, 주관식 문항은 보기 목록 대신 정답 텍스트 한 줄 입력창만 노출.
+- `/admin/courses/[id]/exam` — 연결된 문항 목록에도 유형 배지 추가, 주관식은 옵션 목록 대신 "정답: ◯◯◯" 읽기 전용 표시.
+- `/learn/[courseId]/exam`(`ExamForm.tsx`) — 문항 유형에 따라 라디오 그룹 또는 텍스트 입력을 렌더링. 서버 액션(`classroom-exam.ts`)이 `answer_${questionId}`/`type_${questionId}` 폼 필드를 읽어 유형별로 `option_id`/`answer_text`를 채운 jsonb 배열로 재구성해 RPC에 전달한다.
+
 ---
 
 ## 5. Error Handling

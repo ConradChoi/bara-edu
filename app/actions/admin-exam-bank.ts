@@ -43,9 +43,24 @@ async function assertCertificationCategory(
   redirect('/admin/exam-bank?error=invalid-category');
 }
 
+// 주관식(단답형, 2026-09-11 추가) 문항은 exam_bank_options 대신 answer_text 한 줄로
+// 정답을 관리한다 — 채점은 submit_course_exam() RPC가 대소문자·앞뒤공백 무시하고 비교한다.
+function readQuestionTypeFields(formData: FormData): { questionType: 'multiple_choice' | 'short_answer'; answerText: string | null } | null {
+  const rawType = (formData.get('questionType') as string | null) ?? 'multiple_choice';
+  if (rawType !== 'multiple_choice' && rawType !== 'short_answer') return null;
+
+  if (rawType === 'short_answer') {
+    const answerText = (formData.get('answerText') as string | null)?.trim();
+    if (!answerText) return null;
+    return { questionType: 'short_answer', answerText };
+  }
+  return { questionType: 'multiple_choice', answerText: null };
+}
+
 export async function addBankQuestion(categoryId: string, formData: FormData) {
   const question = (formData.get('question') as string | null)?.trim();
-  if (!question) redirect(`${bankPath(categoryId)}&error=validation`);
+  const typeFields = readQuestionTypeFields(formData);
+  if (!question || !typeFields) redirect(`${bankPath(categoryId)}&error=validation`);
 
   const supabase = await requireAdminClient();
   await assertCertificationCategory(supabase, categoryId);
@@ -55,17 +70,35 @@ export async function addBankQuestion(categoryId: string, formData: FormData) {
     .select('id', { count: 'exact', head: true })
     .eq('category_id', categoryId);
 
-  const { error } = await supabase.from('exam_question_bank').insert({ category_id: categoryId, question, order: (count ?? 0) + 1 });
+  const { error } = await supabase.from('exam_question_bank').insert({
+    category_id: categoryId,
+    question,
+    order: (count ?? 0) + 1,
+    question_type: typeFields!.questionType,
+    answer_text: typeFields!.answerText,
+  });
   if (error) redirect(`${bankPath(categoryId)}&error=failed`);
   redirect(`${bankPath(categoryId)}&success=questionAdded`);
 }
 
+// 문항 유형(객관식/주관식)은 생성 시 정해지면 이후 바꿀 수 없다 — 이미 보기가 등록된
+// 객관식 문항을 주관식으로 바꾸면 보기가 고아로 남고, 반대는 정답 텍스트가 사라진다.
+// 바꾸고 싶으면 삭제 후 새로 만들도록 안내(퀴즈 저작 화면과 동일한 단순함 유지 원칙).
 export async function updateBankQuestion(questionId: string, categoryId: string, formData: FormData) {
   const question = (formData.get('question') as string | null)?.trim();
   if (!question) redirect(`${bankPath(categoryId)}&error=validation`);
 
   const supabase = await requireAdminClient();
-  const { error } = await supabase.from('exam_question_bank').update({ question }).eq('id', questionId);
+  const { data: existing } = await supabase.from('exam_question_bank').select('question_type').eq('id', questionId).maybeSingle();
+
+  const update: { question: string; answer_text?: string } = { question };
+  if (existing?.question_type === 'short_answer') {
+    const answerText = (formData.get('answerText') as string | null)?.trim();
+    if (!answerText) redirect(`${bankPath(categoryId)}&error=validation`);
+    update.answer_text = answerText;
+  }
+
+  const { error } = await supabase.from('exam_question_bank').update(update).eq('id', questionId);
   if (error) redirect(`${bankPath(categoryId)}&error=failed`);
   redirect(`${bankPath(categoryId)}&success=questionUpdated`);
 }

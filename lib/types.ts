@@ -105,10 +105,16 @@ export type CourseExamOption = {
   order: number;
 };
 
+// 주관식(단답형, 2026-09-11 추가) 문항은 options가 빈 배열이고 학습자가 텍스트를 직접
+// 입력한다 — 정답 텍스트(answer_text)는 여기 절대 포함하지 않는다(객관식 is_correct와
+// 동일한 유출 방지 원칙).
+export type CourseExamQuestionType = 'multiple_choice' | 'short_answer';
+
 export type CourseExamQuestionWithOptions = {
   id: string;
   question: string;
   order: number;
+  questionType: CourseExamQuestionType;
   options: CourseExamOption[];
 };
 

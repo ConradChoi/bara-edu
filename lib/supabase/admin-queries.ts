@@ -1134,14 +1134,23 @@ export async function getQuizQuestionsForLesson(lessonId: string): Promise<Admin
 // getExamBankCategories()/getCourseExamBankCategoryId() 참고.
 // isCorrect를 포함하는 관리자 전용 타입 — quiz와 동일한 정답 비노출 패턴.
 
+export type AdminExamQuestionType = 'multiple_choice' | 'short_answer';
 export type AdminExamBankOption = { id: string; label: string; order: number; isCorrect: boolean };
-export type AdminExamBankQuestion = { id: string; categoryId: string; question: string; order: number; options: AdminExamBankOption[] };
+export type AdminExamBankQuestion = {
+  id: string;
+  categoryId: string;
+  question: string;
+  order: number;
+  questionType: AdminExamQuestionType;
+  answerText: string | null;
+  options: AdminExamBankOption[];
+};
 
 export async function getExamBankQuestionsForCategory(categoryId: string): Promise<AdminExamBankQuestion[]> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from('exam_question_bank')
-    .select('id, category_id, question, order, exam_bank_options(id, label, is_correct, order)')
+    .select('id, category_id, question, order, question_type, answer_text, exam_bank_options(id, label, is_correct, order)')
     .eq('category_id', categoryId)
     .order('order', { ascending: true });
   if (error) throw new Error(error.message);
@@ -1152,6 +1161,8 @@ export async function getExamBankQuestionsForCategory(categoryId: string): Promi
       category_id: string;
       question: string;
       order: number;
+      question_type: AdminExamQuestionType;
+      answer_text: string | null;
       exam_bank_options: { id: string; label: string; is_correct: boolean; order: number }[];
     }[]
   ).map((row) => ({
@@ -1159,6 +1170,8 @@ export async function getExamBankQuestionsForCategory(categoryId: string): Promi
     categoryId: row.category_id,
     question: row.question,
     order: row.order,
+    questionType: row.question_type,
+    answerText: row.answer_text,
     options: row.exam_bank_options
       .slice()
       .sort((a, b) => a.order - b.order)
@@ -1195,6 +1208,8 @@ export type AdminCourseExamLink = {
   bankQuestionId: string;
   question: string;
   order: number;
+  questionType: AdminExamQuestionType;
+  answerText: string | null;
   options: AdminExamBankOption[];
 };
 
@@ -1204,7 +1219,9 @@ export async function getCourseExamQuestionsForCourse(courseId: string): Promise
   const supabase = await createClient();
   const { data, error } = await supabase
     .from('course_exam_question_links')
-    .select('id, bank_question_id, order, exam_question_bank(question, exam_bank_options(id, label, is_correct, order))')
+    .select(
+      'id, bank_question_id, order, exam_question_bank(question, question_type, answer_text, exam_bank_options(id, label, is_correct, order))'
+    )
     .eq('course_id', courseId)
     .order('order', { ascending: true });
   if (error) throw new Error(error.message);
@@ -1214,13 +1231,20 @@ export async function getCourseExamQuestionsForCourse(courseId: string): Promise
       id: string;
       bank_question_id: string;
       order: number;
-      exam_question_bank: { question: string; exam_bank_options: { id: string; label: string; is_correct: boolean; order: number }[] };
+      exam_question_bank: {
+        question: string;
+        question_type: AdminExamQuestionType;
+        answer_text: string | null;
+        exam_bank_options: { id: string; label: string; is_correct: boolean; order: number }[];
+      };
     }[]
   ).map((row) => ({
     linkId: row.id,
     bankQuestionId: row.bank_question_id,
     question: row.exam_question_bank.question,
     order: row.order,
+    questionType: row.exam_question_bank.question_type,
+    answerText: row.exam_question_bank.answer_text,
     options: row.exam_question_bank.exam_bank_options
       .slice()
       .sort((a, b) => a.order - b.order)
