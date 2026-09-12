@@ -57,10 +57,31 @@ function readQuestionTypeFields(formData: FormData): { questionType: 'multiple_c
   return { questionType: 'multiple_choice', answerText: null };
 }
 
+// 객관식은 팝업에서 문항과 보기(최대 4개, 라디오로 정답 지정)를 한 번에 입력받는다
+// (관리자 요청, 2026-09-12 — 문항만 만들고 보기는 목록에서 하나씩 추가하던 기존 흐름은
+// 등록 직후 "정답 미설정" 경고가 항상 뜨는 어색한 중간 상태를 거쳐야 했다). 4개보다
+// 많은 보기가 필요하면 등록 후 목록의 "보기 추가"로 계속 늘릴 수 있어 상한은 아니다.
+function readMultipleChoiceOptions(formData: FormData): { label: string; is_correct: boolean; order: number }[] | null {
+  const rawLabels = formData.getAll('optionLabel') as string[];
+  const correctIndexRaw = formData.get('correctOptionIndex') as string | null;
+  const correctIndex = correctIndexRaw !== null && correctIndexRaw !== '' ? Number(correctIndexRaw) : -1;
+
+  const options = rawLabels
+    .map((label, index) => ({ label: label.trim(), index }))
+    .filter((o) => o.label.length > 0)
+    .map((o, i) => ({ label: o.label, is_correct: o.index === correctIndex, order: i + 1 }));
+
+  if (options.length < 2 || !options.some((o) => o.is_correct)) return null;
+  return options;
+}
+
 export async function addBankQuestion(categoryId: string, formData: FormData) {
   const question = (formData.get('question') as string | null)?.trim();
   const typeFields = readQuestionTypeFields(formData);
   if (!question || !typeFields) redirect(`${bankPath(categoryId)}&error=validation`);
+
+  const optionRows = typeFields!.questionType === 'multiple_choice' ? readMultipleChoiceOptions(formData) : [];
+  if (optionRows === null) redirect(`${bankPath(categoryId)}&error=validation`);
 
   const supabase = await requireAdminClient();
   await assertCertificationCategory(supabase, categoryId);
@@ -70,14 +91,26 @@ export async function addBankQuestion(categoryId: string, formData: FormData) {
     .select('id', { count: 'exact', head: true })
     .eq('category_id', categoryId);
 
-  const { error } = await supabase.from('exam_question_bank').insert({
-    category_id: categoryId,
-    question,
-    order: (count ?? 0) + 1,
-    question_type: typeFields!.questionType,
-    answer_text: typeFields!.answerText,
-  });
+  const { data: newQuestion, error } = await supabase
+    .from('exam_question_bank')
+    .insert({
+      category_id: categoryId,
+      question,
+      order: (count ?? 0) + 1,
+      question_type: typeFields!.questionType,
+      answer_text: typeFields!.answerText,
+    })
+    .select('id')
+    .single();
   if (error) redirect(`${bankPath(categoryId)}&error=failed`);
+
+  if (optionRows!.length > 0) {
+    const { error: optionsError } = await supabase
+      .from('exam_bank_options')
+      .insert(optionRows!.map((o) => ({ ...o, bank_question_id: newQuestion!.id })));
+    if (optionsError) redirect(`${bankPath(categoryId)}&error=failed`);
+  }
+
   redirect(`${bankPath(categoryId)}&success=questionAdded`);
 }
 

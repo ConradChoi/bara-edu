@@ -7,6 +7,7 @@ type FormDialogProps = {
   triggerClassName?: string;
   title: string;
   submitLabel?: string;
+  widthClassName?: string;
   action: (formData: FormData) => void | Promise<void>;
   children: ReactNode;
 };
@@ -15,7 +16,15 @@ type FormDialogProps = {
 // 재사용하되, 확인 문구 하나가 아니라 임의의 입력 필드를 담을 수 있게 일반화한 버전.
 // "추가" 버튼을 누르면 바로 목록에 반영되던 문제은행 문항 등록 흐름을, 레이어 팝업에서
 // 다 입력한 뒤 확정하는 방식으로 바꿔달라는 관리자 요청으로 신규 추가(2026-09-12).
-export default function FormDialog({ triggerLabel, triggerClassName, title, submitLabel = '등록', action, children }: FormDialogProps) {
+export default function FormDialog({
+  triggerLabel,
+  triggerClassName,
+  title,
+  submitLabel = '등록',
+  widthClassName = 'w-[360px]',
+  action,
+  children,
+}: FormDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
 
   return (
@@ -28,7 +37,7 @@ export default function FormDialog({ triggerLabel, triggerClassName, title, subm
         {triggerLabel}
       </button>
       <dialog ref={dialogRef} className="rounded-lg border border-n-3 p-0 shadow-lg backdrop:bg-n-9/40">
-        <form action={action} className="flex w-[360px] flex-col gap-4 p-5">
+        <form action={action} className={`flex ${widthClassName} flex-col gap-4 p-5`}>
           <h2 className="text-[15px] font-semibold text-n-9">{title}</h2>
           <div className="flex flex-col gap-3">{children}</div>
           <div className="flex gap-2">

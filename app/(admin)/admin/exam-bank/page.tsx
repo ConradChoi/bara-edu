@@ -98,7 +98,12 @@ export default async function AdminExamBankPage({
       {categoryId && (
         <>
           <div className="flex gap-3">
-            <FormDialog triggerLabel="객관식 문항 추가" title="객관식 문항 추가" action={addBankQuestion.bind(null, categoryId)}>
+            <FormDialog
+              triggerLabel="객관식 문항 추가"
+              title="객관식 문항 추가"
+              widthClassName="w-[420px]"
+              action={addBankQuestion.bind(null, categoryId)}
+            >
               <input type="hidden" name="questionType" value="multiple_choice" />
               <label className="flex flex-col gap-1.5 text-[12.5px] text-n-7">
                 문항
@@ -109,7 +114,20 @@ export default async function AdminExamBankPage({
                   className="h-9 rounded-md border border-n-3 bg-n-1 px-2.5 text-[13px] text-n-9 outline-none focus:border-pink"
                 />
               </label>
-              <p className="text-[11.5px] text-n-5">보기와 정답은 등록 후 목록에서 추가해요.</p>
+              <div className="flex flex-col gap-1.5">
+                <span className="text-[12.5px] text-n-7">보기 (최소 2개, 정답 1개 선택)</span>
+                {[0, 1, 2, 3].map((i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <input type="radio" name="correctOptionIndex" value={i} required className="h-4 w-4 shrink-0" />
+                    <input
+                      name="optionLabel"
+                      placeholder={`보기 ${i + 1}${i < 2 ? '' : ' (선택)'}`}
+                      className="h-9 flex-1 rounded-md border border-n-3 bg-n-1 px-2.5 text-[13px] text-n-9 outline-none focus:border-pink"
+                    />
+                  </div>
+                ))}
+                <p className="text-[11.5px] text-n-5">더 필요하면 등록 후 목록의 &quot;보기 추가&quot;로 늘릴 수 있어요.</p>
+              </div>
             </FormDialog>
             <FormDialog triggerLabel="주관식 문항 추가" title="주관식 문항 추가" action={addBankQuestion.bind(null, categoryId)}>
               <input type="hidden" name="questionType" value="short_answer" />
