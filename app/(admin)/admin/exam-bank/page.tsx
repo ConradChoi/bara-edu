@@ -96,6 +96,30 @@ export default async function AdminExamBankPage({
 
       {categoryId && (
         <>
+          <div className="flex flex-col gap-3 md:flex-row">
+            <form
+              action={addBankQuestion.bind(null, categoryId)}
+              className="flex flex-1 items-center gap-2 rounded-lg border border-n-3 bg-n-1 p-3"
+            >
+              <input type="hidden" name="questionType" value="multiple_choice" />
+              <input name="question" placeholder="새 객관식 문항" className="h-9 flex-1 rounded-md border border-n-3 bg-n-0 px-2.5 text-[13px]" />
+              <button type="submit" className="rounded-pill bg-pink px-4 py-1.5 text-[12.5px] font-semibold text-white">
+                객관식 추가
+              </button>
+            </form>
+            <form
+              action={addBankQuestion.bind(null, categoryId)}
+              className="flex flex-1 items-center gap-2 rounded-lg border border-n-3 bg-n-1 p-3"
+            >
+              <input type="hidden" name="questionType" value="short_answer" />
+              <input name="question" placeholder="새 주관식 문항" className="h-9 flex-1 rounded-md border border-n-3 bg-n-0 px-2.5 text-[13px]" />
+              <input name="answerText" placeholder="정답" className="h-9 w-[140px] rounded-md border border-n-3 bg-n-0 px-2.5 text-[13px]" />
+              <button type="submit" className="rounded-pill bg-pink px-4 py-1.5 text-[12.5px] font-semibold text-white">
+                주관식 추가
+              </button>
+            </form>
+          </div>
+
           {unresolvedCount > 0 && (
             <div className="rounded-md border border-warning bg-warning/10 px-3.5 py-3 text-[13px] font-medium text-warning">
               정답이 설정되지 않은 문항이 {unresolvedCount}개 있어요. 학습자 제출 시 해당 문항은 항상 오답으로 채점돼요.
@@ -202,30 +226,6 @@ export default async function AdminExamBankPage({
               ))}
             </ul>
           )}
-
-          <div className="flex flex-col gap-3 md:flex-row">
-            <form
-              action={addBankQuestion.bind(null, categoryId)}
-              className="flex flex-1 items-center gap-2 rounded-lg border border-n-3 bg-n-1 p-3"
-            >
-              <input type="hidden" name="questionType" value="multiple_choice" />
-              <input name="question" placeholder="새 객관식 문항" className="h-9 flex-1 rounded-md border border-n-3 bg-n-0 px-2.5 text-[13px]" />
-              <button type="submit" className="rounded-pill bg-pink px-4 py-1.5 text-[12.5px] font-semibold text-white">
-                객관식 추가
-              </button>
-            </form>
-            <form
-              action={addBankQuestion.bind(null, categoryId)}
-              className="flex flex-1 items-center gap-2 rounded-lg border border-n-3 bg-n-1 p-3"
-            >
-              <input type="hidden" name="questionType" value="short_answer" />
-              <input name="question" placeholder="새 주관식 문항" className="h-9 flex-1 rounded-md border border-n-3 bg-n-0 px-2.5 text-[13px]" />
-              <input name="answerText" placeholder="정답" className="h-9 w-[140px] rounded-md border border-n-3 bg-n-0 px-2.5 text-[13px]" />
-              <button type="submit" className="rounded-pill bg-pink px-4 py-1.5 text-[12.5px] font-semibold text-white">
-                주관식 추가
-              </button>
-            </form>
-          </div>
         </>
       )}
     </div>
