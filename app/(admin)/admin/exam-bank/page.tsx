@@ -97,27 +97,33 @@ export default async function AdminExamBankPage({
       {categoryId && (
         <>
           <div className="flex flex-col gap-3 md:flex-row">
-            <form
-              action={addBankQuestion.bind(null, categoryId)}
-              className="flex flex-1 items-center gap-2 rounded-lg border border-n-3 bg-n-1 p-3"
-            >
-              <input type="hidden" name="questionType" value="multiple_choice" />
-              <input name="question" placeholder="새 객관식 문항" className="h-9 flex-1 rounded-md border border-n-3 bg-n-0 px-2.5 text-[13px]" />
-              <button type="submit" className="rounded-pill bg-pink px-4 py-1.5 text-[12.5px] font-semibold text-white">
-                객관식 추가
-              </button>
-            </form>
-            <form
-              action={addBankQuestion.bind(null, categoryId)}
-              className="flex flex-1 items-center gap-2 rounded-lg border border-n-3 bg-n-1 p-3"
-            >
-              <input type="hidden" name="questionType" value="short_answer" />
-              <input name="question" placeholder="새 주관식 문항" className="h-9 flex-1 rounded-md border border-n-3 bg-n-0 px-2.5 text-[13px]" />
-              <input name="answerText" placeholder="정답" className="h-9 w-[140px] rounded-md border border-n-3 bg-n-0 px-2.5 text-[13px]" />
-              <button type="submit" className="rounded-pill bg-pink px-4 py-1.5 text-[12.5px] font-semibold text-white">
-                주관식 추가
-              </button>
-            </form>
+            <div className="flex flex-1 flex-col gap-2 rounded-lg border border-n-3 bg-n-1 p-3">
+              <p className="text-[13px] font-semibold text-n-9">객관식 문항 추가</p>
+              <form action={addBankQuestion.bind(null, categoryId)} className="flex items-center gap-2">
+                <input type="hidden" name="questionType" value="multiple_choice" />
+                <input name="question" placeholder="새 객관식 문항" className="h-9 flex-1 rounded-md border border-n-3 bg-n-0 px-2.5 text-[13px]" />
+                <button
+                  type="submit"
+                  className="shrink-0 whitespace-nowrap rounded-pill bg-pink px-4 py-1.5 text-[12.5px] font-semibold text-white"
+                >
+                  추가
+                </button>
+              </form>
+            </div>
+            <div className="flex flex-1 flex-col gap-2 rounded-lg border border-n-3 bg-n-1 p-3">
+              <p className="text-[13px] font-semibold text-n-9">주관식 문항 추가</p>
+              <form action={addBankQuestion.bind(null, categoryId)} className="flex items-center gap-2">
+                <input type="hidden" name="questionType" value="short_answer" />
+                <input name="question" placeholder="새 주관식 문항" className="h-9 flex-1 rounded-md border border-n-3 bg-n-0 px-2.5 text-[13px]" />
+                <input name="answerText" placeholder="정답" className="h-9 w-[110px] rounded-md border border-n-3 bg-n-0 px-2.5 text-[13px]" />
+                <button
+                  type="submit"
+                  className="shrink-0 whitespace-nowrap rounded-pill bg-pink px-4 py-1.5 text-[12.5px] font-semibold text-white"
+                >
+                  추가
+                </button>
+              </form>
+            </div>
           </div>
 
           {unresolvedCount > 0 && (
