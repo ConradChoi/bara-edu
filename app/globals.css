@@ -57,3 +57,11 @@ body {
 * {
   box-sizing: border-box;
 }
+
+/* Tailwind preflight가 `*`에 margin:0을 리셋해, <dialog showModal()>의 브라우저 기본
+   중앙정렬(margin:auto, position:fixed+inset:0 조합)이 깨져 항상 좌측 상단에 붙어
+   있었다 — ConfirmDialog/FormDialog 공용 이슈(관리자 리포트, 2026-09-12). 엘리먼트
+   셀렉터(dialog)가 전칭 셀렉터(*)보다 명시도가 높아 !important 없이 되돌릴 수 있다. */
+dialog {
+  margin: auto;
+}
