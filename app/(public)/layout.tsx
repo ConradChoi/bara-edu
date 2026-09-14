@@ -11,11 +11,19 @@ export default async function PublicLayout({ children }: { children: React.React
     data: { user },
   } = await supabase.auth.getUser();
 
+  // 헤더/푸터는 print-hide로 감싼다 — 이 그룹 안의 /selfcheck/result 인쇄 기능(F-DIAG-16)이
+  // "점수·차트·해석만 인쇄"를 요구하는데, 이 프로젝트 최초의 인쇄 화면이라 지금까지는
+  // 이 레이아웃 어디에도 해당 처리가 없었다(qa-reviewer 지적). 다른 (public) 페이지는
+  // window.print()를 쓰지 않아 영향 없다.
   return (
     <>
-      <AppHeader kind={user ? 'user' : 'public'} />
+      <div className="print-hide">
+        <AppHeader kind={user ? 'user' : 'public'} />
+      </div>
       <main>{children}</main>
-      <Footer />
+      <div className="print-hide">
+        <Footer />
+      </div>
     </>
   );
 }

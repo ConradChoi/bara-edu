@@ -75,7 +75,17 @@ export async function withdraw() {
   // (privacy-security-officer 지적, 2026-09-09 — module-lms-9 추가 당시 누락됐던 부분).
   const { error: examSubmissionError } = await admin.from('course_exam_submissions').delete().eq('user_id', user.id);
   const { error: examResetError } = await admin.from('course_exam_attempt_resets').delete().eq('user_id', user.id);
-  if (progressError || quizError || assignmentError || examSubmissionError || examResetError) {
+  // 도형심리 역량진단(/selfcheck) 결과·강사과정 문의도 이름/연락처/연락 메시지라는 PII를
+  // 직접 들고 있어 위 학습 이력과 동일하게 취급해야 한다 — 탈퇴해도 계정에 연결된 진단
+  // 결과가 원문 그대로 남아있던 문제(privacy-security-officer C-2 지적, 2026-09-14).
+  // 진단 결과는 점수·판정만 통계로 남기고(90일 미귀속 자동 파기와 동일한 방식) 문의는
+  // 리드 자체를 삭제한다(admin_note 등 남길 값이 없어 익명화보다 삭제가 적절).
+  const { error: diagnosisResultError } = await admin
+    .from('diagnosis_results')
+    .update({ respondent_name: null, phone: null, email: null, certificate_level: null })
+    .eq('user_id', user.id);
+  const { error: diagnosisLeadError } = await admin.from('diagnosis_leads').delete().eq('user_id', user.id);
+  if (progressError || quizError || assignmentError || examSubmissionError || examResetError || diagnosisResultError || diagnosisLeadError) {
     redirect('/my?withdrawError=failed');
   }
 

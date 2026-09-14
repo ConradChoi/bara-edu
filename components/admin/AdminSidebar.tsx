@@ -15,6 +15,8 @@ const NAV_ITEMS = [
   { href: '/admin/assignments', label: '과제 검토' },
   { href: '/admin/certificates', label: '수료 관리' },
   { href: '/admin/cms', label: '약관·정책 CMS' },
+  { href: '/admin/selfcheck', label: '진단 결과 조회' },
+  { href: '/admin/selfcheck/leads', label: '강사과정 문의' },
 ];
 
 // 활성 메뉴 표시를 위해 usePathname()만 쓰는 최소한의 client 컴포넌트
@@ -26,7 +28,15 @@ export default function AdminSidebar() {
   return (
     <nav className="flex w-[200px] shrink-0 flex-col gap-1 border-r border-n-3 bg-n-0 p-4">
       {NAV_ITEMS.map((item) => {
-        const active = item.href === '/admin' ? pathname === '/admin' : pathname.startsWith(item.href);
+        // `/admin/selfcheck`와 `/admin/selfcheck/leads`는 중첩 경로라 단순 startsWith면
+        // 리드 화면에서 두 메뉴가 동시에 활성 표시된다 — "진단 결과 조회"는 /leads 하위는
+        // 제외하도록 별도 처리한다(2026-09-14 추가 시 발견).
+        const active =
+          item.href === '/admin'
+            ? pathname === '/admin'
+            : item.href === '/admin/selfcheck'
+              ? pathname.startsWith('/admin/selfcheck') && !pathname.startsWith('/admin/selfcheck/leads')
+              : pathname.startsWith(item.href);
         return (
           <Link
             key={item.href}

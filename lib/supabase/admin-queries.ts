@@ -7,6 +7,7 @@
 import { headers } from 'next/headers';
 import { getKstStartOfDaysAgoIso, getKstStartOfTodayIso, getKstStartOfWeekIso, formatKstWeekRangeLabel, toKstDateKey } from '@/lib/kst';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { verifyRevealToken } from '@/lib/supabase/admin-pii-reveal';
 import { requireAdminClient } from '@/lib/supabase/require-admin';
 import { createClient } from '@/lib/supabase/server';
 import {
@@ -877,9 +878,9 @@ export type AdminMemberDetail = {
 // 제8조 5항(개인정보처리시스템 접속기록) 대응. 위변조 방지를 위해 RLS에 update/delete 정책이
 // 없고, 유일한 삭제 경로는 1년 경과분만 지우는 purge_old_admin_access_logs() RPC(pg_cron)뿐이다.
 // 로그 기록 실패가 실제 조회 자체를 막으면 안 되므로(가용성 우선) 에러는 삼키고 무시한다.
-async function logAdminAccess(
+export async function logAdminAccess(
   supabase: Awaited<ReturnType<typeof createClient>>,
-  targetUserId: string,
+  targetUserId: string | null,
   action: string,
   detail?: string
 ) {
@@ -1347,4 +1348,234 @@ export async function getAdminAssignmentSubmissions(filters?: {
     return result.filter((r) => r.status === filters.status);
   }
   return result;
+}
+
+// ===================== 도형심리 역량진단 관리 (/admin/selfcheck, 2026-09-14) =====================
+// F-ADMDG-*. diagnosis_results/diagnosis_answers/diagnosis_leads는 RLS가 admin-only select라
+// 여기서는 직접 select한다(학습자 RPC 경유와 무관). 목록은 연락처(휴대전화/이메일)를 기본
+// 마스킹하고, 관리자가 "개인정보 보기"를 눌러 특정 행의 revealedId를 넘기면 그 행만 원문을
+// 보여준다 — 이 열람은 반드시 admin_access_logs에 남는다(관리자 요청, 2026-09-14).
+
+// maskEmail과 동일한 이유로 앞 3자리+가운데 마스킹+뒤 4자리만 남긴다("010-****-5093").
+// 휴대전화가 아닌 형식(하이픈 없는 숫자만 등)이 들어와도 뒤 4자리 기준으로 동작하도록
+// 자리수만 확인한다.
+function maskPhone(phone: string | null | undefined): string {
+  if (!phone) return '-';
+  const digits = phone.replace(/[^0-9]/g, '');
+  if (digits.length < 7) return '***';
+  const prefix = digits.slice(0, 3);
+  const suffix = digits.slice(-4);
+  return `${prefix}-****-${suffix}`;
+}
+
+export type AdminDiagnosisResultRow = {
+  id: string;
+  createdAt: string;
+  respondentName: string;
+  phone: string; // 마스킹된 값 또는(revealedId 일치 시) 원문
+  email: string; // 위와 동일
+  isRevealed: boolean;
+  learningExperience: string;
+  totalScore: number;
+  recommendedTier: string;
+  userId: string | null;
+};
+
+// revealedId만으로 마스킹을 해제하던 이전 방식은 admin_access_logs 기록 없이 우회할 수
+// 있었다(위 설명 참고) — 이제는 revealToken/revealExp를 함께 받아 서명을 검증했을 때만
+// 해제하고, 그 검증에 성공한 시점에 이 함수 안에서 직접 logAdminAccess()를 호출한다.
+export async function getAdminDiagnosisResults(
+  filters?: { tier?: string; memberOnly?: 'all' | 'member' | 'non_member' },
+  reveal?: { id?: string; token?: string; exp?: number }
+): Promise<AdminDiagnosisResultRow[]> {
+  const supabase = await createClient();
+  let query = supabase
+    .from('diagnosis_results')
+    .select('id, created_at, respondent_name, phone, email, learning_experience, total_score, recommended_tier, user_id')
+    .order('created_at', { ascending: false });
+
+  if (filters?.tier && filters.tier !== 'all') query = query.eq('recommended_tier', filters.tier);
+  if (filters?.memberOnly === 'member') query = query.not('user_id', 'is', null);
+  if (filters?.memberOnly === 'non_member') query = query.is('user_id', null);
+
+  const { data, error } = await query;
+  if (error) throw new Error(error.message);
+
+  const rows = data as {
+    id: string;
+    created_at: string;
+    respondent_name: string;
+    phone: string;
+    email: string;
+    learning_experience: string;
+    total_score: number;
+    recommended_tier: string;
+    user_id: string | null;
+  }[];
+
+  let verifiedReveal = false;
+  if (reveal?.id && reveal.token && reveal.exp) {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (user && verifyRevealToken('diagnosis_result', reveal.id, user.id, reveal.token, reveal.exp)) {
+      verifiedReveal = true;
+      const target = rows.find((r) => r.id === reveal.id);
+      await logAdminAccess(supabase, target?.user_id ?? null, '조회', `진단 결과 연락처 열람(${reveal.id})`);
+    }
+  }
+
+  return rows.map((row) => {
+    const isRevealed = verifiedReveal && row.id === reveal?.id;
+    return {
+      id: row.id,
+      createdAt: row.created_at,
+      respondentName: row.respondent_name,
+      phone: isRevealed ? row.phone : maskPhone(row.phone),
+      email: isRevealed ? row.email : maskEmail(row.email),
+      isRevealed,
+      learningExperience: row.learning_experience,
+      totalScore: row.total_score,
+      recommendedTier: row.recommended_tier,
+      userId: row.user_id,
+    };
+  });
+}
+
+export type AdminDiagnosisResultDetail = AdminDiagnosisResultRow & {
+  scoreTheory: number;
+  scoreReading: number;
+  scoreAnalysis: number;
+  scoreCounseling: number;
+  scoreCaseRecord: number;
+  scoreTeaching: number;
+  strengthAreas: string[];
+  improvementAreas: string[];
+  answers: { itemCode: string; score: number }[];
+};
+
+// 상세 화면은 항상 원문을 보여준다(관리자가 이미 특정 결과 하나를 열어보기로 결정한
+// 행위 자체가 회원 상세(getAdminMemberDetail)와 동일한 "의도적 조회"이므로, 목록의
+// "개인정보 보기" 버튼 같은 별도 확인 없이 열람 시점에 접속기록을 남긴다).
+export async function getAdminDiagnosisResultDetail(id: string): Promise<AdminDiagnosisResultDetail | null> {
+  const supabase = await createClient();
+  const { data: row, error } = await supabase
+    .from('diagnosis_results')
+    .select(
+      'id, created_at, respondent_name, phone, email, learning_experience, total_score, recommended_tier, user_id, score_theory, score_reading, score_analysis, score_counseling, score_case_record, score_teaching, strength_areas, improvement_areas'
+    )
+    .eq('id', id)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!row) return null;
+
+  const { data: answerRows, error: answersError } = await supabase
+    .from('diagnosis_answers')
+    .select('item_code, score')
+    .eq('result_id', id)
+    .order('item_code', { ascending: true });
+  if (answersError) throw new Error(answersError.message);
+
+  await logAdminAccess(supabase, row.user_id, '조회', `진단 결과 상세(${id})`);
+
+  return {
+    id: row.id,
+    createdAt: row.created_at,
+    respondentName: row.respondent_name,
+    phone: row.phone,
+    email: row.email,
+    isRevealed: true,
+    learningExperience: row.learning_experience,
+    totalScore: row.total_score,
+    recommendedTier: row.recommended_tier,
+    userId: row.user_id,
+    scoreTheory: row.score_theory,
+    scoreReading: row.score_reading,
+    scoreAnalysis: row.score_analysis,
+    scoreCounseling: row.score_counseling,
+    scoreCaseRecord: row.score_case_record,
+    scoreTeaching: row.score_teaching,
+    strengthAreas: row.strength_areas ?? [],
+    improvementAreas: row.improvement_areas ?? [],
+    answers: (answerRows as { item_code: string; score: number }[]).map((a) => ({ itemCode: a.item_code, score: a.score })),
+  };
+}
+
+export type AdminDiagnosisLeadRow = {
+  id: string;
+  createdAt: string;
+  resultId: string | null;
+  name: string;
+  contact: string; // 마스킹된 값 또는(revealedId 일치 시) 원문
+  isRevealed: boolean;
+  message: string | null;
+  status: string;
+  adminNote: string | null;
+  handledAt: string | null;
+  userId: string | null;
+};
+
+export async function getAdminDiagnosisLeads(
+  filters?: { status?: string },
+  reveal?: { id?: string; token?: string; exp?: number }
+): Promise<AdminDiagnosisLeadRow[]> {
+  const supabase = await createClient();
+  let query = supabase
+    .from('diagnosis_leads')
+    .select('id, created_at, result_id, name, contact, message, status, admin_note, handled_at, user_id')
+    .order('created_at', { ascending: false });
+  if (filters?.status && filters.status !== 'all') query = query.eq('status', filters.status);
+
+  const { data, error } = await query;
+  if (error) throw new Error(error.message);
+
+  const rows = data as {
+    id: string;
+    created_at: string;
+    result_id: string | null;
+    name: string;
+    contact: string;
+    message: string | null;
+    status: string;
+    admin_note: string | null;
+    handled_at: string | null;
+    user_id: string | null;
+  }[];
+
+  let verifiedReveal = false;
+  if (reveal?.id && reveal.token && reveal.exp) {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (user && verifyRevealToken('diagnosis_lead', reveal.id, user.id, reveal.token, reveal.exp)) {
+      verifiedReveal = true;
+      const target = rows.find((r) => r.id === reveal.id);
+      await logAdminAccess(supabase, target?.user_id ?? null, '조회', `강사과정 문의 연락처 열람(${reveal.id})`);
+    }
+  }
+
+  return rows.map((row) => {
+    const isRevealed = verifiedReveal && row.id === reveal?.id;
+    return {
+      id: row.id,
+      createdAt: row.created_at,
+      resultId: row.result_id,
+      name: row.name,
+      contact: isRevealed ? row.contact : maskContact(row.contact),
+      isRevealed,
+      message: row.message,
+      status: row.status,
+      adminNote: row.admin_note,
+      handledAt: row.handled_at,
+      userId: row.user_id,
+    };
+  });
+}
+
+// 리드의 연락처는 "휴대전화 또는 이메일" 자유 입력 단일 필드라 두 형식을 다 마스킹해야
+// 한다 — @ 포함 여부로 형식을 판별해 적절한 마스킹 함수로 위임한다.
+function maskContact(contact: string | null | undefined): string {
+  if (!contact) return '-';
+  if (contact.includes('@')) return maskEmail(contact);
+  return maskPhone(contact);
 }

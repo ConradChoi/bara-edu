@@ -28,6 +28,7 @@ graph TD
   PUB --> P2["/courses 강좌 목록 (카테고리 트리 필터)"]
   PUB --> P3["/courses/[slug] 강좌 상세 + 신청/입금안내"]
   PUB --> P4["/legal/[slug] 약관·정책 페이지 (이용약관/개인정보처리방침 등)"]
+  PUB --> P5["/selfcheck 도형심리 역량진단 (별도 문서 — 2.13)"]
 
   ROOT --> AUTH["(auth) 인증"]
   AUTH --> A1["/sign-up 회원가입"]
@@ -57,6 +58,8 @@ graph TD
   ADMIN --> M5["/admin/certificates 수료 관리"]
   ADMIN --> M6["/admin/categories 카테고리 관리 (최대 3Depth)"]
   ADMIN --> M7["/admin/cms 약관·정책 CMS"]
+  ADMIN --> M8["/admin/selfcheck 진단 결과 조회 (별도 문서 — 2.13)"]
+  M8 --> M8a["/admin/selfcheck/leads 강사과정 관심 문의"]
 ```
 
 ### 1.1 공통 네비게이션 요소 (모든 화면이 공유 — 화면마다 새로 만들지 않는다)
@@ -234,6 +237,23 @@ graph TD
 |---|---|---|---|:---:|---|
 | F-BANK-1 | 목록 | 계좌 CRUD | 은행명·계좌번호·예금주 등록/수정/삭제, 최대 3개 | Must | `bank_accounts` |
 
+### 2.13 도형심리 역량진단 `/selfcheck` (2026-09-14 신규 — **별도 문서**)
+
+`/selfcheck` 자가진단(30문항) → 추천 과정 안내 → 기존 강좌 상세/신청 동선으로 연결하는 **유입 퍼널**. 기능 코드는 `F-DIAG-*` / `F-ADMDG-*`이며, 전체 정의는 별도 문서에 있다. 라우트명은 원래 `/diagnosis`였으나, 도형심리가 첫 사례일 뿐 향후 다른 자가진단 유형도 이 경로 아래 추가될 예정이라 특정 진단명에 묶이지 않는 `/selfcheck`로 대표가 최종 결정(DB 테이블/enum명은 `diagnosis_*` 그대로 유지 — 별도 문서 3.1절 참고).
+
+> **→ [bara-edu-diagnosis.menu-features.md](./bara-edu-diagnosis.menu-features.md)**
+
+분리 사유: 자체 데이터 모델 4종(`diagnosis_results` / `diagnosis_answers` / `diagnosis_leads` / `diagnosis_course_links`), 자체 관리자 메뉴 2개, **이 프로젝트 최초의 비회원 개인정보 수집 경로**를 갖는 별도 도메인이다. 본 문서는 IA 인덱스(1절 메뉴구조도)에만 진입점을 남긴다.
+
+| 요약 | 내용 |
+|---|---|
+| 공개 라우트 | `/selfcheck` · `/selfcheck/start` · `/selfcheck/result/[token]` |
+| 관리자 라우트 | `/admin/selfcheck` · `/admin/selfcheck/[id]` · `/admin/selfcheck/leads` (사이드바 11 → 13개) |
+| 기존 화면 변경 | 홈 진단 배너(Must), `AppHeader` 네비 1개 추가(Should), 도형기질 강좌 상세 보조 링크(Should) |
+| 게이팅 정책 | 결과 **요약은 비로그인 공개**, **상세(영역별 점수·Radar·해석·PDF)는 로그인 후** |
+| 주요 비목표 | PBA Radar 연동 · 자격/강사 자격 자동판정 · 임상 진단 표현 · 강사과정 판매 페이지 · 차트 라이브러리 도입 |
+| 선행 게이트 | ~~열린 질문 Q1~Q3 종결~~(2026-09-14 완료) → service-planner/ui-ux-designer 단계 진행 중. 개인정보처리방침 개정(privacy-security-officer)은 구현 단계에서 별도 수행 |
+
 ---
 
 ## 3. Figma 작업 순서 (본 문서 확정 후)
@@ -260,4 +280,14 @@ service-planner: F-LRN-7/7b/8 학습자 시험 플로우 상세화
 ※ 개인정보 취급 변화는 없으나(시험 점수는 학습 이력), 수료 게이팅을 바꾸므로
   qa-reviewer 리뷰는 필수. 배포 전 privacy-security-officer는 RPC 권한(정답 비노출,
   타인 명의 제출 차단, 횟수 우회) 관점으로만 점검한다.
+```
+
+### 4.2 도형심리 역량진단 (2026-09-14 스코핑 완료, 구현 미승인)
+
+```
+PO: 스코핑 문서 작성 완료 → bara-edu-diagnosis.menu-features.md
+다음 게이트: 열린 질문 Q1(연락처 필수 여부)·Q2(1급 강좌 등록 여부)·Q3(비회원 결과 보유기간)
+            → CEO/운영 확정 후 service-planner 착수
+※ 이 프로젝트 최초의 비회원 개인정보 수집 경로이므로
+  privacy-security-officer의 개인정보처리방침 개정이 배포 게이트에 포함된다.
 ```

@@ -12,7 +12,9 @@ type ConfirmDialogProps = {
   disabled?: boolean;
   disabledReason?: string;
   action: (formData: FormData) => void | Promise<void>;
-  reasonField?: { name: string; label: string; placeholder?: string };
+  // required 기본값 true(기존 호출부 전부 사유 필수) — "연락함으로 표시"처럼 선택 메모가
+  // 필요한 곳만 false로 낮춘다(도형심리 진단 관리자 리드 화면, 2026-09-14 추가).
+  reasonField?: { name: string; label: string; placeholder?: string; required?: boolean };
 };
 
 // 승인/반려/승인취소/삭제 등 여러 관리자 화면에서 재사용하는 확인 다이얼로그.
@@ -66,7 +68,7 @@ export default function ConfirmDialog({
               {reasonField.label}
               <textarea
                 name={reasonField.name}
-                required
+                required={reasonField.required ?? true}
                 placeholder={reasonField.placeholder}
                 className="min-h-[72px] rounded-md border border-n-3 bg-n-1 p-2.5 text-[13px] text-n-9 outline-none focus:border-pink"
               />

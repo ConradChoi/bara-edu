@@ -65,3 +65,11 @@ body {
 dialog {
   margin: auto;
 }
+
+/* F-DIAG-16 "PDF로 저장" — 서버 PDF 생성 라이브러리 없이 브라우저 인쇄로 충족한다.
+   헤더/네비/CTA/리드폼처럼 인쇄에 불필요한 요소에 .print-hide를 붙여 숨긴다. */
+@media print {
+  .print-hide {
+    display: none !important;
+  }
+}

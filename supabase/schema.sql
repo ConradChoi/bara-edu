@@ -46,6 +46,19 @@ do $$ begin
   create type exam_question_type as enum ('multiple_choice', 'short_answer');
 exception when duplicate_object then null; end $$;
 
+-- 도형심리 역량진단(/selfcheck) 관련 enum. F-DIAG-*(docs/01-plan/features/bara-edu-diagnosis.menu-features.md).
+do $$ begin
+  create type diagnosis_tier as enum ('level2', 'level1', 'supervision', 'instructor_candidate');
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  create type diagnosis_experience as enum ('none', 'past_course', 'certified', 'active_use');
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  create type diagnosis_lead_status as enum ('new', 'contacted', 'closed');
+exception when duplicate_object then null; end $$;
+
 -- ===================== Tables =====================
 
 -- 회원 프로필 (auth.users 1:1)
@@ -1364,8 +1377,13 @@ $$;
 -- 바뀌면 create or replace가 아니라 새 오버로드가 생기므로 먼저 옛 시그니처를 drop한다):
 -- [{"question_id": "...", "option_id": "..."}, {"question_id": "...", "answer_text": "..."}]
 -- 문항 하나당 항목 하나만 허용 — option_id/answer_text 중 그 문항 유형에 맞는 쪽만 채운다.
+-- 아래 drop은 uuid[] 시절의 옛 시그니처 전용 1회성 정리라 재실행해도 안전(존재 안 하면
+-- no-op)하지만, 정작 새 시그니처(uuid, jsonb) 자체는 create function(not or replace)으로
+-- 만들고 있어 이 스크립트를 두 번째로 재실행하면 "already exists with same argument types"
+-- 에러가 났다(2026-09-14, 대표 재실행 중 발견) — 시그니처가 안정된 뒤에는 다른 모든 RPC와
+-- 동일하게 create or replace를 쓰는 게 맞다.
 drop function if exists public.submit_course_exam(uuid, uuid[]);
-create function public.submit_course_exam(p_course_id uuid, p_answers jsonb)
+create or replace function public.submit_course_exam(p_course_id uuid, p_answers jsonb)
 returns table (score integer, passed boolean, attempt_no integer)
 language plpgsql
 security definer
@@ -1711,6 +1729,580 @@ revoke execute on function public.purge_old_admin_access_logs() from public, ano
 do $$ begin
   perform cron.schedule('purge-unverified-signups-daily', '0 18 * * *', $cron$select public.purge_unverified_signups();$cron$);
   perform cron.schedule('purge-old-admin-access-logs-daily', '10 18 * * *', $cron$select public.purge_old_admin_access_logs();$cron$);
+exception when undefined_table or undefined_function then
+  raise notice 'pg_cron이 아직 활성화되지 않았습니다 — Supabase 대시보드 Database > Extensions에서 pg_cron을 켠 뒤 이 스키마를 다시 실행해주세요.';
+end $$;
+
+-- ===================== module: 도형심리 역량진단 /selfcheck (2026-09-14) =====================
+-- 결제·수강 이전 유입 퍼널. LMS 도메인과 분리된 별도 기능 — 근거는
+-- docs/01-plan/features/bara-edu-diagnosis.{menu-features,flows,design}.md. 이 프로젝트에서
+-- 처음으로 "비회원"이 개인정보(이름/휴대전화/이메일)를 직접 입력하는 경로다 — 최소수집
+-- 원칙에 따라 결과 조회는 access_token(추측 불가) 경유로만 하고, 문항 원응답과 연락처는
+-- 관리자 전용으로 RLS를 잠근다. 라우트명은 `/diagnosis`가 아니라 `/selfcheck`로 확정됐지만
+-- (향후 다른 자가진단 유형 확장 대비, 2026-09-14 대표 결정) DB 객체명은 `diagnosis_*`를
+-- 그대로 쓴다 — 두 번째 자가진단 유형이 실제로 생기기 전까지는 일반화하지 않기로 함.
+
+-- respondent_name/phone/email은 의도적으로 not null이 아니다 — 90일 미귀속 자동 파기
+-- (purge_unclaimed_diagnosis_pii()) 시점에 이 세 컬럼을 null로 비우고 점수/판정 결과만
+-- 통계 목적으로 남기기 때문이다(제출 시점 검증은 submit_diagnosis() RPC가 담당).
+-- phone/email은 "회원가입 최소수집 원칙"에 따라 Phase 1부터 "둘 중 최소 1개"만 필수로
+-- 완화했다(privacy-security-officer M-4 지적, 대표 결정 2026-09-14) — RPC가 검증한다.
+create table if not exists diagnosis_results (
+  id uuid primary key default gen_random_uuid(),
+  access_token uuid not null unique default gen_random_uuid(),
+  user_id uuid references profiles(id) on delete set null,
+  claimed_at timestamptz,
+  respondent_name text,
+  phone text,
+  email text,
+  learning_experience diagnosis_experience not null,
+  certificate_level text,
+  age_confirmed boolean not null,
+  version text not null,
+  score_theory smallint not null,
+  score_reading smallint not null,
+  score_analysis smallint not null,
+  score_counseling smallint not null,
+  score_case_record smallint not null,
+  score_teaching smallint not null,
+  total_score numeric(5,2) not null,
+  recommended_tier diagnosis_tier not null,
+  strength_areas text[] not null default '{}',
+  improvement_areas text[] not null default '{}',
+  consent_privacy boolean not null,
+  consent_privacy_doc_version integer,
+  utm_source text,
+  utm_medium text,
+  utm_campaign text,
+  created_at timestamptz not null default now()
+);
+create index if not exists diagnosis_results_user_id_idx on diagnosis_results(user_id);
+create index if not exists diagnosis_results_created_at_idx on diagnosis_results(created_at desc);
+create index if not exists diagnosis_results_tier_idx on diagnosis_results(recommended_tier);
+
+-- 문항별 원응답 30건. 문항/임계값이 개정돼도 재채점·분석이 가능하도록 보존한다.
+-- 관리자 전용 — 학습자 화면에는 어떤 경로로도 노출하지 않는다.
+create table if not exists diagnosis_answers (
+  result_id uuid not null references diagnosis_results(id) on delete cascade,
+  item_code text not null,
+  score smallint not null check (score between 0 and 4),
+  primary key (result_id, item_code)
+);
+
+-- 강사과정 관심 문의(리드). "강사과정 사전 적합 후보" tier는 실제 판매 중인 상품이 없어
+-- 과정 상세로 연결하지 않고 이 테이블로 접수만 한다 — enrollments 상태머신(입금기한·수료조건)에
+-- 전용하지 않는 이유는 도메인이 완전히 다르기 때문(service-planner 판단, flows.md 7.4절).
+create table if not exists diagnosis_leads (
+  id uuid primary key default gen_random_uuid(),
+  result_id uuid references diagnosis_results(id) on delete set null,
+  user_id uuid references profiles(id) on delete set null,
+  topic text not null default 'instructor_course',
+  name text not null,
+  contact text not null,
+  message text,
+  consent_contact boolean not null,
+  status diagnosis_lead_status not null default 'new',
+  admin_note text,
+  handled_by uuid references profiles(id),
+  handled_at timestamptz,
+  created_at timestamptz not null default now()
+);
+create index if not exists diagnosis_leads_status_idx on diagnosis_leads(status);
+create index if not exists diagnosis_leads_created_at_idx on diagnosis_leads(created_at desc);
+
+-- tier → 강좌 매핑(운영 설정). slug를 코드에 하드코딩하지 않는 이유는 F-ADMC-7 제약과
+-- 동일(관리자가 카테고리/강좌를 재구성해도 코드 배포 없이 매핑만 바꾸면 됨).
+create table if not exists diagnosis_course_links (
+  tier diagnosis_tier primary key,
+  course_id uuid references courses(id),
+  cta_label text not null,
+  description text,
+  is_active boolean not null default true,
+  updated_at timestamptz not null default now()
+);
+
+-- Phase 1 시드 — slug는 실제 등록된 강좌 기준. 1급은 `shape-test-analysis-1`로 확인됨(관리자
+-- 확인, 2026-09-14). 2급은 같은 명명 규칙으로 `shape-test-analysis-2`로 추정 — 실제와 다르면
+-- `update diagnosis_course_links set course_id=... where tier='level2'`로 직접 고치면 되고,
+-- on conflict do nothing이라 재실행해도 그 수정을 덮어쓰지 않는다.
+insert into diagnosis_course_links (tier, course_id, cta_label, description)
+values
+  ('level2', (select id from courses where slug = 'shape-test-analysis-2'), '도형기질활용지도자 2급 자세히 보기', '기초부터 체계적으로 정리하는 단계'),
+  ('level1', (select id from courses where slug = 'shape-test-analysis-1'), '도형기질활용지도자 1급 자세히 보기', '기본 분석에서 실전 활용으로 확장하는 단계'),
+  ('supervision', (select id from courses where slug = 'shape-test-analysis-1'), '도형기질활용지도자 1급(실습·슈퍼비전 중심) 자세히 보기', '새로운 이론보다 사례와 피드백이 필요한 단계'),
+  ('instructor_candidate', null, '강사과정 관심 문의하기', '강사과정 사전 적합 후보')
+on conflict (tier) do nothing;
+
+alter table diagnosis_results enable row level security;
+alter table diagnosis_answers enable row level security;
+alter table diagnosis_leads enable row level security;
+alter table diagnosis_course_links enable row level security;
+
+-- diagnosis_results/diagnosis_answers: 직접 select/insert/update 전부 차단(관리자 select만
+-- 예외) — 쓰기는 submit_diagnosis()/claim_diagnosis() RPC로만, 학습자 읽기는
+-- get_diagnosis_summary()/get_diagnosis_detail() RPC로만(전부 SECURITY DEFINER, RLS 우회).
+-- course_exam_submissions와 동일한 이유: 학습자가 REST로 직접 유리한 값을 꽂아 넣거나
+-- 타인 결과를 열람하는 경로를 원천 차단한다.
+drop policy if exists "diagnosis_results_admin_select" on diagnosis_results;
+create policy "diagnosis_results_admin_select" on diagnosis_results for select using (is_admin());
+
+drop policy if exists "diagnosis_answers_admin_select" on diagnosis_answers;
+create policy "diagnosis_answers_admin_select" on diagnosis_answers for select using (is_admin());
+
+-- diagnosis_leads: 쓰기는 submit_diagnosis_lead() RPC로만, select·update는 관리자만
+-- (상태 전환·메모 수정은 admin-enrollments.ts와 동일한 조건부 update 패턴을 앱 레벨에서 사용).
+drop policy if exists "diagnosis_leads_admin_select" on diagnosis_leads;
+create policy "diagnosis_leads_admin_select" on diagnosis_leads for select using (is_admin());
+drop policy if exists "diagnosis_leads_admin_update" on diagnosis_leads;
+create policy "diagnosis_leads_admin_update" on diagnosis_leads for update using (is_admin());
+
+-- diagnosis_course_links: 결과 화면 CTA 계산에 필요해 전체 공개 read, 관리자만 write.
+drop policy if exists "diagnosis_course_links_public_select" on diagnosis_course_links;
+create policy "diagnosis_course_links_public_select" on diagnosis_course_links for select using (true);
+drop policy if exists "diagnosis_course_links_admin_write" on diagnosis_course_links;
+create policy "diagnosis_course_links_admin_write" on diagnosis_course_links for insert with check (is_admin());
+drop policy if exists "diagnosis_course_links_admin_update" on diagnosis_course_links;
+create policy "diagnosis_course_links_admin_update" on diagnosis_course_links for update using (is_admin());
+
+-- ===================== RPC: 진단 제출·자동 채점 =====================
+-- 비회원도 호출 가능한 공개 RPC다(로그인 불필요) — 로그인 상태로 제출하면 그 자리에서
+-- user_id/claimed_at을 채워 claim 절차 자체를 건너뛴다(flows.md 1.5절). 클라이언트가 계산한
+-- 점수·추천 tier는 신뢰하지 않고 서버에서 30개 원응답만으로 재계산한다(기존 시험 RPC 원칙 승계).
+create or replace function public.submit_diagnosis(
+  p_name text,
+  p_phone text,
+  p_email text,
+  p_learning_experience diagnosis_experience,
+  p_certificate_level text,
+  p_consent_privacy boolean,
+  p_consent_privacy_doc_version integer,
+  p_age_confirmed boolean,
+  p_answers jsonb,
+  p_utm_source text default null,
+  p_utm_medium text default null,
+  p_utm_campaign text default null
+)
+returns table (access_token uuid, recommended_tier diagnosis_tier, total_score numeric)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_result_id uuid;
+  v_access_token uuid := gen_random_uuid();
+  v_answer_count integer;
+  v_raw integer;
+  v_theory integer; v_reading integer; v_analysis integer;
+  v_counseling integer; v_case_record integer; v_teaching integer;
+  v_overall numeric;
+  v_tier diagnosis_tier;
+  v_strength text[];
+  v_improvement text[];
+  area_prefixes text[] := array['A','B','C','D','E','F'];
+  v_expected_codes text[];
+  v_submitted_codes text[];
+  i integer;
+begin
+  if not coalesce(p_consent_privacy, false) then
+    raise exception 'privacy consent required';
+  end if;
+  -- 만 14세 미만 개인정보 수집은 법정대리인 동의가 별도로 필요하다(PIPA 제22조의2) —
+  -- Phase 1은 비회원 직접수집 경로라 회원가입과 달리 이 확인이 없었다
+  -- (privacy-security-officer M-5 지적, 대표 결정 2026-09-14). 클라이언트 체크박스와
+  -- 별개로 서버에서도 반드시 재검증한다(다른 모든 동의 항목과 동일한 원칙).
+  if not coalesce(p_age_confirmed, false) then
+    raise exception 'age confirmation required';
+  end if;
+  if p_name is null or btrim(p_name) = '' then
+    raise exception 'name required';
+  end if;
+  -- 연락처는 "휴대전화 또는 이메일 중 최소 1개"만 필수다(최소수집 원칙, M-4 지적 반영—
+  -- Phase 1은 리드 상담 연결 외에 연락처를 쓰는 발송 기능 자체가 없어 둘 다 강제할
+  -- 근거가 없다). 최소 1개 원칙은 여기서만 검증하고 테이블에는 별도 CHECK를 두지 않는다
+  -- (90일 미귀속 파기 시 phone/email을 함께 null로 비우는 purge_unclaimed_diagnosis_pii()와
+  -- 충돌하지 않기 위함).
+  if (p_phone is null or btrim(p_phone) = '') and (p_email is null or btrim(p_email) = '') then
+    raise exception 'phone or email required';
+  end if;
+
+  select count(*) into v_answer_count from jsonb_object_keys(p_answers);
+  if v_answer_count <> 30 then
+    raise exception 'expected exactly 30 answers, got %', v_answer_count;
+  end if;
+  if exists (
+    select 1 from jsonb_each_text(p_answers) e
+    where (e.value)::integer < 0 or (e.value)::integer > 4
+  ) then
+    raise exception 'answer scores must be between 0 and 4';
+  end if;
+
+  -- 응답 키 자체가 A1~F5 30개 정확한 문항 코드와 일치하는지 확인한다(qa-reviewer 지적 —
+  -- 개수(30)·값 범위(0~4)만 확인하면 X1..X30 같은 엉뚱한 키로도 통과해 조용히 0점 처리될 수 있었다).
+  select array_agg(code order by code) into v_expected_codes
+  from (select p || n::text as code from unnest(area_prefixes) p, generate_series(1, 5) n) t;
+  select array_agg(k order by k) into v_submitted_codes from jsonb_object_keys(p_answers) k;
+  if v_submitted_codes is distinct from v_expected_codes then
+    raise exception 'answers must contain exactly the 30 canonical item codes';
+  end if;
+
+  -- 동일 연락처의 단시간(5분 이내) 반복 제출을 막는다 — 비회원 공개 쓰기 경로라 최소한의
+  -- 남용 방지가 필요하다(PM 문서 Q7, "Should" 수준의 최소 방어). phone이 없을 수도 있어
+  -- email까지 함께 확인한다.
+  if exists (
+    select 1 from diagnosis_results
+    where created_at > now() - interval '5 minutes'
+      and ((p_phone is not null and phone = btrim(p_phone)) or (p_email is not null and email = btrim(p_email)))
+  ) then
+    raise exception 'duplicate submission too soon';
+  end if;
+
+  -- 영역별 원점수(0~20) → 100점 환산. item_code 앞 글자(A~F)로 영역을 판별한다.
+  for i in 1..6 loop
+    select coalesce(sum((e.value)::integer), 0) into v_raw
+    from jsonb_each_text(p_answers) e
+    where left(e.key, 1) = area_prefixes[i];
+
+    case i
+      when 1 then v_theory := round(v_raw / 20.0 * 100);
+      when 2 then v_reading := round(v_raw / 20.0 * 100);
+      when 3 then v_analysis := round(v_raw / 20.0 * 100);
+      when 4 then v_counseling := round(v_raw / 20.0 * 100);
+      when 5 then v_case_record := round(v_raw / 20.0 * 100);
+      when 6 then v_teaching := round(v_raw / 20.0 * 100);
+    end case;
+  end loop;
+
+  v_overall := round((v_theory + v_reading + v_analysis + v_counseling + v_case_record + v_teaching) / 6.0, 2);
+
+  -- 추천 tier 판정(원본 요구사항서 §8.1~8.5, PM 문서 F-DIAG-7 그대로 구현). 경계값 우선순위:
+  -- ① 기본 역량 결손 있으면 무조건 2급 ② 그 외 상위 tier부터 역순 평가 ③ 강사후보는 7개
+  -- 기준 전부 충족 시에만. elsif가 위에서부터 순서대로 평가되므로 supervision/level1
+  -- 조건에는 "상담·사례기록이 아직 부족하다"는 배타 조건을 걸 필요가 없다 — 그보다 상위
+  -- tier(instructor_candidate/supervision)는 이미 각자의 elsif에서 먼저 걸러졌기 때문이다.
+  -- 원래 이 배타 조건이 있었을 때는 상담·사례기록까지 65~72점대로 고르게 준수한 응답자가
+  -- 어떤 분기에도 걸리지 않고 else(level2, "기초부터 다시")로 강등되는 결함이 있었다
+  -- (qa-reviewer 재현: theory70/reading70/analysis65/counseling72/case_record72/teaching70).
+  if v_theory < 60 or v_reading < 60 or v_overall < 60 then
+    v_tier := 'level2';
+  elsif v_theory >= 80 and v_reading >= 80 and v_analysis >= 80
+        and v_counseling >= 75 and v_case_record >= 75 and v_teaching >= 75 and v_overall >= 80 then
+    v_tier := 'instructor_candidate';
+  elsif v_theory >= 75 and v_reading >= 75 and v_analysis >= 70 then
+    v_tier := 'supervision';
+  elsif v_theory >= 65 and v_reading >= 65 and v_analysis >= 60 then
+    v_tier := 'level1';
+  else
+    v_tier := 'level2';
+  end if;
+
+  -- 강점/보완 영역(PM 문서 Q4 확정: 동점 시 영역 정의 순서 우선, 최대 2개. 전 영역 동점이면 빈 배열).
+  if greatest(v_theory, v_reading, v_analysis, v_counseling, v_case_record, v_teaching)
+     = least(v_theory, v_reading, v_analysis, v_counseling, v_case_record, v_teaching) then
+    v_strength := '{}';
+    v_improvement := '{}';
+  else
+    with scored as (
+      select 'theory' as code, v_theory as score, 1 as idx
+      union all select 'reading', v_reading, 2
+      union all select 'analysis', v_analysis, 3
+      union all select 'counseling', v_counseling, 4
+      union all select 'case_record', v_case_record, 5
+      union all select 'teaching', v_teaching, 6
+    )
+    select array_agg(code) into v_strength from (select code from scored order by score desc, idx asc limit 2) s;
+
+    with scored as (
+      select 'theory' as code, v_theory as score, 1 as idx
+      union all select 'reading', v_reading, 2
+      union all select 'analysis', v_analysis, 3
+      union all select 'counseling', v_counseling, 4
+      union all select 'case_record', v_case_record, 5
+      union all select 'teaching', v_teaching, 6
+    )
+    select array_agg(code) into v_improvement from (select code from scored order by score asc, idx asc limit 2) s;
+  end if;
+
+  insert into diagnosis_results (
+    access_token, user_id, claimed_at, respondent_name, phone, email, learning_experience, certificate_level,
+    age_confirmed, version, score_theory, score_reading, score_analysis, score_counseling, score_case_record, score_teaching,
+    total_score, recommended_tier, strength_areas, improvement_areas,
+    consent_privacy, consent_privacy_doc_version, utm_source, utm_medium, utm_campaign
+  ) values (
+    v_access_token, v_user_id, case when v_user_id is not null then now() else null end,
+    btrim(p_name), nullif(btrim(coalesce(p_phone, '')), ''), nullif(btrim(coalesce(p_email, '')), ''), p_learning_experience,
+    nullif(btrim(coalesce(p_certificate_level, '')), ''),
+    true, 'shape-v1', v_theory, v_reading, v_analysis, v_counseling, v_case_record, v_teaching,
+    v_overall, v_tier, coalesce(v_strength, '{}'), coalesce(v_improvement, '{}'),
+    true, p_consent_privacy_doc_version, p_utm_source, p_utm_medium, p_utm_campaign
+  )
+  returning id into v_result_id;
+
+  insert into diagnosis_answers (result_id, item_code, score)
+  select v_result_id, e.key, (e.value)::integer
+  from jsonb_each_text(p_answers) e;
+
+  return query select v_access_token, v_tier, v_overall;
+end;
+$$;
+
+-- ===================== RPC: 결과 요약 조회 (비로그인 공개, 이름·연락처 미포함) =====================
+-- F-DIAG-8 "클라이언트 숨김 금지" 원칙 — 서버 응답 자체에 이름/연락처/영역별 점수를
+-- 절대 포함하지 않는다(단순히 화면에서 안 보여주는 게 아니라 응답에 없어야 함).
+create or replace function public.get_diagnosis_summary(p_token uuid)
+returns table (
+  recommended_tier diagnosis_tier,
+  total_score numeric,
+  cta_label text,
+  cta_description text,
+  course_id uuid,
+  course_slug text,
+  course_title text,
+  has_owner boolean,
+  is_owned_by_caller boolean
+)
+language plpgsql
+security definer
+stable
+set search_path = public
+as $$
+declare
+  v_tier diagnosis_tier;
+  v_score numeric;
+  v_owner uuid;
+begin
+  select r.recommended_tier, r.total_score, r.user_id
+  into v_tier, v_score, v_owner
+  from diagnosis_results r
+  where r.access_token = p_token;
+
+  if not found then
+    raise exception 'result not found';
+  end if;
+
+  return query
+    select
+      v_tier,
+      v_score,
+      dcl.cta_label,
+      dcl.description,
+      c.id,
+      c.slug,
+      c.title,
+      (v_owner is not null),
+      coalesce(v_owner = auth.uid(), false)
+    from diagnosis_course_links dcl
+    left join courses c on c.id = dcl.course_id and c.status in ('active', 'upcoming')
+    where dcl.tier = v_tier;
+end;
+$$;
+
+-- ===================== RPC: 결과 상세 조회 (로그인 + 본인 소유만) =====================
+-- F-DIAG-9 게이팅. 연락처(phone/email)는 화면에 쓰이지 않아 본인이라도 재노출하지 않는다
+-- (불필요한 노출을 피한다는 원칙 — 요약과 동일한 방어심층).
+create or replace function public.get_diagnosis_detail(p_token uuid)
+returns table (
+  respondent_name text,
+  recommended_tier diagnosis_tier,
+  total_score numeric,
+  score_theory smallint,
+  score_reading smallint,
+  score_analysis smallint,
+  score_counseling smallint,
+  score_case_record smallint,
+  score_teaching smallint,
+  strength_areas text[],
+  improvement_areas text[],
+  created_at timestamptz
+)
+language plpgsql
+security definer
+stable
+set search_path = public
+as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_owner uuid;
+begin
+  if v_user_id is null then
+    raise exception 'not authorized';
+  end if;
+
+  select r.user_id into v_owner from diagnosis_results r where r.access_token = p_token;
+  if not found then
+    raise exception 'result not found';
+  end if;
+  if v_owner is distinct from v_user_id then
+    raise exception 'not authorized for this result';
+  end if;
+
+  return query
+    select r.respondent_name, r.recommended_tier, r.total_score,
+           r.score_theory, r.score_reading, r.score_analysis,
+           r.score_counseling, r.score_case_record, r.score_teaching,
+           r.strength_areas, r.improvement_areas, r.created_at
+    from diagnosis_results r
+    where r.access_token = p_token;
+end;
+$$;
+
+-- ===================== RPC: 결과 귀속(claim) =====================
+-- flows.md 1.6.3 — 미귀속 결과만 최초 1회 귀속. 이미 다른 계정에 연결된 결과는 예외를
+-- 던져 프런트가 "이미 다른 계정에 연결됨" 거부 화면을 보여주게 한다. 제3자가 공유받은
+-- 토큰을 로그인 상태로 열람했을 때 확인 없이 자동 귀속할지는 app/actions/diagnosis.ts가
+-- submitDiagnosis() 성공 시점에 심는 httpOnly 쿠키(RECENT_SUBMIT_COOKIE)로 판단한다
+-- (qa-reviewer + privacy-security-officer 공통 지적으로 2026-09-14 재설계 — 이전에는
+-- 결과 페이지의 `?claim=auto` 쿼리파라미터를 그대로 신뢰해 제3자가 URL만 조작해도 확인 없이
+-- 귀속될 수 있었다). 이 RPC 자체는 여전히 "귀속 시도"만 원자적으로 처리한다.
+create or replace function public.claim_diagnosis(p_token uuid)
+returns table (claimed boolean)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_owner uuid;
+  v_updated integer;
+begin
+  if v_user_id is null then
+    raise exception 'not authorized';
+  end if;
+
+  select user_id into v_owner from diagnosis_results where access_token = p_token;
+  if not found then
+    raise exception 'result not found';
+  end if;
+
+  if v_owner = v_user_id then
+    return query select true;
+    return;
+  end if;
+
+  if v_owner is not null then
+    raise exception 'already claimed by another account';
+  end if;
+
+  update diagnosis_results set user_id = v_user_id, claimed_at = now()
+  where access_token = p_token and user_id is null;
+  get diagnostics v_updated = row_count;
+
+  if v_updated = 0 then
+    raise exception 'already claimed by another account';
+  end if;
+
+  return query select true;
+end;
+$$;
+
+-- ===================== RPC: 강사과정 관심 문의 제출 =====================
+-- tier가 instructor_candidate인 결과에서만 접수 가능하도록 서버에서 재검증한다(클라이언트가
+-- 화면을 조작해 다른 tier에서 리드를 보내는 경로 차단).
+create or replace function public.submit_diagnosis_lead(
+  p_token uuid,
+  p_name text,
+  p_contact text,
+  p_message text,
+  p_consent_contact boolean
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_result_id uuid;
+  v_tier diagnosis_tier;
+  v_user_id uuid := auth.uid();
+  v_lead_id uuid;
+begin
+  if not coalesce(p_consent_contact, false) then
+    raise exception 'contact consent required';
+  end if;
+  if p_name is null or btrim(p_name) = '' or p_contact is null or btrim(p_contact) = '' then
+    raise exception 'name and contact required';
+  end if;
+
+  select id, recommended_tier into v_result_id, v_tier
+  from diagnosis_results where access_token = p_token;
+  if not found then
+    raise exception 'result not found';
+  end if;
+  if v_tier <> 'instructor_candidate' then
+    raise exception 'lead form not available for this tier';
+  end if;
+
+  if exists (
+    select 1 from diagnosis_leads where contact = btrim(p_contact) and created_at > now() - interval '5 minutes'
+  ) then
+    raise exception 'duplicate submission too soon';
+  end if;
+
+  insert into diagnosis_leads (result_id, user_id, topic, name, contact, message, consent_contact)
+  values (v_result_id, v_user_id, 'instructor_course', btrim(p_name), btrim(p_contact),
+          nullif(btrim(coalesce(p_message, '')), ''), true)
+  returning id into v_lead_id;
+
+  return v_lead_id;
+end;
+$$;
+
+-- 학습자 RPC 중 로그인 필수 항목은 anon 역할에서 실행 권한 자체를 제거한다(defense-in-depth
+-- — RPC 내부에서 이미 auth.uid() is null을 막고 있지만, purge_unverified_signups() 등과
+-- 동일하게 애초에 호출 표면을 최소화한다. privacy-security-officer 권고, 2026-09-14).
+revoke execute on function public.claim_diagnosis(uuid) from anon;
+revoke execute on function public.get_diagnosis_detail(uuid) from anon;
+
+-- ===================== RPC: 미귀속 진단 결과 90일 경과 시 개인정보 파기 =====================
+-- PM 문서 Q3 확정 사항의 실제 구현체 — 지금까지는 방침 문서에만 적혀 있고 이 함수 자체가
+-- 없었다(privacy-security-officer C-1 지적). 회원에게 귀속되지 않은(user_id is null) 결과 중
+-- 접수 90일이 지난 건은 이름/연락처만 null로 비우고, 점수·판정·문항 응답은 통계 목적으로
+-- 남긴다(행 자체를 지우지 않음 — diagnosis_leads.result_id가 참조 중일 수도 있어 삭제 대신
+-- 익명화를 택했다).
+create or replace function public.purge_unclaimed_diagnosis_pii()
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_updated_count integer;
+begin
+  update diagnosis_results
+  set respondent_name = null, phone = null, email = null, certificate_level = null,
+      utm_source = null, utm_medium = null, utm_campaign = null
+  where user_id is null
+    and created_at < now() - interval '90 days'
+    and respondent_name is not null;
+  get diagnostics v_updated_count = row_count;
+  return v_updated_count;
+end;
+$$;
+
+-- ===================== RPC: 강사과정 관심 문의(리드) 1년 경과 시 파기 =====================
+-- 대표 결정(2026-09-14): 접수일로부터 1년 고정(종료 여부와 무관). 리드는 진단결과와 달리
+-- 통계적으로 남겨둘 값이 따로 없어(익명화가 아니라) 행 자체를 삭제한다.
+create or replace function public.purge_old_diagnosis_leads()
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_deleted_count integer;
+begin
+  delete from diagnosis_leads where created_at < now() - interval '1 year';
+  get diagnostics v_deleted_count = row_count;
+  return v_deleted_count;
+end;
+$$;
+
+revoke execute on function public.purge_unclaimed_diagnosis_pii() from public, anon, authenticated;
+revoke execute on function public.purge_old_diagnosis_leads() from public, anon, authenticated;
+
+do $$ begin
+  perform cron.schedule('purge-unclaimed-diagnosis-pii-daily', '20 18 * * *', $cron$select public.purge_unclaimed_diagnosis_pii();$cron$);
+  perform cron.schedule('purge-old-diagnosis-leads-daily', '30 18 * * *', $cron$select public.purge_old_diagnosis_leads();$cron$);
 exception when undefined_table or undefined_function then
   raise notice 'pg_cron이 아직 활성화되지 않았습니다 — Supabase 대시보드 Database > Extensions에서 pg_cron을 켠 뒤 이 스키마를 다시 실행해주세요.';
 end $$;
