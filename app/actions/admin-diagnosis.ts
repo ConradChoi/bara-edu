@@ -20,7 +20,18 @@ export async function revealDiagnosisResultContact(resultId: string) {
   } = await supabase.auth.getUser();
   if (!user) redirect('/admin/selfcheck');
 
-  const { token, exp } = createRevealToken('diagnosis_result', resultId, user.id);
+  // createRevealToken()은 SUPABASE_SERVICE_ROLE_KEY(HMAC 키)가 없으면 예외를 던진다 —
+  // 이 키는 Amplify 환경변수로 별도 등록해야 하는 값이라, 로컬(.env.local)에는 있어도
+  // 배포 환경에 빠져 있으면 이 서버 액션 전체가 죽어 "A server error occurred" 크래시
+  // 화면으로 이어졌다(2026-09-15 보고). redirect() 자체가 예외 기반이라 try/catch가
+  // redirect까지 함께 삼키지 않도록 실패 시에만 잡는다.
+  let token: string, exp: number;
+  try {
+    ({ token, exp } = createRevealToken('diagnosis_result', resultId, user.id));
+  } catch (err) {
+    console.error('[revealDiagnosisResultContact] token issuance failed:', err);
+    redirect('/admin/selfcheck?revealFailed=1');
+  }
   redirect(`/admin/selfcheck?revealPii=${resultId}&revealToken=${token}&revealExp=${exp}`);
 }
 
@@ -35,7 +46,13 @@ export async function revealDiagnosisLeadContact(leadId: string) {
   } = await supabase.auth.getUser();
   if (!user) redirect('/admin/selfcheck/leads');
 
-  const { token, exp } = createRevealToken('diagnosis_lead', leadId, user.id);
+  let token: string, exp: number;
+  try {
+    ({ token, exp } = createRevealToken('diagnosis_lead', leadId, user.id));
+  } catch (err) {
+    console.error('[revealDiagnosisLeadContact] token issuance failed:', err);
+    redirect('/admin/selfcheck/leads?error=reveal-failed');
+  }
   redirect(`/admin/selfcheck/leads?revealPii=${leadId}&revealToken=${token}&revealExp=${exp}`);
 }
 

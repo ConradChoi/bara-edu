@@ -24,9 +24,16 @@ const MEMBER_FILTERS = [
 export default async function AdminDiagnosisResultsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tier?: string; memberOnly?: string; revealPii?: string; revealToken?: string; revealExp?: string }>;
+  searchParams: Promise<{
+    tier?: string;
+    memberOnly?: string;
+    revealPii?: string;
+    revealToken?: string;
+    revealExp?: string;
+    revealFailed?: string;
+  }>;
 }) {
-  const { tier = 'all', memberOnly = 'all', revealPii, revealToken, revealExp } = await searchParams;
+  const { tier = 'all', memberOnly = 'all', revealPii, revealToken, revealExp, revealFailed } = await searchParams;
   const results = await getAdminDiagnosisResults(
     { tier, memberOnly: memberOnly as 'all' | 'member' | 'non_member' },
     { id: revealPii, token: revealToken, exp: revealExp ? Number(revealExp) : undefined }
@@ -43,6 +50,12 @@ export default async function AdminDiagnosisResultsPage({
   return (
     <div className="flex flex-col gap-4">
       <h1 className="text-[20px] font-semibold text-n-9">진단 결과 조회</h1>
+
+      {revealFailed === '1' && (
+        <div className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger">
+          개인정보 보기 처리 중 오류가 발생했어요. 잠시 후 다시 시도해주세요. 계속되면 관리자에게 문의해주세요.
+        </div>
+      )}
 
       <div className="flex flex-wrap gap-2">
         {TIER_FILTERS.map((f) => (

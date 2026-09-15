@@ -1413,15 +1413,23 @@ export async function getAdminDiagnosisResults(
     user_id: string | null;
   }[];
 
+  // reveal 토큰 검증(HMAC 서명, SUPABASE_SERVICE_ROLE_KEY 필요)이 실패하면 목록 화면 전체가
+  // 500으로 죽어서는 안 된다 — PII 노출은 "검증 성공 시에만 해제"가 원칙이므로, 여기서 나는
+  // 어떤 에러든 "해제 안 함(마스킹 유지)"으로 안전하게 처리하고 서버 로그에만 남긴다
+  // (관리자가 "개인정보 보기" 클릭 시 서버 에러 화면이 뜨던 문제, 2026-09-15 보고).
   let verifiedReveal = false;
   if (reveal?.id && reveal.token && reveal.exp) {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (user && verifyRevealToken('diagnosis_result', reveal.id, user.id, reveal.token, reveal.exp)) {
-      verifiedReveal = true;
-      const target = rows.find((r) => r.id === reveal.id);
-      await logAdminAccess(supabase, target?.user_id ?? null, '조회', `진단 결과 연락처 열람(${reveal.id})`);
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (user && verifyRevealToken('diagnosis_result', reveal.id, user.id, reveal.token, reveal.exp)) {
+        verifiedReveal = true;
+        const target = rows.find((r) => r.id === reveal.id);
+        await logAdminAccess(supabase, target?.user_id ?? null, '조회', `진단 결과 연락처 열람(${reveal.id})`);
+      }
+    } catch (err) {
+      console.error('[getAdminDiagnosisResults] reveal token verification failed:', err);
     }
   }
 
@@ -1542,15 +1550,20 @@ export async function getAdminDiagnosisLeads(
     user_id: string | null;
   }[];
 
+  // getAdminDiagnosisResults와 동일한 이유로 fail-safe 처리(위 주석 참고).
   let verifiedReveal = false;
   if (reveal?.id && reveal.token && reveal.exp) {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (user && verifyRevealToken('diagnosis_lead', reveal.id, user.id, reveal.token, reveal.exp)) {
-      verifiedReveal = true;
-      const target = rows.find((r) => r.id === reveal.id);
-      await logAdminAccess(supabase, target?.user_id ?? null, '조회', `강사과정 문의 연락처 열람(${reveal.id})`);
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (user && verifyRevealToken('diagnosis_lead', reveal.id, user.id, reveal.token, reveal.exp)) {
+        verifiedReveal = true;
+        const target = rows.find((r) => r.id === reveal.id);
+        await logAdminAccess(supabase, target?.user_id ?? null, '조회', `강사과정 문의 연락처 열람(${reveal.id})`);
+      }
+    } catch (err) {
+      console.error('[getAdminDiagnosisLeads] reveal token verification failed:', err);
     }
   }
 
