@@ -478,9 +478,28 @@ alter table certificates add column if not exists note text;
 -- 보존" 방식(F-CMS-2)의 데이터 무결성을 위해 필요하다.
 create unique index if not exists legal_documents_slug_version_key on legal_documents(slug, version);
 
+-- legal_documents.published_at: "이 버전이 최초로 게시된 시각"(한 번 채워지면 이후 게시
+-- 중단되어도 지우지 않는다). is_published는 "지금 이 순간 공개 중인 단 하나의 버전"만
+-- 가리키므로, 예전에 게시됐다가 다음 버전에 밀려 is_published=false가 된 이전 버전과
+-- "게시된 적 자체가 없는 미완성 초안"을 이 컬럼 없이는 구분할 수 없었다 — 사용자가 예전에
+-- 동의한 버전의 실제 문구를 나중에 확인할 방법이 없다는 지적(대표 요청, 2026-09-15:
+-- "이전 버전을 select해서 볼 수가 없다")에 따라 이력 열람 기능을 추가하며 함께 도입한다.
+alter table legal_documents add column if not exists published_at timestamptz;
+
+-- legal_documents: 공개 조회 범위를 "현재 게시중인 버전"에서 "한 번이라도 게시된 적 있는
+-- 모든 버전"으로 넓힌다 — 위 published_at 도입과 짝을 이루는 변경. 아직 한 번도 게시되지
+-- 않은 초안(작성 중인 새 버전)은 published_at이 null로 남아 이 조건에 걸리지 않으므로
+-- 계속 비공개다.
+drop policy if exists "legal_documents_public_select" on legal_documents;
+create policy "legal_documents_public_select" on legal_documents for select using (
+  is_published = true or published_at is not null or is_admin()
+);
+
 -- 특정 문서를 게시하면서 같은 slug의 다른 버전은 원자적으로 게시 해제하는 함수.
 -- PostgREST는 클라이언트에서 여러 UPDATE를 하나의 트랜잭션으로 묶을 수 없으므로,
 -- "게시 시 한 slug에 published가 하나만 존재"하는 불변식을 DB 함수 안에서 보장한다.
+-- published_at은 최초 게시 시각만 기록하고(coalesce로 이미 있으면 덮어쓰지 않음) 이후
+-- 게시 중단되어도 절대 지우지 않는다 — "언제 처음 사용자에게 공개됐는지"라는 이력 값이다.
 create or replace function public.publish_legal_document(doc_id uuid)
 returns void
 language plpgsql
@@ -499,7 +518,7 @@ begin
   end if;
 
   update legal_documents set is_published = false where slug = target_slug and id <> doc_id;
-  update legal_documents set is_published = true where id = doc_id;
+  update legal_documents set is_published = true, published_at = coalesce(published_at, now()) where id = doc_id;
 end;
 $$;
 

@@ -349,18 +349,40 @@ export async function getMyContactInfo(userId: string): Promise<MyContactInfo> {
 
 export type LegalDocument = { slug: string; title: string; content: string; version: number };
 
-export async function getLegalDocument(slug: string): Promise<LegalDocument | null> {
+// version을 생략하면 지금 게시중인 최신본을 반환한다(기존 동작 그대로 — submitDiagnosis()의
+// 동의 스냅샷, /legal/[slug] 기본 화면 등 대부분의 호출부가 이 방식을 쓴다). version을
+// 지정하면 그 버전이 "한 번이라도 게시된 적 있는" 경우에만(published_at is not null)
+// 반환한다 — 게시된 적 없는 미완성 초안이 새 버전 열람 경로로 새는 것을 막는다.
+// (대표 요청, 2026-09-15: "이전 버전을 select해서 볼 수가 없다" — 지금까지는 게시 즉시
+// 이전 버전이 완전히 사라지는 것처럼 보였는데, 실제로는 is_published만 false로 바뀌고
+// 행 자체는 남아있었다. 조회 경로가 없었을 뿐이다.)
+export async function getLegalDocument(slug: string, version?: number): Promise<LegalDocument | null> {
+  const supabase = await createClient();
+  let query = supabase.from('legal_documents').select('slug, title, content, version').eq('slug', slug);
+  query = version ? query.eq('version', version).not('published_at', 'is', null) : query.eq('is_published', true);
+
+  const { data, error } = await query.order('version', { ascending: false }).limit(1).maybeSingle();
+  if (error) throw new Error(error.message);
+  return data as LegalDocument | null;
+}
+
+export type LegalDocumentVersionMeta = { version: number; publishedAt: string; isCurrent: boolean };
+
+// 한 번이라도 게시된 적 있는 버전만 이력에 노출한다 — 작성 중인 미게시 초안은 제외.
+export async function getLegalDocumentVersions(slug: string): Promise<LegalDocumentVersionMeta[]> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from('legal_documents')
-    .select('slug, title, content, version')
+    .select('version, published_at, is_published')
     .eq('slug', slug)
-    .eq('is_published', true)
-    .order('version', { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .not('published_at', 'is', null)
+    .order('version', { ascending: false });
 
   if (error) throw new Error(error.message);
-  return data as LegalDocument | null;
+  return (data as { version: number; published_at: string; is_published: boolean }[]).map((row) => ({
+    version: row.version,
+    publishedAt: row.published_at,
+    isCurrent: row.is_published,
+  }));
 }
 
