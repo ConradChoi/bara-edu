@@ -486,6 +486,19 @@ create unique index if not exists legal_documents_slug_version_key on legal_docu
 -- "이전 버전을 select해서 볼 수가 없다")에 따라 이력 열람 기능을 추가하며 함께 도입한다.
 alter table legal_documents add column if not exists published_at timestamptz;
 
+-- 위 컬럼을 막 추가한 시점에는 기존 행이 전부 published_at=null이라, 이미 게시돼 있던
+-- 최신 버전(v2 등)조차 "게시된 적 없는 버전"으로 오판돼 "이전 버전을 보고 있다"는 안내가
+-- 잘못 뜨는 문제가 있었다(대표 리포트, 2026-09-15). is_published=true인 slug는 그 slug의
+-- 모든 버전이 이 CMS의 "새 버전 만들기 → 게시" 워크플로 안에서 순차적으로 만들어졌을
+-- 것이므로(직접 SQL로 끼워넣지 않는 한), 한 번이라도 게시된 적 있다고 안전하게 간주해
+-- 소급 채운다. 정확한 최초 게시 시각은 알 수 없어 effective_at(없으면 created_at)으로
+-- 근사한다 — 이 마이그레이션 실행 이후 새로 만들어지는 버전은 실제 게시 시점이
+-- publish_legal_document()에 의해 정확히 기록된다.
+update legal_documents ld
+set published_at = coalesce(ld.published_at, ld.effective_at, ld.created_at)
+where ld.published_at is null
+  and exists (select 1 from legal_documents ld2 where ld2.slug = ld.slug and ld2.is_published = true);
+
 -- legal_documents: 공개 조회 범위를 "현재 게시중인 버전"에서 "한 번이라도 게시된 적 있는
 -- 모든 버전"으로 넓힌다 — 위 published_at 도입과 짝을 이루는 변경. 아직 한 번도 게시되지
 -- 않은 초안(작성 중인 새 버전)은 published_at이 null로 남아 이 조건에 걸리지 않으므로
