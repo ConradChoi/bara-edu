@@ -1,32 +1,11 @@
 'use server';
 
 import { redirect } from 'next/navigation';
+import { detectImageMimeType } from '@/lib/image-validation';
 import { getApprovedSeatsTaken } from '@/lib/supabase/queries';
 import { createClient } from '@/lib/supabase/server';
 
 const PAYMENT_WINDOW_MS = 3 * 24 * 60 * 60 * 1000; // flows.md Q2: 입금 기한 3일
-
-// 자격증 발급용 사진 업로드 검증에 쓴다 — File.type(브라우저 자기신고 값)이 아니라 실제
-// 바이트 시그니처로 JPEG/PNG/GIF/WebP만 허용한다. image/svg+xml처럼 스크립트를 담을 수
-// 있는 포맷이 MIME 문자열 검사만으로 통과되는 걸 막는다(security-officer 점검, 2026-08-28).
-function detectImageMimeType(header: Uint8Array): string | null {
-  if (header[0] === 0xff && header[1] === 0xd8 && header[2] === 0xff) return 'image/jpeg';
-  if (header[0] === 0x89 && header[1] === 0x50 && header[2] === 0x4e && header[3] === 0x47) return 'image/png';
-  if (header[0] === 0x47 && header[1] === 0x49 && header[2] === 0x46 && header[3] === 0x38) return 'image/gif';
-  if (
-    header[0] === 0x52 &&
-    header[1] === 0x49 &&
-    header[2] === 0x46 &&
-    header[3] === 0x46 &&
-    header[8] === 0x57 &&
-    header[9] === 0x45 &&
-    header[10] === 0x42 &&
-    header[11] === 0x50
-  ) {
-    return 'image/webp';
-  }
-  return null;
-}
 
 // 신청 확인 화면(/courses/[slug]/apply)에서 "신청 확정" 클릭 시 호출된다.
 // 반려/만료(입금기한초과) 건은 기존 행을 pending으로 되돌려 재신청(Q2)한다.

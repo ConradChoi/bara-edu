@@ -1,15 +1,30 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { withdraw } from '@/app/actions/account';
+import ChangePasswordDialog from '@/components/mypage/ChangePasswordDialog';
+import EditContactDialog from '@/components/mypage/EditContactDialog';
 import WithdrawForm from '@/components/mypage/WithdrawForm';
 import {
   getCompletedEnrollmentsForUser,
   getMyCertificatesWithCourse,
   getProgressStatsForCourses,
 } from '@/lib/supabase/classroom-queries';
-import { getMyEnrollments, type MyEnrollment } from '@/lib/supabase/queries';
+import { getMyContactInfo, getMyEnrollments, type MyEnrollment } from '@/lib/supabase/queries';
 import { createClient } from '@/lib/supabase/server';
 import type { EnrollmentStatus } from '@/lib/types';
+
+const SETTINGS_SUCCESS_MESSAGE: Record<string, string> = {
+  password: '비밀번호를 변경했어요.',
+  contact: '주소·사진 정보를 저장했어요.',
+};
+
+const SETTINGS_ERROR_MESSAGE: Record<string, string> = {
+  'password-validation': '새 비밀번호는 8자 이상이어야 하고, 확인란과 일치해야 해요.',
+  'current-password-wrong': '현재 비밀번호가 일치하지 않아요.',
+  'photo-too-large': '사진 용량은 5MB 이하여야 해요.',
+  'photo-invalid': '지원하지 않는 이미지 형식이에요 (JPEG/PNG/GIF/WebP만 가능).',
+  failed: '처리 중 문제가 발생했어요. 잠시 후 다시 시도해주세요.',
+};
 
 export const metadata: Metadata = { title: '마이페이지 | 바라 평생교육원' };
 
@@ -37,9 +52,15 @@ const STATUS_TONE: Record<EnrollmentStatus, string> = {
 export default async function MyPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tab?: string; withdrawError?: string; welcome?: string }>;
+  searchParams: Promise<{
+    tab?: string;
+    withdrawError?: string;
+    welcome?: string;
+    settingsSuccess?: string;
+    settingsError?: string;
+  }>;
 }) {
-  const { tab = 'applications', withdrawError, welcome } = await searchParams;
+  const { tab = 'applications', withdrawError, welcome, settingsSuccess, settingsError } = await searchParams;
   const supabase = await createClient();
   const {
     data: { user },
@@ -54,6 +75,7 @@ export default async function MyPage({
   );
   const completed = tab === 'completed' ? await getCompletedEnrollmentsForUser(user.id) : [];
   const certificates = tab === 'certificates' ? await getMyCertificatesWithCourse(user.id) : [];
+  const contactInfo = await getMyContactInfo(user.id);
 
   return (
     <div className="mx-auto max-w-[800px] px-6 py-10">
@@ -74,6 +96,23 @@ export default async function MyPage({
         <div className="mt-4 rounded-md border border-danger bg-danger/10 px-3.5 py-3">
           <p className="text-[13px] font-semibold text-danger">탈퇴 처리 중 문제가 발생했어요.</p>
           <p className="text-[12px] text-n-7">잠시 후 다시 시도하거나 고객센터로 문의해 주세요.</p>
+        </div>
+      )}
+      {withdrawError === 'validation' && (
+        <div className="mt-4 rounded-md border border-danger bg-danger/10 px-3.5 py-3">
+          <p className="text-[13px] font-semibold text-danger">탈퇴 사유를 선택해주세요.</p>
+        </div>
+      )}
+      {settingsSuccess && SETTINGS_SUCCESS_MESSAGE[settingsSuccess] && (
+        <div className="mt-4 rounded-md border border-success bg-success/10 px-3.5 py-3">
+          <p className="text-[13px] font-semibold text-success">{SETTINGS_SUCCESS_MESSAGE[settingsSuccess]}</p>
+        </div>
+      )}
+      {settingsError && (
+        <div className="mt-4 rounded-md border border-danger bg-danger/10 px-3.5 py-3">
+          <p className="text-[13px] font-semibold text-danger">
+            {SETTINGS_ERROR_MESSAGE[settingsError] ?? SETTINGS_ERROR_MESSAGE.failed}
+          </p>
         </div>
       )}
 
@@ -134,9 +173,20 @@ export default async function MyPage({
         )}
       </div>
 
-      <div className="mt-16 flex items-center justify-between border-t border-n-3 pt-6">
-        <span className="text-[12px] text-n-5">설정</span>
-        <WithdrawForm action={withdraw} />
+      {/* 이름/휴대전화 변경은 지원하지 않는다(대표 요청, 2026-09-16 — 회원 식별 정보라
+          관리자 문의로만 처리). 비밀번호 변경, 신청 시 등록한 주소·사진 수정, 회원탈퇴만
+          제공한다. 이전에는 "설정"이라는 라벨 아래 탈퇴 버튼 하나(그마저도 옅은 텍스트라
+          잘 안 보임)만 있어 "설정이나 탈퇴가 안 된다"는 리포트가 있었다 — 라벨을 "계정"으로
+          바꾸고 실제 동작하는 버튼 3개를 배치했다. */}
+      <div className="mt-16 flex flex-col gap-3 border-t border-n-3 pt-6">
+        <span className="text-[12px] font-medium text-n-7">계정</span>
+        <div className="flex flex-wrap items-center gap-2">
+          <ChangePasswordDialog />
+          <EditContactDialog defaultAddress={contactInfo.address} hasPhoto={contactInfo.hasPhoto} />
+          <span className="ml-auto">
+            <WithdrawForm action={withdraw} />
+          </span>
+        </div>
       </div>
     </div>
   );

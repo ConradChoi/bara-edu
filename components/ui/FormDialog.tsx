@@ -8,6 +8,9 @@ type FormDialogProps = {
   title: string;
   submitLabel?: string;
   widthClassName?: string;
+  // 회원탈퇴처럼 파괴적인 작업의 확정 버튼을 danger 색으로 구분하기 위해 추가
+  // (ConfirmDialog의 tone prop과 동일한 목적, 2026-09-16).
+  tone?: 'neutral' | 'danger';
   action: (formData: FormData) => void | Promise<void>;
   children: ReactNode;
 };
@@ -22,6 +25,7 @@ export default function FormDialog({
   title,
   submitLabel = '등록',
   widthClassName = 'w-[360px]',
+  tone = 'neutral',
   action,
   children,
 }: FormDialogProps) {
@@ -37,7 +41,10 @@ export default function FormDialog({
         {triggerLabel}
       </button>
       <dialog ref={dialogRef} className="rounded-lg border border-n-3 p-0 shadow-lg backdrop:bg-n-9/40">
-        <form action={action} className={`flex ${widthClassName} flex-col gap-4 p-5`}>
+        {/* multipart/form-data는 파일 입력이 없는 폼에도 문제 없이 동작해, 이 컴포넌트를
+            공용으로 쓰면서도 파일 업로드가 필요한 호출부(사진 첨부 등)를 특별 취급할
+            필요가 없다(courses/[slug]/apply 폼과 동일 방식, 2026-09-16). */}
+        <form action={action} encType="multipart/form-data" className={`flex ${widthClassName} flex-col gap-4 p-5`}>
           <h2 className="text-[15px] font-semibold text-n-9">{title}</h2>
           <div className="flex flex-col gap-3">{children}</div>
           <div className="flex gap-2">
@@ -48,7 +55,12 @@ export default function FormDialog({
             >
               취소
             </button>
-            <button type="submit" className="h-[38px] flex-1 rounded-pill bg-pink text-[13px] font-semibold text-white">
+            <button
+              type="submit"
+              className={`h-[38px] flex-1 rounded-pill text-[13px] font-semibold text-white ${
+                tone === 'danger' ? 'bg-danger' : 'bg-pink'
+              }`}
+            >
               {submitLabel}
             </button>
           </div>

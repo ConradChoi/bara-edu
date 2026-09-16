@@ -2338,3 +2338,17 @@ do $$ begin
 exception when undefined_table or undefined_function then
   raise notice 'pg_cron이 아직 활성화되지 않았습니다 — Supabase 대시보드 Database > Extensions에서 pg_cron을 켠 뒤 이 스키마를 다시 실행해주세요.';
 end $$;
+
+-- ===================== module: 마이페이지 계정 설정 (2026-09-16) =====================
+-- 대표 요청 — 이름/휴대전화 변경은 지원하지 않되(회원 식별 정보라 관리자 문의로만 처리),
+-- 로그인 비밀번호 변경과 수강신청 시 등록한 주소/사진 수정은 본인이 직접 할 수 있어야
+-- 하고, 회원탈퇴도 사유 선택·입력 없이 바로 처리되지 않아야 한다.
+
+-- profiles.withdrawal_reason/withdrawal_reason_detail: 탈퇴 사유(고정 목록 중 선택) +
+-- 자유 서술(선택). 탈퇴 시점에만 채워지고, 익명화되는 이름/이메일과 달리 개인식별 정보가
+-- 아니라 별도 파기 대상은 아니다 — 탈퇴 사유 통계는 서비스 개선에 계속 참고할 수 있어야
+-- 한다. app 레벨(app/actions/account.ts)에서 고정 목록 값인지 검증하고, DB에는 별도
+-- enum을 두지 않는다(diagnosis_leads.topic과 동일하게, 목록이 바뀔 수 있어 enum 마이그레이션
+-- 부담을 지지 않기 위함).
+alter table profiles add column if not exists withdrawal_reason text;
+alter table profiles add column if not exists withdrawal_reason_detail text;

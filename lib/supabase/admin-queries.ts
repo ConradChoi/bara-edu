@@ -133,8 +133,19 @@ async function getAuthConfirmationMap(): Promise<Map<string, string | null>> {
     return authConfirmationCache.map;
   }
 
-  const admin = createAdminClient();
   const map = new Map<string, string | null>();
+
+  // createAdminClient()는 SUPABASE_SERVICE_ROLE_KEY가 없으면 예외를 던진다 — 이 값이 배포
+  // 환경에 빠져 있으면 대시보드 전체가 죽는 대신, 인증상태를 "알 수 없음"으로 두고
+  // 나머지 대시보드는 정상 표시되도록 한다(withdraw()에서 겪은 동일 문제, 2026-09-16).
+  let admin: ReturnType<typeof createAdminClient>;
+  try {
+    admin = createAdminClient();
+  } catch (err) {
+    console.error('[getAuthConfirmationMap] admin client unavailable (SUPABASE_SERVICE_ROLE_KEY?):', err);
+    return map;
+  }
+
   const perPage = 1000;
   let page = 1;
   // GoTrue 응답의 nextPage(다음 페이지 없으면 null)로 종료 판단 — data.users.length<perPage
