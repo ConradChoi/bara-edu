@@ -105,3 +105,27 @@ export async function getDiagnosisDetail(token: string): Promise<DiagnosisDetail
     createdAt: row.created_at,
   };
 }
+
+export type MyDiagnosisResult = {
+  accessToken: string;
+  recommendedTier: DiagnosisTier;
+  totalScore: number;
+  createdAt: string;
+};
+
+// 마이페이지 "자가진단내역"용 — 로그인한 본인 계정에 연결된(claim된) 진단 결과 전체
+// 목록. 이름/연락처/영역별 점수는 담지 않는다(최소수집 원칙, get_diagnosis_detail과 동일).
+export async function getMyDiagnosisResults(): Promise<MyDiagnosisResult[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc('get_my_diagnosis_results');
+  if (error) throw new Error(error.message);
+
+  return (
+    data as { access_token: string; recommended_tier: DiagnosisTier; total_score: number; created_at: string }[]
+  ).map((row) => ({
+    accessToken: row.access_token,
+    recommendedTier: row.recommended_tier,
+    totalScore: row.total_score,
+    createdAt: row.created_at,
+  }));
+}

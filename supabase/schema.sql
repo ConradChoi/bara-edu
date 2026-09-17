@@ -2352,3 +2352,32 @@ end $$;
 -- 부담을 지지 않기 위함).
 alter table profiles add column if not exists withdrawal_reason text;
 alter table profiles add column if not exists withdrawal_reason_detail text;
+
+-- ===================== RPC: 내 자가진단 이력 조회 (2026-09-17) =====================
+-- 마이페이지에 "자가진단내역" 메뉴가 새로 생기며 필요해졌다(대표 요청) — 지금까지
+-- diagnosis_results는 access_token 하나를 아는 경우에만(get_diagnosis_summary/detail)
+-- 조회할 수 있었고, "내 계정에 연결된 진단 결과 전체 목록"을 가져오는 경로가 없었다.
+-- get_diagnosis_detail()과 동일한 최소수집 원칙을 지켜 이름/연락처/영역별 점수는
+-- 반환하지 않고 목록에 필요한 값만 내려준다 — 각 행 클릭 시 이동하는 기존
+-- /selfcheck/result/[token] 페이지가 본인 소유 확인 후 상세를 보여준다.
+create or replace function public.get_my_diagnosis_results()
+returns table (access_token uuid, recommended_tier diagnosis_tier, total_score numeric, created_at timestamptz)
+language plpgsql
+security definer
+stable
+set search_path = public
+as $$
+begin
+  if auth.uid() is null then
+    raise exception 'not authorized';
+  end if;
+
+  return query
+    select r.access_token, r.recommended_tier, r.total_score, r.created_at
+    from diagnosis_results r
+    where r.user_id = auth.uid()
+    order by r.created_at desc;
+end;
+$$;
+
+revoke execute on function public.get_my_diagnosis_results() from anon;
