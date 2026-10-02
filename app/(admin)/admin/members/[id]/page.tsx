@@ -1,6 +1,8 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
+import { confirmMemberEmail, sendPasswordResetEmail } from '@/app/actions/admin-members';
 import StatusBadge from '@/components/admin/StatusBadge';
+import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import { getAdminMemberDetail, getCourseExamSubmissionHistory } from '@/lib/supabase/admin-queries';
 import type { EnrollmentStatus } from '@/lib/types';
 
@@ -13,12 +15,24 @@ const ENROLLMENT_STATUS_LABEL: Record<EnrollmentStatus, string> = {
   expired: '만료',
 };
 
-export default async function AdminMemberDetailPage({ params }: { params: Promise<{ id: string }> }) {
+const SUCCESS_MESSAGE: Record<string, string> = {
+  'email-confirmed': '이메일 인증을 완료 처리했어요.',
+  'reset-email-sent': '비밀번호 재설정 메일을 발송했어요.',
+};
+
+export default async function AdminMemberDetailPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ success?: string; error?: string }>;
+}) {
   const { id } = await params;
+  const { success, error } = await searchParams;
   const detail = await getAdminMemberDetail(id);
   if (!detail) notFound();
 
-  const { profile, photoSignedUrl, enrollments, certificates } = detail;
+  const { profile, photoSignedUrl, emailConfirmed, enrollments, certificates } = detail;
   const examSubmissions = await getCourseExamSubmissionHistory({ userId: id });
 
   return (
@@ -30,6 +44,17 @@ export default async function AdminMemberDetailPage({ params }: { params: Promis
         </StatusBadge>
       </div>
 
+      {success && SUCCESS_MESSAGE[success] && (
+        <div className="rounded-md border border-success bg-success/10 px-3.5 py-3 text-[13px] font-medium text-success">
+          {SUCCESS_MESSAGE[success]}
+        </div>
+      )}
+      {error === 'failed' && (
+        <div className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger">
+          처리 중 문제가 발생했어요. 잠시 후 다시 시도해주세요.
+        </div>
+      )}
+
       <dl className="grid grid-cols-2 gap-3 rounded-lg border border-n-3 bg-n-0 p-4 text-[13px]">
         <div>
           <dt className="text-n-5">이메일</dt>
@@ -38,6 +63,16 @@ export default async function AdminMemberDetailPage({ params }: { params: Promis
         <div>
           <dt className="text-n-5">연락처</dt>
           <dd className="text-n-9">{profile.phone ?? '-'}</dd>
+        </div>
+        <div>
+          <dt className="text-n-5">이메일 인증</dt>
+          <dd>
+            {emailConfirmed === null ? (
+              <span className="text-n-5">확인불가</span>
+            ) : (
+              <StatusBadge tone={emailConfirmed ? 'success' : 'warning'}>{emailConfirmed ? '인증완료' : '미인증'}</StatusBadge>
+            )}
+          </dd>
         </div>
         <div className="col-span-2">
           <dt className="text-n-5">주소</dt>
@@ -50,6 +85,27 @@ export default async function AdminMemberDetailPage({ params }: { params: Promis
           </div>
         )}
       </dl>
+
+      {profile.status === 'active' && profile.email && (
+        <div className="flex flex-wrap gap-2">
+          {emailConfirmed === false && (
+            <ConfirmDialog
+              triggerLabel="이메일 인증완료 처리"
+              title="이메일 인증을 완료 처리할까요?"
+              description={`${profile.email}의 인증 메일을 확인하지 못한 회원을 대신 인증 처리합니다.`}
+              confirmLabel="완료 처리"
+              action={confirmMemberEmail.bind(null, profile.id)}
+            />
+          )}
+          <ConfirmDialog
+            triggerLabel="비밀번호 재설정 메일 발송"
+            title="비밀번호 재설정 메일을 보낼까요?"
+            description={`${profile.email}로 재설정 메일이 발송돼요. 회원은 메일의 링크로 새 비밀번호를 설정한 뒤 바로 로그인할 수 있어요.`}
+            confirmLabel="발송"
+            action={sendPasswordResetEmail.bind(null, profile.id)}
+          />
+        </div>
+      )}
 
       <section className="flex flex-col gap-2">
         <h2 className="text-[15px] font-semibold text-n-9">자격증 발급용 사진</h2>

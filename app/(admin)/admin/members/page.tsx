@@ -54,13 +54,14 @@ export default async function AdminMembersPage({
             <th>이메일</th>
             <th>연락처</th>
             <th>가입일</th>
+            <th>이메일 인증</th>
             <th>상태</th>
           </tr>
         </thead>
         <tbody>
           {members.length === 0 ? (
             <tr>
-              <td colSpan={5} className="py-10 text-center text-n-6">
+              <td colSpan={6} className="py-10 text-center text-n-6">
                 검색 결과가 없어요
               </td>
             </tr>
@@ -75,6 +76,15 @@ export default async function AdminMembersPage({
                 <td>{m.email ?? '-'}</td>
                 <td>{m.phone ?? '-'}</td>
                 <td>{new Date(m.createdAt).toLocaleDateString('ko-KR')}</td>
+                <td>
+                  {m.emailConfirmed === null ? (
+                    <span className="text-n-5">확인불가</span>
+                  ) : (
+                    <StatusBadge tone={m.emailConfirmed ? 'success' : 'warning'}>
+                      {m.emailConfirmed ? '인증완료' : '미인증'}
+                    </StatusBadge>
+                  )}
+                </td>
                 <td>
                   <StatusBadge tone={m.status === 'withdrawn' ? 'neutral' : 'success'}>
                     {STATUS_LABEL[m.status]}

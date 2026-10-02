@@ -836,6 +836,9 @@ export type AdminMemberListItem = {
   role: UserRole;
   status: ProfileStatus;
   createdAt: string;
+  // true=인증완료, false=미인증, null=조회 실패(service_role 환경변수 문제 등)로 알 수 없음
+  // — getAuthConfirmationMap()과 동일한 3값 규칙(getRecentSignups 참고).
+  emailConfirmed: boolean | null;
 };
 
 export async function getAdminMembers(params?: {
@@ -864,17 +867,26 @@ export async function getAdminMembers(params?: {
   const { data, error } = await query;
   if (error) throw new Error(error.message);
 
+  // 회원 목록에서 바로 이메일 인증 여부를 확인하고 싶다는 요청(2026-10-02) — 지금까지는
+  // 대시보드의 "최근 가입자" 카드에서만 이 값을 썼다. 같은 캐시(getAuthConfirmationMap)를
+  // 재사용해 추가 비용 없이 목록 전체에 적용한다.
+  const confirmationMap = await getAuthConfirmationMap();
+
   return (
     data as { id: string; name: string; email: string | null; phone: string | null; role: UserRole; status: ProfileStatus; created_at: string }[]
-  ).map((r) => ({
-    id: r.id,
-    name: r.name,
-    email: r.email,
-    phone: r.phone,
-    role: r.role,
-    status: r.status,
-    createdAt: r.created_at,
-  }));
+  ).map((r) => {
+    const confirmedAt = confirmationMap.get(r.id);
+    return {
+      id: r.id,
+      name: r.name,
+      email: r.email,
+      phone: r.phone,
+      role: r.role,
+      status: r.status,
+      createdAt: r.created_at,
+      emailConfirmed: confirmedAt === undefined ? null : confirmedAt !== null,
+    };
+  });
 }
 
 export type AdminMemberDetail = {
@@ -882,6 +894,9 @@ export type AdminMemberDetail = {
   // 사진은 private 버킷 경로만 저장되어 있어 직접 노출할 수 없다 — 매 조회마다 짧은
   // 만료시간(60초)의 서명 URL을 새로 발급한다(2026-08-28, 자격증 발급용 사진 열람).
   photoSignedUrl: string | null;
+  // true=인증완료, false=미인증, null=조회 실패로 알 수 없음(getAdminMembers와 동일 규칙).
+  // 미인증일 때만 "이메일 인증완료 처리" 버튼을 보여준다(2026-10-02).
+  emailConfirmed: boolean | null;
   enrollments: Awaited<ReturnType<typeof getMyEnrollments>>;
   certificates: { id: string; courseId: string; courseTitle: string; issuedAt: string; isManualOverride: boolean; note: string | null }[];
 };
@@ -928,14 +943,16 @@ export async function getAdminMemberDetail(userId: string): Promise<AdminMemberD
 
   await logAdminAccess(supabase, userId, '조회', '회원 상세(주소/사진/신청내역/수료이력)');
 
-  const [enrollments, certRows, signedUrlRes] = await Promise.all([
+  const [enrollments, certRows, signedUrlRes, confirmationMap] = await Promise.all([
     getMyEnrollments(userId),
     supabase.from('certificates').select('id, course_id, issued_at, is_manual_override, note, courses(title)').eq('user_id', userId),
     profileRow.photo_path
       ? supabase.storage.from('member-photos').createSignedUrl(profileRow.photo_path, 60)
       : Promise.resolve({ data: null, error: null }),
+    getAuthConfirmationMap(),
   ]);
   if (certRows.error) throw new Error(certRows.error.message);
+  const confirmedAt = confirmationMap.get(userId);
 
   return {
     profile: {
@@ -950,6 +967,7 @@ export async function getAdminMemberDetail(userId: string): Promise<AdminMemberD
       photoPath: profileRow.photo_path,
     },
     photoSignedUrl: signedUrlRes.data?.signedUrl ?? null,
+    emailConfirmed: confirmedAt === undefined ? null : confirmedAt !== null,
     enrollments,
     certificates: (
       certRows.data as unknown as {
