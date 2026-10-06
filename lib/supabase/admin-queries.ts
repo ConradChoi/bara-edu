@@ -585,14 +585,18 @@ export async function getCourseExamSubmissionHistory(filters?: { courseId?: stri
       passed: boolean;
       attempt_no: number;
       submitted_at: string;
-      profiles: { name: string };
-      courses: { title: string };
+      profiles: { name: string } | null;
+      courses: { title: string } | null;
     }[]
   ).map((row) => ({
+    // profiles/courses는 FK가 있어도 PostgREST 임베디드 조회가 RLS에 막히면 null을
+    // 돌려준다(행 자체가 걸러지는 게 아니라 임베디드 필드만 null) — 이 경우를 대비하지
+    // 않으면 .name/.title 접근에서 전체 페이지가 그대로 죽는다(2026-10-06, 신청 중
+    // "도형기질활용지도자 2급" 화면에서 실제 발생 리포트).
     userId: row.user_id,
-    userName: row.profiles.name,
+    userName: row.profiles?.name ?? '(알 수 없음)',
     courseId: row.course_id,
-    courseTitle: row.courses.title,
+    courseTitle: row.courses?.title ?? '(알 수 없음)',
     score: row.score,
     passed: row.passed,
     attemptNo: row.attempt_no,
@@ -627,15 +631,15 @@ export async function getIssuedCertificates(): Promise<AdminCertificateListItem[
       issued_at: string;
       is_manual_override: boolean;
       note: string | null;
-      profiles: { name: string };
-      courses: { title: string };
+      profiles: { name: string } | null;
+      courses: { title: string } | null;
     }[]
   ).map((c) => ({
     id: c.id,
     userId: c.user_id,
-    userName: c.profiles.name,
+    userName: c.profiles?.name ?? '(알 수 없음)',
     courseId: c.course_id,
-    courseTitle: c.courses.title,
+    courseTitle: c.courses?.title ?? '(알 수 없음)',
     issuedAt: c.issued_at,
     isManualOverride: c.is_manual_override,
     note: c.note,
@@ -976,12 +980,12 @@ export async function getAdminMemberDetail(userId: string): Promise<AdminMemberD
         issued_at: string;
         is_manual_override: boolean;
         note: string | null;
-        courses: { title: string };
+        courses: { title: string } | null;
       }[]
     ).map((c) => ({
       id: c.id,
       courseId: c.course_id,
-      courseTitle: c.courses.title,
+      courseTitle: c.courses?.title ?? '(알 수 없음)',
       issuedAt: c.issued_at,
       isManualOverride: c.is_manual_override,
       note: c.note,
@@ -1026,17 +1030,19 @@ export async function getAdminEnrollments(filters?: { status?: EnrollmentStatus 
       payment_due_at: string;
       created_at: string;
       rejection_reason: string | null;
-      profiles: { name: string; email: string | null };
-      courses: { title: string; fee: number };
+      profiles: { name: string; email: string | null } | null;
+      courses: { title: string; fee: number } | null;
     }[]
   ).map((row) => ({
+    // profiles/courses 임베디드 조회가 null로 돌아올 수 있다(위 getCourseExamSubmissionHistory
+    // 주석 참고) — null 접근으로 신청·입금 관리 화면 전체가 죽는 걸 막는다.
     id: row.id,
     userId: row.user_id,
-    userName: row.profiles.name,
-    userEmail: row.profiles.email,
+    userName: row.profiles?.name ?? '(알 수 없음)',
+    userEmail: row.profiles?.email ?? null,
     courseId: row.course_id,
-    courseTitle: row.courses.title,
-    fee: row.courses.fee,
+    courseTitle: row.courses?.title ?? '(알 수 없음)',
+    fee: row.courses?.fee ?? 0,
     status: deriveStatus(row.status, row.payment_due_at),
     paymentDueAt: row.payment_due_at,
     createdAt: row.created_at,

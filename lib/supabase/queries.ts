@@ -281,7 +281,10 @@ type EnrollmentWithCourseRow = {
   payment_due_at: string;
   created_at: string;
   rejection_reason: string | null;
-  courses: { title: string; slug: string; fee: number };
+  // PostgREST 임베디드 조회는 FK가 있어도 RLS에 막히면 null을 돌려준다(행이 걸러지는 게
+  // 아니라 이 필드만 null) — .courses.title처럼 바로 접근하면 그 경우 페이지 전체가
+  // 죽는다(2026-10-06, 마이페이지/수강신청 화면에서 실제 크래시 리포트로 발견).
+  courses: { title: string; slug: string; fee: number } | null;
 };
 
 export async function getMyEnrollments(userId: string): Promise<MyEnrollment[]> {
@@ -296,9 +299,9 @@ export async function getMyEnrollments(userId: string): Promise<MyEnrollment[]> 
   return (data as unknown as EnrollmentWithCourseRow[]).map((row) => ({
     id: row.id,
     courseId: row.course_id,
-    courseTitle: row.courses.title,
-    courseSlug: row.courses.slug,
-    fee: row.courses.fee,
+    courseTitle: row.courses?.title ?? '(알 수 없음)',
+    courseSlug: row.courses?.slug ?? '',
+    fee: row.courses?.fee ?? 0,
     status: deriveStatus(row.status, row.payment_due_at),
     paymentDueAt: row.payment_due_at,
     createdAt: row.created_at,

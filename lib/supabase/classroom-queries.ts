@@ -462,11 +462,11 @@ export async function getMyCertificatesWithCourse(userId: string): Promise<MyCer
   if (error) throw new Error(error.message);
 
   return (
-    data as unknown as { id: string; course_id: string; issued_at: string; file_url: string | null; courses: { title: string } }[]
+    data as unknown as { id: string; course_id: string; issued_at: string; file_url: string | null; courses: { title: string } | null }[]
   ).map((row) => ({
     id: row.id,
     courseId: row.course_id,
-    courseTitle: row.courses.title,
+    courseTitle: row.courses?.title ?? '(알 수 없음)',
     issuedAt: row.issued_at,
     fileUrl: row.file_url,
   }));
@@ -485,7 +485,7 @@ export async function getCompletedEnrollmentsForUser(userId: string): Promise<Co
     .eq('status', 'approved');
   if (error) throw new Error(error.message);
 
-  const rows = data as unknown as { course_id: string; courses: { title: string; slug: string } }[];
+  const rows = data as unknown as { course_id: string; courses: { title: string; slug: string } | null }[];
   if (rows.length === 0) return [];
 
   const stats = await getProgressStatsForCourses(
@@ -498,7 +498,7 @@ export async function getCompletedEnrollmentsForUser(userId: string): Promise<Co
       const s = stats[r.course_id];
       return s.totalLessons > 0 && s.completedLessons === s.totalLessons;
     })
-    .map((r) => ({ courseId: r.course_id, courseTitle: r.courses.title, courseSlug: r.courses.slug }));
+    .map((r) => ({ courseId: r.course_id, courseTitle: r.courses?.title ?? '(알 수 없음)', courseSlug: r.courses?.slug ?? '' }));
 }
 
 // Q12 강화판(회원탈퇴 차단 조건): 예전에는 approved 신청을 전부 "진행 중"으로 간주해,
