@@ -1,0 +1,9 @@
+node_modules/
+cdk.out/
+*.js
+*.d.ts
+!jest.config.js
+.cdk.staging/
+# AZ 조회 결과 캐시 — 특정 AWS 계정에 종속된 값이라 커밋하지 않는다(배포할 계정이 바뀌면
+# stale해지는 파일). `cdk synth`/`cdk deploy` 실행 시 자동 재생성된다.
+cdk.context.json

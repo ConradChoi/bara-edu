@@ -1,0 +1,27 @@
+{
+  "name": "bara-edu-supabase-aws",
+  "version": "0.1.0",
+  "private": true,
+  "description": "bara-edu-lms의 Supabase(관리형)를 AWS(서울 리전) 위에서 자체 호스팅으로 전환하기 위한 CDK 인프라 코드. WBS Phase 1 산출물 — 아직 어떤 리소스도 생성하지 않은 '코드'만의 상태다.",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc -w",
+    "synth": "cdk synth",
+    "diff": "cdk diff",
+    "deploy:staging": "cdk deploy --all -c stage=staging",
+    "deploy:prod": "cdk deploy --all -c stage=prod",
+    "generate-jwt-keys": "ts-node scripts/generate-jwt-keys.ts"
+  },
+  "devDependencies": {
+    "@types/jsonwebtoken": "^9.0.7",
+    "@types/node": "^22.10.0",
+    "aws-cdk": "^2.1146.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.6.3"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "^2.275.0",
+    "constructs": "^10.8.1",
+    "jsonwebtoken": "^9.0.2"
+  }
+}
