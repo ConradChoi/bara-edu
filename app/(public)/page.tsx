@@ -6,6 +6,7 @@ import ContactSection from '@/components/home/ContactSection';
 import CourseSection from '@/components/home/CourseSection';
 import DiagnosisBanner from '@/components/home/DiagnosisBanner';
 import HeroBanner from '@/components/home/HeroBanner';
+import NoticeModal from '@/components/home/NoticeModal';
 import RecoveryRedirect from '@/components/auth/RecoveryRedirect';
 import { createClient } from '@/lib/supabase/server';
 
@@ -20,6 +21,7 @@ export default async function RootPage() {
     return (
       <>
         <RecoveryRedirect />
+        <NoticeModal />
         <ComingSoon />
       </>
     );
@@ -33,6 +35,7 @@ export default async function RootPage() {
   return (
     <>
       <RecoveryRedirect />
+      <NoticeModal />
       <HeroBanner isLoggedIn={Boolean(user)} />
       <DiagnosisBanner />
       <CategorySection />
