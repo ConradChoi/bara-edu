@@ -14,29 +14,12 @@ export type NoticeModalProps = Partial<NoticeConfig>;
  */
 export default function NoticeModal(props: NoticeModalProps) {
   const config = { ...defaultNoticeConfig, ...props };
-  const { id, enabled, endsAt, badge, title, content, link } = config;
+  const { id, enabled, endsAt, badge, title, content, items, footer, link } = config;
 
   const dialogRef = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {
-    if (!enabled) return;
-    if (endsAt) {
-      // 형식 오류(NaN)면 영구 노출되지 않도록 숨긴다 — 팝업이 안 뜨는 쪽이 바로 눈에 띈다.
-      const end = Date.parse(endsAt);
-      if (Number.isNaN(end) || Date.now() >= end) return;
-    }
-    // RecoveryRedirect가 다른 페이지로 보내는 해시와 같은 조건 — 곧 이동하므로 띄우지 않는다.
-    if (/type=recovery|type=signup|error=/.test(window.location.hash)) return;
-
-    const storageKey = `bara_notice_${id}_dismissed_until`;
-    try {
-      const dismissedUntil = localStorage.getItem(storageKey);
-      if (dismissedUntil && Date.now() < Number(dismissedUntil)) {
-        return;
-      }
-    } catch {
-      // 로컬 스토리지 접근 불가 환경 예외 처리
-    }
+    if (!enabled || !shouldShowNotice(id, endsAt)) return;
 
     // dialog가 이미 열려있지 않은 경우에만 showModal 호출 (Strict Mode 이중 실행 방지)
     if (dialogRef.current && !dialogRef.current.open) {
@@ -53,13 +36,7 @@ export default function NoticeModal(props: NoticeModalProps) {
   };
 
   const handleDismiss24h = () => {
-    const storageKey = `bara_notice_${id}_dismissed_until`;
-    try {
-      const expiresAt = Date.now() + 24 * 60 * 60 * 1000;
-      localStorage.setItem(storageKey, expiresAt.toString());
-    } catch {
-      // 로컬 스토리지 저장 불가 환경 예외 처리
-    }
+    dismissFor24h(id);
     dialogRef.current?.close();
   };
 
@@ -116,9 +93,20 @@ export default function NoticeModal(props: NoticeModalProps) {
           </h2>
           <div
             id="notice-dialog-desc"
-            className="mt-3 text-[15px] text-n-7 leading-relaxed whitespace-pre-line"
+            className="mt-3 text-[15px] text-n-7 leading-relaxed"
           >
-            {content}
+            <p className="whitespace-pre-line">{content}</p>
+            {items && items.length > 0 && (
+              <ul className="mt-3 flex flex-col gap-1.5">
+                {items.map((item) => (
+                  <li key={item} className="flex gap-2">
+                    <span aria-hidden="true" className="shrink-0">•</span>
+                    <span>{item}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {footer && <p className="mt-3 whitespace-pre-line">{footer}</p>}
           </div>
 
           {/* 선택적 바로가기 CTA 버튼 */}
@@ -169,3 +157,30 @@ export default function NoticeModal(props: NoticeModalProps) {
   );
 }
 
+
+const dismissKey = (id: string) => `bara_notice_${id}_dismissed_until`;
+
+function shouldShowNotice(id: string, endsAt?: string): boolean {
+  if (endsAt) {
+    // 형식 오류(NaN)면 영구 노출되지 않도록 숨긴다 — 팝업이 안 뜨는 쪽이 바로 눈에 띈다.
+    const end = Date.parse(endsAt);
+    if (Number.isNaN(end) || Date.now() >= end) return false;
+  }
+  // RecoveryRedirect가 다른 페이지로 보내는 해시와 같은 조건 — 곧 이동하므로 띄우지 않는다.
+  if (/type=recovery|type=signup|error=/.test(window.location.hash)) return false;
+  try {
+    const dismissedUntil = localStorage.getItem(dismissKey(id));
+    if (dismissedUntil && Date.now() < Number(dismissedUntil)) return false;
+  } catch {
+    // 로컬 스토리지 접근 불가 환경(시크릿 모드 등)에서는 매번 노출
+  }
+  return true;
+}
+
+function dismissFor24h(id: string) {
+  try {
+    localStorage.setItem(dismissKey(id), String(Date.now() + 24 * 60 * 60 * 1000));
+  } catch {
+    // 로컬 스토리지 저장 불가 환경
+  }
+}
