@@ -907,31 +907,38 @@ export type AdminMemberDetail = {
 
 // 제8조 5항(개인정보처리시스템 접속기록) 대응. 위변조 방지를 위해 RLS에 update/delete 정책이
 // 없고, 유일한 삭제 경로는 1년 경과분만 지우는 purge_old_admin_access_logs() RPC(pg_cron)뿐이다.
-// 로그 기록 실패가 실제 조회 자체를 막으면 안 되므로(가용성 우선) 에러는 삼키고 무시한다.
+// 일반 조회는 기록 실패가 조회 자체를 막지 않지만(가용성 우선), 마스킹 해제(PII 원문 열람)는
+// 기록에 성공했을 때만 허용해야 하므로 성공 여부를 돌려준다(privacy-security-officer 점검, 2026-11-19).
 export async function logAdminAccess(
   supabase: Awaited<ReturnType<typeof createClient>>,
   targetUserId: string | null,
   action: string,
   detail?: string
-) {
+): Promise<boolean> {
   try {
     const {
       data: { user },
     } = await supabase.auth.getUser();
-    if (!user) return;
+    if (!user) return false;
 
     const h = await headers();
     const ip = h.get('x-forwarded-for')?.split(',')[0]?.trim() || h.get('x-real-ip') || null;
 
-    await supabase.from('admin_access_logs').insert({
+    const { error } = await supabase.from('admin_access_logs').insert({
       admin_id: user.id,
       target_user_id: targetUserId,
       action,
       detail: detail ?? null,
       ip_address: ip,
     });
-  } catch {
-    // 접속기록은 감사 목적 부가 기능이라 실패해도 본 조회 흐름을 막지 않는다.
+    if (error) {
+      console.error('[logAdminAccess] insert failed:', error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error('[logAdminAccess] failed:', err);
+    return false;
   }
 }
 
@@ -1459,9 +1466,8 @@ export async function getAdminDiagnosisResults(
         data: { user },
       } = await supabase.auth.getUser();
       if (user && verifyRevealToken('diagnosis_result', reveal.id, user.id, reveal.token, reveal.exp)) {
-        verifiedReveal = true;
         const target = rows.find((r) => r.id === reveal.id);
-        await logAdminAccess(supabase, target?.user_id ?? null, '조회', `진단 결과 연락처 열람(${reveal.id})`);
+        verifiedReveal = await logAdminAccess(supabase, target?.user_id ?? null, '조회', `진단 결과 연락처 열람(${reveal.id})`);
       }
     } catch (err) {
       console.error('[getAdminDiagnosisResults] reveal token verification failed:', err);
@@ -1593,9 +1599,8 @@ export async function getAdminDiagnosisLeads(
         data: { user },
       } = await supabase.auth.getUser();
       if (user && verifyRevealToken('diagnosis_lead', reveal.id, user.id, reveal.token, reveal.exp)) {
-        verifiedReveal = true;
         const target = rows.find((r) => r.id === reveal.id);
-        await logAdminAccess(supabase, target?.user_id ?? null, '조회', `강사과정 문의 연락처 열람(${reveal.id})`);
+        verifiedReveal = await logAdminAccess(supabase, target?.user_id ?? null, '조회', `강사과정 문의 연락처 열람(${reveal.id})`);
       }
     } catch (err) {
       console.error('[getAdminDiagnosisLeads] reveal token verification failed:', err);
