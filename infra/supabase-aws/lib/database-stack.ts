@@ -38,11 +38,14 @@ export class DatabaseStack extends cdk.Stack {
     // `select version();`을 실행해 정확한 버전을 확인하고 이 값을 맞춰야 한다 —
     // 메이저 버전이 다르면 일부 확장(pgjwt, pg_graphql 등)의 동작이 달라질 수 있다.
     // 여기서는 Supabase가 최근까지 기본값으로 써온 15.x를 가정값으로 둔다.
-    const engine = rds.DatabaseInstanceEngine.postgres({ version: rds.PostgresEngineVersion.VER_15_8 });
+    const engine = rds.DatabaseInstanceEngine.postgres({ version: rds.PostgresEngineVersion.VER_15_17 });
 
+    // pg_cron 활성화 — Supabase 관리형에서는 대시보드 토글 한 번이었지만 자체 호스팅은
+    // shared_preload_libraries 설정 + 재부팅이 필요하다. description은 보안그룹과 동일한
+    // 이유(RDS도 ASCII만 허용)로 영문으로만 쓴다.
     const parameterGroup = new rds.ParameterGroup(this, 'ParameterGroup', {
       engine,
-      description: 'pg_cron 활성화 — Supabase 관리형에서는 대시보드 토글 한 번이었지만 자체 호스팅은 shared_preload_libraries 설정 + 재부팅이 필요하다',
+      description: 'bara-edu Supabase self-hosted - enables pg_cron extension',
       parameters: {
         shared_preload_libraries: 'pg_cron',
         'cron.database_name': 'postgres',

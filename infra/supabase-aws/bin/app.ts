@@ -25,6 +25,11 @@ const database = new DatabaseStack(app, `BaraEduSupabase-Database-${stage}`, {
   multiAz: isProd,
 });
 const storage = new StorageStack(app, `BaraEduSupabase-Storage-${stage}`, { env, tags, stage });
+
+// 최초 배포는 시크릿이 빈 상태라 `-c desiredCount=0`으로 서비스 뼈대만 만들고, 시크릿을
+// 채운 뒤 desiredCount 없이(기본값 1) 재배포해 실제 태스크를 띄운다.
+const desiredCount = Number(app.node.tryGetContext('desiredCount') ?? 1);
+
 new ServicesStack(app, `BaraEduSupabase-Services-${stage}`, {
   env,
   tags,
@@ -32,4 +37,5 @@ new ServicesStack(app, `BaraEduSupabase-Services-${stage}`, {
   database,
   storageBucket: storage.bucket,
   stage,
+  desiredCount,
 });

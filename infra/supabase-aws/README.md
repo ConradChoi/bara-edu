@@ -1,11 +1,15 @@
-# bara-edu Supabase → AWS 자체 호스팅 (WBS Phase 1 산출물)
+# bara-edu Supabase → AWS 자체 호스팅 (중단됨 — 기록용)
+
+> **2026-11-12부로 진행하지 않는다.** 대표 결정으로 Supabase 소프트웨어를 자체 호스팅하는
+> 것도 쓰지 않기로 했고, 일리아 공용 서버(`ylia-pg-01`·`YLIA_WAS_01`)로 옮기는 설계로
+> 대체됐다: [`docs/superpowers/specs/2026-11-12-bara-edu-supabase-exit-design.md`](../../docs/superpowers/specs/2026-11-12-bara-edu-supabase-exit-design.md).
+> 이 코드는 지우지 않고 참고용으로 남긴다. 2026-10-28 스테이징을 한 번 실제 배포해 세 서비스
+> 기동까지 확인한 뒤 `cdk destroy`로 전부 삭제했다 — 현재 이 코드로 만든 AWS 리소스는 없다.
+> 앱 빌드에서 제외하려고 루트 `tsconfig.json`의 `exclude`에 `infra`가 들어 있다(빠지면 Amplify 빌드 실패).
 
 현재 `bara-edu-lms`는 Supabase 관리형(무료 플랜)을 DB·Auth·Storage로 쓰고 있다. 회사
 전체 서비스를 AWS로 통합하기로 한 결정(2026-10-28, 대표)에 따라, 같은 기능을 AWS
-위에서 자체 호스팅하기 위한 CDK 인프라 코드다.
-
-**지금 이 코드는 아직 아무 AWS 리소스도 만들지 않았다.** `cdk deploy`를 실행하기 전까지는
-비용이 전혀 발생하지 않는다 — WBS Phase 1(코드 작성)까지만 완료된 상태다.
+위에서 자체 호스팅하기 위한 CDK 인프라 코드였다.
 
 ## 선택한 방향: "Supabase 소프트웨어를 AWS에서 직접 운영"
 
@@ -32,16 +36,16 @@ infra/supabase-aws/
   scripts/generate-jwt-keys.ts  anon/service_role JWT 발급 스크립트
 ```
 
-Supabase 관리형이 내부적으로 쓰는 **Kong API Gateway는 의도적으로 생략**했다 — 이 앱은
-Realtime·Edge Functions·Kong 플러그인을 쓰지 않아서, ALB 경로 규칙(`/auth/*`, `/rest/*`,
-`/storage/*`)만으로 충분하다고 판단했다. WBS Phase 3 검증 때 이 생략이 실제로 기능
-손실이 없는지 qa-reviewer가 재확인해야 한다.
+> ⚠️ **알려진 문제(2026-10-28 스테이징 배포에서 확인)**: Kong을 생략한 판단이 틀렸다.
+> `@supabase/supabase-js`는 `/auth/v1/*`, `/rest/v1/*`, `/storage/v1/*`로 요청하는데,
+> ALB는 경로 접두사를 떼어 전달하지 못해 세 서비스 모두 404를 반환한다. 접두사를 제거해
+> 주는 게이트웨이(Kong 또는 nginx) 컨테이너를 ALB 뒤에 추가해야 앱이 붙을 수 있다.
 
 ## 전제/가정 (배포 전 반드시 확인)
 
 | 항목 | 현재 코드의 가정값 | 확인 방법 |
 |---|---|---|
-| Postgres 버전 | 15.8 | 기존 Supabase 프로젝트 SQL Editor에서 `select version();` |
+| Postgres 버전 | 15.17 (15.8은 RDS에서 폐기됨) | 기존 Supabase 프로젝트 SQL Editor에서 `select version();` |
 | 리전 | ap-northeast-2(서울) | 대표 결정(2026-10-28) — 확정 |
 | 커스텀 도메인 | 미정(지금은 ALB 기본 DNS + HTTP 80 포트) | WBS Phase 5에서 확정 후 ACM 인증서 + 443 리스너로 교체 |
 | RDS 인스턴스 사이즈 | db.t4g.micro(스테이징 최소값) | WBS Phase 3 부하 확인 후 운영 사이즈 재검토 |
@@ -49,28 +53,23 @@ Realtime·Edge Functions·Kong 플러그인을 쓰지 않아서, ALB 경로 규�
 
 ## 배포 후 수동/스크립트 단계 (CDK만으로 끝나지 않는 부분)
 
-Secrets Manager는 "비밀 하나 = 값 하나"만 지원해서, GoTrue/PostgREST가 요구하는
-"완전한 연결 문자열 1개"(`DATABASE_URL`)를 CDK가 자동으로 조합해 줄 수 없다. 아래
-순서대로 한 번만 채워 넣으면 된다.
+연결 문자열 비밀은 CDK가 빈 값으로만 만들기 때문에, 첫 배포는 태스크 0개로 뼈대만 만들고
+비밀을 채운 뒤 태스크를 띄운다(2026-10-28 스테이징에서 실제로 수행한 순서).
 
-1. `cdk deploy --all -c stage=staging` 실행 → RDS·S3·ECS(아직 기동 실패 상태)·빈
-   비밀 4개(`database-url`, `anon-key`, `service-role-key`, `ses-smtp`)가 생성됨.
-2. RDS가 자동 생성한 마스터 비밀(`BaraEduSupabase-Database-staging` 스택 출력의 시크릿)에서
-   host/port/username/password를 확인해 `postgresql://<user>:<password>@<host>:5432/postgres`
-   형태로 조합 → `bara-edu-supabase/staging/database-url` 비밀 값으로 입력.
-3. 같은 `jwt-secret` 값을 `JWT_SECRET` 환경변수로 넘겨 `npm run generate-jwt-keys` 실행 →
-   출력된 두 JWT를 각각 `anon-key`/`service-role-key` 비밀에 입력.
-4. SES에서 발신 도메인(`bara-edu.kr`) 인증 + SMTP 자격증명 발급 → `ses-smtp` 비밀에
-   `{"username":"...","password":"..."}` 형태로 입력. (SES는 기본적으로 샌드박스
-   상태라 실제 수신자에게 발송하려면 AWS 지원 티켓으로 프로덕션 액세스를 요청해야 한다 —
-   이 프로젝트에 지금까지 이메일 발송 인프라가 전혀 없었다는 점 참고.)
-5. ECS 서비스를 강제 재배포(콘솔의 "Force new deployment" 또는
-   `aws ecs update-service --force-new-deployment`)해 새 비밀 값을 반영.
-6. `supabase/schema.sql`을 새 RDS 인스턴스에 적용 — 기존과 동일한 파일을 그대로 쓰되,
-   `auth`/`storage` 스키마와 `anon`/`authenticated`/`service_role` DB 롤은 Supabase가
-   관리형에서 자동으로 만들어주던 것이라 자체 호스팅에서는 별도 초기화 스크립트가
-   필요하다(Supabase 공식 self-host 저장소의 `docker/volumes/db/*.sql` 초기화 스크립트
-   참고 — 이 작업은 WBS Phase 2에서 별도로 준비).
+1. `npx cdk deploy --all -c stage=staging -c desiredCount=0` — 비밀이 비어 있어도 실패하지 않는다.
+2. RDS 마스터 비밀(Database 스택의 Secrets Manager 리소스)로 아래 비밀을 채운다.
+   - `database-url`: `postgresql://supabase_admin:<pw>@<host>:5432/postgres` (PostgREST — libpq가 SSL 자동 사용)
+   - `storage-database-url`: 위 값 + `?sslmode=no-verify` (Storage API의 Node pg는 SSL을 명시해야 함)
+   - `gotrue-database-url`: `postgresql://supabase_auth_admin:<새 비밀번호>@<host>:5432/postgres`
+3. `JWT_SECRET=<jwt-secret 값> npm run generate-jwt-keys` → 두 JWT를 `anon-key`/`service-role-key`에 입력.
+4. `ses-smtp`: SES 준비 전에는 `{"username":"PLACEHOLDER","password":"PLACEHOLDER"}`처럼 **유효한 JSON**이라도
+   넣어야 GoTrue가 기동한다(실제 메일 발송은 SES 도메인 인증 + 샌드박스 해제 후).
+5. RDS는 격리 서브넷이라 외부에서 접속할 수 없다 — VPC 안에서 `postgres:15` 일회성 ECS 태스크로
+   `sql/00-init-supabase-roles.sql`, `sql/01-init-gotrue-role.sql`(psql 변수 `gotrue_pw` = 2번의 비밀번호)을 실행.
+6. `npx cdk deploy BaraEduSupabase-Services-staging -c stage=staging`(desiredCount 기본 1).
+   ⚠️ 태스크 수만 바뀌는 배포는 ECS circuit breaker가 동작하지 않아, 기동 실패 시 CloudFormation이
+   최대 3시간 대기한다 — ECS 로그를 직접 보고 실패면 `aws cloudformation cancel-update-stack`.
+7. (미완) `supabase/schema.sql` 적용과 데이터 이관은 Phase 4.
 
 ## 명령어
 

@@ -173,6 +173,9 @@
 - **운영 로그로 확정**: CloudWatch `/aws/amplify/d2se60288osxp1`에서 최근 60일간 "SUPABASE_SERVICE_ROLE_KEY가 설정되지 않았어요" 110건(첫 기록 09-26). 운영 서버 코드에는 이 키가 없다.
 - 영향(지금 운영 중): ① 회원 탈퇴(`app/actions/account.ts` `withdraw`)가 항상 실패 배너로 끝난다 — 회원이 스스로 탈퇴할 수 없다. ② 관리자 "이메일 인증 완료 처리"(`app/actions/admin-members.ts`) 항상 실패. ③ 관리자 회원 목록·대시보드의 인증 상태가 늘 "알 수 없음"(`lib/supabase/admin-queries.ts`). 관리자 "비밀번호 재설정 메일 발송"은 공개 엔드포인트라 영향 없음.
 - 이 문제는 이전 작업과 별개로 지금 고쳐야 하고, 고치는 방식이 §11-5(서버 간 비밀키 전달)의 선례가 된다.
+- **복구 완료(2026-11-19, Amplify job 47)**: `amplify.yml`에서 이 키만 `.env.production`에 기록. 빌드 로그에 키 값 미노출 확인. privacy-security-officer 조건부 Go. 함께 반영: 관리자 PII 마스킹 해제는 접속기록 저장 성공 시에만(`logAdminAccess`가 성공 여부 반환).
+- 탈퇴 실패 피해자: 로그 그룹은 2026-06 생성 이후 무기한 보관인데 `[withdraw] admin client unavailable` 기록 0건 → 재처리 대상 없음(실패 로그는 9/16부터 남김).
+- 보안 점검 잔여 권고(이전 작업 때 처리): 서비스 키를 PII 열람 토큰 HMAC에도 재사용 중 → 전용 시크릿 분리 / 탈퇴 중간 단계 실패 시 재시도 불가·사진 삭제 실패 무시(`app/actions/account.ts`) / 이전 완료 후 Supabase 서비스 키 교체 / 새 구조는 Parameter Store 방식 / main 외 브랜치·PR 미리보기를 켜면 이 키가 같이 들어가므로 켤 때 브랜치 단위로 빈 값 덮어쓰기.
 
 ## 11. 정해야 할 것 (2026-11-19 기준, 대표)
 

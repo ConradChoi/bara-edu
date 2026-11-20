@@ -13,6 +13,9 @@ export interface ServicesStackProps extends cdk.StackProps {
   database: DatabaseStack;
   storageBucket: s3.Bucket;
   stage: string;
+  // 최초 배포 시 시크릿(DATABASE_URL 등)이 비어 있어 태스크가 기동 실패하는 걸 막기 위한
+  // 값 — 0으로 배포해 서비스 뼈대만 만든 뒤, 시크릿을 채우고 1로 올려 재배포한다.
+  desiredCount: number;
 }
 
 // Supabase 자체 호스팅의 핵심 3개 컴포넌트(GoTrue=인증, PostgREST=REST API, Storage API=
@@ -35,7 +38,7 @@ export class ServicesStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: ServicesStackProps) {
     super(scope, id, props);
 
-    const { vpc, database, storageBucket, stage } = props;
+    const { vpc, database, storageBucket, stage, desiredCount } = props;
 
     // GoTrue/PostgREST/Storage API가 공유하는 JWT 서명 키. 이 값으로 anon/service_role
     // 두 JWT를 직접 발급해야 앱의 NEXT_PUBLIC_SUPABASE_ANON_KEY/SUPABASE_SERVICE_ROLE_KEY를
@@ -51,6 +54,20 @@ export class ServicesStack extends cdk.Stack {
     const databaseUrlSecret = new secretsmanager.Secret(this, 'DatabaseUrlSecret', {
       secretName: `bara-edu-supabase/${stage}/database-url`,
       description: 'postgresql://<user>:<password>@<rds-endpoint>:5432/postgres 형식 — 배포 후 수동으로 채워야 함',
+    });
+    // Storage API(Node pg)는 기본이 비암호화 연결이라 RDS(SSL 강제)에 거부된다. 공용
+    // DATABASE_URL에 sslmode를 넣으면 libpq(PostgREST)가 node 전용 값(no-verify)을 못
+    // 읽으므로 Storage API 전용 URL을 따로 둔다 — `?sslmode=no-verify` 접미사만 다르다.
+    // TODO(Phase 3, security 검토): RDS CA 번들을 넣어 인증서 검증까지 켜기.
+    const storageDatabaseUrlSecret = new secretsmanager.Secret(this, 'StorageDatabaseUrlSecret', {
+      secretName: `bara-edu-supabase/${stage}/storage-database-url`,
+      description: 'database-url과 동일 + ?sslmode=no-verify — Storage API 전용',
+    });
+    // GoTrue 마이그레이션은 스키마 없이 타입/테이블을 만들기 때문에 search_path=auth인 전용
+    // 역할로 접속해야 한다(Supabase 공식 구성과 동일). 역할은 sql/01-init-gotrue-role.sql로 만든다.
+    const gotrueDatabaseUrlSecret = new secretsmanager.Secret(this, 'GoTrueDatabaseUrlSecret', {
+      secretName: `bara-edu-supabase/${stage}/gotrue-database-url`,
+      description: 'postgresql://supabase_auth_admin:<password>@<rds-endpoint>:5432/postgres — GoTrue 전용',
     });
     const anonKeySecret = new secretsmanager.Secret(this, 'AnonKeySecret', {
       secretName: `bara-edu-supabase/${stage}/anon-key`,
@@ -76,7 +93,8 @@ export class ServicesStack extends cdk.Stack {
       vpc,
       description: 'bara-edu Supabase self-hosted - GoTrue/PostgREST/Storage API shared security group',
     });
-    database.securityGroup.addIngressRule(serviceSg, ec2.Port.tcp(5432), 'ECS 서비스에서 RDS 접근 허용');
+    // EC2 SecurityGroupIngress의 Description도 ASCII만 허용한다(동일 제약).
+    database.securityGroup.addIngressRule(serviceSg, ec2.Port.tcp(5432), 'Allow RDS access from ECS services');
 
     const logGroup = new logs.LogGroup(this, 'LogGroup', {
       logGroupName: `/bara-edu-supabase/${stage}`,
@@ -103,9 +121,12 @@ export class ServicesStack extends cdk.Stack {
       healthCheckPath: '/health',
       cpu: 256,
       memoryLimitMiB: 512,
+      desiredCount,
       environment: {
         GOTRUE_API_HOST: '0.0.0.0',
         GOTRUE_API_PORT: '9999',
+        // TODO(Phase 5): 커스텀 도메인(https) 확정 후 교체.
+        API_EXTERNAL_URL: `http://${alb.loadBalancerDnsName}`,
         GOTRUE_DB_DRIVER: 'postgres',
         // TODO(Phase 5): bara-edu.kr 확정 도메인으로 교체.
         GOTRUE_SITE_URL: 'https://bara-edu.kr',
@@ -122,7 +143,7 @@ export class ServicesStack extends cdk.Stack {
         GOTRUE_SMTP_SENDER_NAME: '바라 평생교육원',
       },
       secrets: {
-        DATABASE_URL: databaseUrlSecret,
+        DATABASE_URL: gotrueDatabaseUrlSecret,
         GOTRUE_JWT_SECRET: jwtSecret,
       },
       jsonFieldSecrets: {
@@ -141,6 +162,7 @@ export class ServicesStack extends cdk.Stack {
       healthCheckPath: '/',
       cpu: 256,
       memoryLimitMiB: 512,
+      desiredCount,
       environment: {
         PGRST_DB_SCHEMAS: 'public',
         PGRST_DB_ANON_ROLE: 'anon',
@@ -162,6 +184,7 @@ export class ServicesStack extends cdk.Stack {
       healthCheckPath: '/status',
       cpu: 256,
       memoryLimitMiB: 512,
+      desiredCount,
       environment: {
         STORAGE_BACKEND: 's3',
         GLOBAL_S3_BUCKET: storageBucket.bucketName,
@@ -170,7 +193,7 @@ export class ServicesStack extends cdk.Stack {
         TENANT_ID: 'bara-edu',
       },
       secrets: {
-        DATABASE_URL: databaseUrlSecret,
+        DATABASE_URL: storageDatabaseUrlSecret,
         ANON_KEY: anonKeySecret,
         SERVICE_KEY: serviceKeySecret,
         PGRST_JWT_SECRET: jwtSecret,
@@ -217,6 +240,7 @@ interface FargateHttpServiceProps {
   healthCheckPath: string;
   cpu: number;
   memoryLimitMiB: number;
+  desiredCount: number;
   environment?: Record<string, string>;
   // 전체 비밀 문자열을 그대로 env var 값으로 매핑(예: DATABASE_URL 전체).
   secrets?: Record<string, secretsmanager.ISecret>;
@@ -259,7 +283,7 @@ class FargateHttpService extends Construct {
     const service = new ecs.FargateService(this, 'Service', {
       cluster: props.cluster,
       taskDefinition: this.taskDefinition,
-      desiredCount: 1,
+      desiredCount: props.desiredCount,
       securityGroups: [props.serviceSg],
       vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
       // Docker Hub 이미지를 쓰므로(ECR 아님) private 서브넷이라도 NAT를 통한 아웃바운드가
