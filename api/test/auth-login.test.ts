@@ -99,6 +99,22 @@ test('실패 11번째 → 429 rate_limited, 올바른 비밀번호도 429', asyn
   expect((await login(email, 'password1')).statusCode).toBe(429);
 });
 
+test('동시 20건 오답 로그인 → 401은 최대 10건, 나머지 429', async () => {
+  const email = await addUser();
+  const rs = await Promise.all(Array.from({ length: 20 }, () => login(email, 'wrong')));
+  const codes = rs.map((r) => r.statusCode);
+  expect(codes.filter((c) => c === 401)).toHaveLength(10);
+  expect(codes.filter((c) => c === 429)).toHaveLength(10);
+});
+
+test('성공한 로그인은 한도를 소모하지 않는다 (9회 실패 → 성공 → 10번째 실패는 401, 그다음 429)', async () => {
+  const email = await addUser();
+  for (let i = 0; i < 9; i++) await login(email, 'wrong');
+  expect((await login(email, 'password1')).statusCode).toBe(200);
+  expect((await login(email, 'wrong')).statusCode).toBe(401);
+  expect((await login(email, 'wrong')).statusCode).toBe(429);
+});
+
 test('실패 기록이 15분 창을 벗어나면 다시 로그인 가능', async () => {
   const email = await addUser();
   for (let i = 0; i < 10; i++) await login(email, 'wrong');

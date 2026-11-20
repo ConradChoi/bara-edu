@@ -2,7 +2,7 @@ import type pg from 'pg';
 import { withService } from '../db/context.js';
 import type { Mailer } from '../mail/mailer.js';
 import { hashPassword, verifyPassword } from './passwords.js';
-import { hit, recentCount } from './rate-limit.js';
+import { release, reserve } from './rate-limit.js';
 import { consumeEmailTokenIn, issueEmailToken } from './tokens.js';
 import { createSession, revokeOtherSessionsIn } from './sessions.js';
 
@@ -60,7 +60,8 @@ export type LoginResult =
   | { kind: 'fail'; detail: 'invalid_credentials' | 'email_not_confirmed' | 'password_reset_required' };
 
 export async function login(pool: pg.Pool, ttlDays: number, email: string, password: string): Promise<LoginResult> {
-  if ((await recentCount(pool, 'login-fail', email, LOGIN_FAIL_WINDOW)) >= LOGIN_FAIL_LIMIT) return { kind: 'rate_limited' };
+  const reservation = await reserve(pool, 'login-fail', email, LOGIN_FAIL_LIMIT, LOGIN_FAIL_WINDOW);
+  if (reservation === null) return { kind: 'rate_limited' };
   const r = await withService(pool, (tx) =>
     tx.query<{ id: string; encrypted_password: string | null; email_confirmed_at: Date | null }>(
       'select id, encrypted_password, email_confirmed_at from auth.users where lower(email) = $1',
@@ -71,14 +72,10 @@ export async function login(pool: pg.Pool, ttlDays: number, email: string, passw
   const check = await verifyPassword(password, user?.encrypted_password ?? null);
   if (check === 'unsupported') await verifyPassword(password, await dummyHash);
 
-  const fail = async (detail: 'invalid_credentials' | 'email_not_confirmed' | 'password_reset_required'): Promise<LoginResult> => {
-    await hit(pool, 'login-fail', email, Number.MAX_SAFE_INTEGER, LOGIN_FAIL_WINDOW);
-    return { kind: 'fail', detail };
-  };
-  if (!user) return fail('invalid_credentials');
-  if (check === 'unsupported') return fail('password_reset_required');
-  if (check === 'mismatch') return fail('invalid_credentials');
-  if (!user.email_confirmed_at) return fail('email_not_confirmed');
+  if (!user || check === 'mismatch') return { kind: 'fail', detail: 'invalid_credentials' };
+  if (check === 'unsupported') return { kind: 'fail', detail: 'password_reset_required' };
+  if (!user.email_confirmed_at) return { kind: 'fail', detail: 'email_not_confirmed' };
+  await release(pool, reservation);
   const s = await createSession(pool, user.id, ttlDays);
   return { kind: 'ok', sessionToken: s.token, expiresAt: s.expiresAt, userId: user.id };
 }
