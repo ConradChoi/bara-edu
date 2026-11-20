@@ -10,6 +10,8 @@ import { bankAccountsList } from './ops/bank-accounts.js';
 import { profilesGetMine } from './ops/profiles.js';
 import { registerOps, type Op } from './ops/registry.js';
 import { registerOpRoutes } from './ops/routes.js';
+import { lazyCatalog } from './query/catalog.js';
+import { registerQueryRoutes } from './query/routes.js';
 
 export type AppDeps = { config: Config; pool: pg.Pool; mailer: Mailer; logger?: LogOptions };
 
@@ -28,6 +30,7 @@ export function buildApp(deps: AppDeps, extraOps: Op[] = []): FastifyInstance {
   app.get('/healthz', async () => ({ ok: true }));
   registerAuthRoutes(app);
   registerOpRoutes(app, registerOps([profilesGetMine, bankAccountsList, ...extraOps]));
+  registerQueryRoutes(app, lazyCatalog(deps.pool));
   return app;
 }
 
