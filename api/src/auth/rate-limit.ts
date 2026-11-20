@@ -27,3 +27,14 @@ export async function hit(pool: pg.Pool, bucket: string, key: string, limit: num
     return true;
   });
 }
+
+export async function recentCount(pool: pg.Pool, bucket: string, key: string, windowSeconds: number): Promise<number> {
+  const r = await withService(pool, (tx) =>
+    tx.query<{ n: number }>(
+      `select count(*)::int as n from auth.rate_events
+        where bucket = $1 and key = $2 and created_at > now() - make_interval(secs => $3::int)`,
+      [bucket, key, windowSeconds],
+    ),
+  );
+  return r.rows[0].n;
+}

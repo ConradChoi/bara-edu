@@ -3,7 +3,8 @@ import { withService } from '../db/context.js';
 import { z } from 'zod';
 import { sendError } from '../http/errors.js';
 import { hit, normalizeEmail } from './rate-limit.js';
-import { resendConfirmation, signup, verifyEmail } from './service.js';
+import { revokeSession } from './sessions.js';
+import { changePassword, login, requestReset, resendConfirmation, resetPassword, signup, verifyEmail } from './service.js';
 
 type SessionRow = {
   id: string;
@@ -25,6 +26,10 @@ const signupBody = z.object({
 const resendBody = z.object({ email, origin: z.string() });
 const verifyBody = z.object({ token: z.string().min(1).max(200) });
 
+const loginBody = z.object({ email, password: z.string().min(1).max(200) });
+const changeBody = z.object({ currentPassword: z.string().min(1).max(200), newPassword: z.string().min(8).max(200) });
+const resetBody = z.object({ token: z.string().min(1).max(200), newPassword: z.string().min(8).max(200) });
+
 const INVALID = '요청 형식이 올바르지 않습니다.';
 
 function clientIp(req: FastifyRequest): string {
@@ -34,7 +39,7 @@ function clientIp(req: FastifyRequest): string {
 }
 
 export function registerAuthRoutes(app: FastifyInstance): void {
-  const onMailError = (err: unknown) => app.log.error({ errorName: err instanceof Error ? err.name : 'unknown' }, 'confirmation mail failed');
+  const onMailError = (err: unknown) => app.log.error({ errorName: err instanceof Error ? err.name : 'unknown' }, 'auth mail failed');
   const originAllowed = (origin: string) => app.deps.config.siteOrigins.includes(origin);
 
   app.post('/v1/auth/signup', async (req, reply) => {
@@ -63,6 +68,48 @@ export function registerAuthRoutes(app: FastifyInstance): void {
     const r = await verifyEmail(pool, config.sessionTtlDays, body.data.token);
     if (!r) return sendError(reply, 'validation', 'invalid_token');
     return { sessionToken: r.sessionToken, expiresAt: r.expiresAt };
+  });
+
+  app.post('/v1/auth/login', async (req, reply) => {
+    const body = loginBody.safeParse(req.body);
+    if (!body.success) return sendError(reply, 'validation', INVALID);
+    const r = await login(app.deps.pool, app.deps.config.sessionTtlDays, body.data.email, body.data.password);
+    if (r.kind === 'rate_limited') return sendError(reply, 'rate_limited', '요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.');
+    if (r.kind === 'fail') return sendError(reply, 'unauthenticated', r.detail);
+    return { sessionToken: r.sessionToken, expiresAt: r.expiresAt, userId: r.userId };
+  });
+
+  app.post('/v1/auth/logout', async (req, reply) => {
+    if (!req.auth.userId) return sendError(reply, 'unauthenticated', '로그인이 필요합니다.');
+    await revokeSession(app.deps.pool, String(req.headers['x-bara-session']));
+    return { ok: true };
+  });
+
+  app.post('/v1/auth/change-password', async (req, reply) => {
+    const userId = req.auth.userId;
+    if (!userId) return sendError(reply, 'unauthenticated', '로그인이 필요합니다.');
+    const body = changeBody.safeParse(req.body);
+    if (!body.success) return sendError(reply, 'validation', INVALID);
+    const ok = await changePassword(app.deps.pool, userId, String(req.headers['x-bara-session']), body.data.currentPassword, body.data.newPassword);
+    if (!ok) return sendError(reply, 'forbidden', '현재 비밀번호가 올바르지 않습니다.');
+    return { ok: true };
+  });
+
+  app.post('/v1/auth/request-reset', async (req, reply) => {
+    const body = resendBody.safeParse(req.body);
+    if (!body.success || !originAllowed(body.data.origin)) return sendError(reply, 'validation', INVALID);
+    const { pool, mailer } = app.deps;
+    const { email: to, origin } = body.data;
+    const allowed = (await hit(pool, 'reset-60s', to, 1, 60)) && (await hit(pool, 'reset-1h', to, 4, 3600));
+    if (allowed) await requestReset(pool, mailer, to, origin, onMailError);
+    return { ok: true };
+  });
+
+  app.post('/v1/auth/reset-password', async (req, reply) => {
+    const body = resetBody.safeParse(req.body);
+    if (!body.success) return sendError(reply, 'validation', INVALID);
+    if (!(await resetPassword(app.deps.pool, body.data.token, body.data.newPassword))) return sendError(reply, 'validation', 'invalid_token');
+    return { ok: true };
   });
 
   app.get('/v1/auth/session', async (req, reply) => {

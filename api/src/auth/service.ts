@@ -1,9 +1,10 @@
 import type pg from 'pg';
 import { withService } from '../db/context.js';
 import type { Mailer } from '../mail/mailer.js';
-import { hashPassword } from './passwords.js';
+import { hashPassword, verifyPassword } from './passwords.js';
+import { hit, recentCount } from './rate-limit.js';
 import { consumeEmailTokenIn, issueEmailToken } from './tokens.js';
-import { createSession } from './sessions.js';
+import { createSession, revokeOtherSessionsIn } from './sessions.js';
 
 type SignupInput = { email: string; password: string; name: string; phone?: string | null; origin: string };
 
@@ -47,4 +48,70 @@ export async function verifyEmail(pool: pg.Pool, ttlDays: number, token: string)
   if (!userId) return null;
   const s = await createSession(pool, userId, ttlDays);
   return { sessionToken: s.token, expiresAt: s.expiresAt };
+}
+
+const LOGIN_FAIL_LIMIT = 10;
+const LOGIN_FAIL_WINDOW = 15 * 60;
+const dummyHash = hashPassword('bara-dummy-password');
+
+export type LoginResult =
+  | { kind: 'ok'; sessionToken: string; expiresAt: Date; userId: string }
+  | { kind: 'rate_limited' }
+  | { kind: 'fail'; detail: 'invalid_credentials' | 'email_not_confirmed' | 'password_reset_required' };
+
+export async function login(pool: pg.Pool, ttlDays: number, email: string, password: string): Promise<LoginResult> {
+  if ((await recentCount(pool, 'login-fail', email, LOGIN_FAIL_WINDOW)) >= LOGIN_FAIL_LIMIT) return { kind: 'rate_limited' };
+  const r = await withService(pool, (tx) =>
+    tx.query<{ id: string; encrypted_password: string | null; email_confirmed_at: Date | null }>(
+      'select id, encrypted_password, email_confirmed_at from auth.users where lower(email) = $1',
+      [email],
+    ),
+  );
+  const user = r.rows[0];
+  const check = await verifyPassword(password, user?.encrypted_password ?? null);
+  if (check === 'unsupported') await verifyPassword(password, await dummyHash);
+
+  const fail = async (detail: 'invalid_credentials' | 'email_not_confirmed' | 'password_reset_required'): Promise<LoginResult> => {
+    await hit(pool, 'login-fail', email, Number.MAX_SAFE_INTEGER, LOGIN_FAIL_WINDOW);
+    return { kind: 'fail', detail };
+  };
+  if (!user) return fail('invalid_credentials');
+  if (check === 'unsupported') return fail('password_reset_required');
+  if (check === 'mismatch') return fail('invalid_credentials');
+  if (!user.email_confirmed_at) return fail('email_not_confirmed');
+  const s = await createSession(pool, user.id, ttlDays);
+  return { kind: 'ok', sessionToken: s.token, expiresAt: s.expiresAt, userId: user.id };
+}
+
+export async function changePassword(pool: pg.Pool, userId: string, currentToken: string, currentPassword: string, newPassword: string): Promise<boolean> {
+  const r = await withService(pool, (tx) => tx.query<{ encrypted_password: string | null }>('select encrypted_password from auth.users where id = $1', [userId]));
+  if (r.rowCount === 0) return false;
+  if ((await verifyPassword(currentPassword, r.rows[0].encrypted_password)) !== 'ok') return false;
+  const newHash = await hashPassword(newPassword);
+  await withService(pool, async (tx) => {
+    await tx.query('update auth.users set encrypted_password = $2, updated_at = now() where id = $1', [userId, newHash]);
+    await revokeOtherSessionsIn(tx, userId, currentToken);
+  });
+  return true;
+}
+
+export async function requestReset(pool: pg.Pool, mailer: Mailer, email: string, origin: string, onMailError: MailErrorLogger): Promise<void> {
+  const r = await withService(pool, (tx) => tx.query<{ id: string }>('select id from auth.users where lower(email) = $1', [email]));
+  if (r.rowCount === 0) return;
+  const token = await issueEmailToken(pool, r.rows[0].id, 'recovery');
+  await mailer.send({ to: email, template: 'recovery', link: `${origin}/reset-password?token=${token}` }).catch(onMailError);
+}
+
+export async function resetPassword(pool: pg.Pool, token: string, newPassword: string): Promise<boolean> {
+  const newHash = await hashPassword(newPassword);
+  return withService(pool, async (tx) => {
+    const id = await consumeEmailTokenIn(tx, token, 'recovery');
+    if (!id) return false;
+    await tx.query(
+      'update auth.users set encrypted_password = $2, email_confirmed_at = coalesce(email_confirmed_at, now()), updated_at = now() where id = $1',
+      [id, newHash],
+    );
+    await tx.query('delete from auth.sessions where user_id = $1', [id]);
+    return true;
+  });
 }

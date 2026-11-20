@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import type pg from 'pg';
-import { withService } from '../db/context.js';
+import { withService, type Tx } from '../db/context.js';
 
 const sha256 = (token: string) => createHash('sha256').update(token).digest('hex');
 
@@ -42,4 +42,8 @@ export async function revokeSession(pool: pg.Pool, token: string): Promise<void>
 
 export async function revokeAllSessions(pool: pg.Pool, userId: string): Promise<void> {
   await withService(pool, (tx) => tx.query('delete from auth.sessions where user_id = $1', [userId]));
+}
+
+export async function revokeOtherSessionsIn(tx: Tx, userId: string, keepToken: string): Promise<void> {
+  await tx.query('delete from auth.sessions where user_id = $1 and token_hash <> $2', [userId, sha256(keepToken)]);
 }
