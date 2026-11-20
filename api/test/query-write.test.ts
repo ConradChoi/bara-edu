@@ -157,6 +157,20 @@ test('returning에 관계 포함(lessons → courses), single one → 객체', a
   expect(none.statusCode).toBe(406);
 });
 
+test('여러 행에 맞는 쓰기 + single → 406, 변경은 롤백', async () => {
+  await ctx.adminPool.query(`insert into courses (title, slug) values ('원1', 'multi-1'), ('원2', 'multi-2')`);
+  const slugs = (await ctx.adminPool.query(`select slug, title from courses order by slug`)).rows;
+  const many = [{ col: 'slug', op: 'in', value: ['multi-1', 'multi-2'] }];
+  const up = await query({ table: 'courses', action: 'update', values: { title: '바뀜' }, filters: many, returning: true, single: 'one' }, M);
+  expect(up.statusCode).toBe(406);
+  expect(up.json().error.code).toBe('PGRST116');
+  const del = await query({ table: 'courses', action: 'delete', filters: many, returning: true, single: 'maybe' }, M);
+  expect(del.statusCode).toBe(406);
+  expect((await ctx.adminPool.query(`select slug, title from courses order by slug`)).rows).toEqual(slugs);
+  const one = await ok({ table: 'courses', action: 'insert', values: { title: '넷', slug: 'multi-3' }, returning: true, select: 'slug', single: 'maybe' }, M);
+  expect(one).toEqual({ data: { slug: 'multi-3' }, count: null });
+});
+
 test('update 본인 profiles → 반영, delete 본인 progress → 반환', async () => {
   const u = await ok(
     { table: 'profiles', action: 'update', values: { name: '홍길순', phone: null }, filters: [{ col: 'id', op: 'eq', value: A }], returning: true, select: 'name, phone' },

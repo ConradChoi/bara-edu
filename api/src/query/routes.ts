@@ -7,6 +7,8 @@ import { toDbError } from './db-error.js';
 
 const SINGLE_ERROR = { error: { code: 'PGRST116', message: 'JSON object requested, multiple (or no) rows returned' } };
 
+class SingleRowError extends Error {}
+
 export function registerQueryRoutes(app: FastifyInstance, getCatalog: () => Promise<Catalog>): void {
   app.post('/v1/query', async (req, reply) => {
     if (!filtersWithinLimits(req.body)) return sendError(reply, 'validation', '요청 형식이 올바르지 않습니다.');
@@ -32,6 +34,8 @@ export function registerQueryRoutes(app: FastifyInstance, getCatalog: () => Prom
       let rows: unknown[] | null = null;
       if (wantRows) rows = (await tx.query<{ data: unknown[] }>(sel.text, sel.values)).rows[0].data;
       else if (q.action !== 'select') await tx.query(sel.text, sel.values);
+      // checked inside the transaction so a write that breaks single/maybeSingle rolls back, as in PostgREST
+      if (q.single && rows && (rows.length > 1 || (rows.length === 0 && q.single === 'one'))) throw new SingleRowError();
       const n = count ? (await tx.query<{ count: number }>(count.text, count.values)).rows[0].count : null;
       return { rows, n };
     };
@@ -40,16 +44,14 @@ export function registerQueryRoutes(app: FastifyInstance, getCatalog: () => Prom
     try {
       result = userId ? await withUser(app.deps.pool, userId, exec) : await withAnon(app.deps.pool, exec);
     } catch (err) {
+      if (err instanceof SingleRowError) return reply.code(406).send(SINGLE_ERROR);
       const mapped = toDbError(err);
       if (mapped) return reply.code(mapped.status).send(mapped.body);
       throw err;
     }
 
     const { rows, n } = result;
-    if (q.single && rows) {
-      if (rows.length > 1 || (rows.length === 0 && q.single === 'one')) return reply.code(406).send(SINGLE_ERROR);
-      return { data: rows[0] ?? null, count: n };
-    }
+    if (q.single && rows) return { data: rows[0] ?? null, count: n };
     return { data: rows, count: n };
   });
 }
