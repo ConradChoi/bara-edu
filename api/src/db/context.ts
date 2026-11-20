@@ -11,6 +11,11 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 async function run<T>(pool: pg.Pool, role: Role, userId: string | null, fn: (tx: Tx) => Promise<T>): Promise<T> {
   if (userId !== null && !UUID_RE.test(userId)) throw new Error('userId must be a UUID');
   const client = await pool.connect();
+  let broken = false;
+  const onError = () => {
+    broken = true;
+  };
+  client.on('error', onError);
   try {
     await client.query('BEGIN');
     await client.query(`SET LOCAL ROLE ${role}`);
@@ -28,11 +33,12 @@ async function run<T>(pool: pg.Pool, role: Role, userId: string | null, fn: (tx:
     try {
       await client.query('ROLLBACK');
     } catch {
-      // connection is broken; release below discards it
+      broken = true;
     }
     throw err;
   } finally {
-    client.release();
+    client.off('error', onError);
+    client.release(broken);
   }
 }
 

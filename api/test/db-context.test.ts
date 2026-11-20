@@ -81,3 +81,37 @@ test('연결을 항상 반환한다', async () => {
     await one.end();
   }
 });
+
+test('ROLLBACK이 실패한 연결은 풀로 돌려보내지 않고 폐기한다', async () => {
+  const one = new pg.Pool({ connectionString: ctx.pool.options.connectionString, max: 1 });
+  one.on('error', () => {});
+  const releaseArgs: unknown[] = [];
+  const origConnect = one.connect.bind(one) as () => Promise<pg.PoolClient>;
+  (one as any).connect = async () => {
+    const c = await origConnect();
+    const origRelease = c.release.bind(c);
+    c.release = (arg?: Error | boolean) => {
+      releaseArgs.push(arg);
+      origRelease(arg);
+    };
+    return c;
+  };
+  try {
+    let deadPid = 0;
+    await expect(
+      withUser(one, userA, async (tx) => {
+        deadPid = (await tx.query('select pg_backend_pid() pid')).rows[0].pid;
+        await ctx.adminPool.query('select pg_terminate_backend($1)', [deadPid]);
+        await new Promise((r) => setTimeout(r, 100));
+        await tx.query('select 1');
+      }),
+    ).rejects.toThrow();
+    const r = await withAnon(one, (tx) => tx.query('select pg_backend_pid() pid, auth.uid() u, current_user cu'));
+    expect(releaseArgs[0]).toBe(true);
+    expect(r.rows[0].pid).not.toBe(deadPid);
+    expect(r.rows[0]).toMatchObject({ u: null, cu: 'bara_edu_anon' });
+    expect(one.totalCount).toBe(1);
+  } finally {
+    await one.end();
+  }
+});
