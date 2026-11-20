@@ -13,7 +13,7 @@ export function toDbError(err: unknown): DbErrorResponse | null {
   });
   if (code === '42501') return pass(403);
   if (code === 'P0001' || code.startsWith('23')) return pass(400);
-  // data exceptions (bad uuid/number text from the app) are client errors; the pg message is not exposed
-  if (code.startsWith('22')) return { status: 400, body: { error: { code: 'validation', message: '요청 값이 올바르지 않습니다.' } } };
+  // data exceptions (bad uuid/number text) and an onConflict without a matching unique index are client errors; the pg message is not exposed
+  if (code.startsWith('22') || code === '42P10') return { status: 400, body: { error: { code: 'validation', message: '요청 값이 올바르지 않습니다.' } } };
   return null;
 }

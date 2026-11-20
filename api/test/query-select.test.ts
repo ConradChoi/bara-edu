@@ -196,7 +196,7 @@ test('없는 테이블·없는 열·관계 안 관계·limit 1001 → 400', asyn
     { table: 'courses', action: 'select', filters: [{ col: 'id', op: 'eq', value: { x: 1 } }] },
     { table: 'courses', action: 'select', filters: [{ col: 'id', op: 'raw', value: '1' }] },
     { table: 'courses', action: 'select', filters: [{ col: 'id', op: 'eq', value: 1, junk: 1 }] },
-    { table: 'courses', action: 'insert', values: { title: 'x' } },
+    { table: 'courses', action: 'merge', values: { title: 'x' } },
     { table: 'courses' },
     [],
   ];

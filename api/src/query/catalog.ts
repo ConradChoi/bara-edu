@@ -8,12 +8,19 @@ export type Relation = { kind: 'one' | 'many'; fromCols: string[]; toCols: strin
 export type Catalog = {
   columns(table: string): ReadonlySet<string> | undefined;
   relation(from: string, to: string): Relation | undefined;
+  isJson(table: string, col: string): boolean;
 };
 
-export function makeCatalog(columns: ReadonlyMap<string, readonly string[]>, fks: readonly ForeignKey[]): Catalog {
+export function makeCatalog(
+  columns: ReadonlyMap<string, readonly string[]>,
+  fks: readonly ForeignKey[],
+  jsonColumns: ReadonlyMap<string, readonly string[]> = new Map(),
+): Catalog {
   const cols = new Map([...columns].map(([t, c]) => [t, new Set(c)]));
+  const json = new Map([...jsonColumns].map(([t, c]) => [t, new Set(c)]));
   return {
     columns: (table) => cols.get(table),
+    isJson: (table, col) => json.get(table)?.has(col) ?? false,
     relation(from, to) {
       const found: Relation[] = [];
       for (const fk of fks) {
@@ -28,18 +35,19 @@ export function makeCatalog(columns: ReadonlyMap<string, readonly string[]>, fks
 // runs as the anon session role: bara_edu_app itself has no privileges, and the catalog should list only what session roles can reach
 export async function loadCatalog(pool: pg.Pool): Promise<Catalog> {
   return withAnon(pool, async (tx) => {
-    const c = await tx.query<{ table_name: string; column_name: string }>(
-      `select c.table_name::text, c.column_name::text
+    const c = await tx.query<{ table_name: string; column_name: string; data_type: string }>(
+      `select c.table_name::text, c.column_name::text, c.data_type::text
          from information_schema.columns c
          join information_schema.tables t on t.table_schema = c.table_schema and t.table_name = c.table_name
         where c.table_schema = 'public' and t.table_type = 'BASE TABLE'
         order by c.table_name, c.ordinal_position`,
     );
     const columns = new Map<string, string[]>();
+    const json = new Map<string, string[]>();
+    const push = (m: Map<string, string[]>, t: string, col: string) => m.set(t, [...(m.get(t) ?? []), col]);
     for (const r of c.rows) {
-      const list = columns.get(r.table_name) ?? [];
-      list.push(r.column_name);
-      columns.set(r.table_name, list);
+      push(columns, r.table_name, r.column_name);
+      if (r.data_type === 'json' || r.data_type === 'jsonb') push(json, r.table_name, r.column_name);
     }
     const f = await tx.query<{ table: string; cols: string[]; ref_table: string; ref_cols: string[] }>(
       `select src.relname::text as table, dst.relname::text as ref_table,
@@ -55,7 +63,7 @@ export async function loadCatalog(pool: pg.Pool): Promise<Catalog> {
     const fks = f.rows
       .filter((r) => columns.has(r.table) && columns.has(r.ref_table))
       .map((r) => ({ table: r.table, cols: r.cols, refTable: r.ref_table, refCols: r.ref_cols }));
-    return makeCatalog(columns, fks);
+    return makeCatalog(columns, fks, json);
   });
 }
 
