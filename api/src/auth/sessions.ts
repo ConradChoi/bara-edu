@@ -30,6 +30,7 @@ export async function resolveSession(pool: pg.Pool, token: string, ttlDays: numb
         'update auth.sessions set expires_at = now() + make_interval(days => $2::int) where token_hash = $1 returning expires_at',
         [sha256(token), ttlDays],
       );
+      if (u.rowCount === 0) return null;
       return { userId: row.user_id, expiresAt: u.rows[0].expires_at };
     }
     return { userId: row.user_id, expiresAt: row.expires_at };

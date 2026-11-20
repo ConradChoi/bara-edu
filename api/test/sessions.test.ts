@@ -94,3 +94,25 @@ test('회원이 삭제되면 세션도 사라진다(cascade)', async () => {
   const r = await ctx.adminPool.query('select 1 from auth.sessions where user_id = $1', [userId]);
   expect(r.rowCount).toBe(0);
 });
+
+test('연장 직전에 다른 트랜잭션이 세션을 지우면 throw 대신 null', async () => {
+  const userId = await newUser();
+  const { token } = await createSession(ctx.pool, userId, 30);
+  const hash = createHash('sha256').update(token).digest('hex');
+  await ctx.adminPool.query("update auth.sessions set expires_at = now() + interval '1 day' where token_hash = $1", [hash]);
+  const c = await ctx.adminPool.connect();
+  try {
+    await c.query('begin');
+    await c.query('delete from auth.sessions where token_hash = $1', [hash]);
+    const pending = resolveSession(ctx.pool, token, 30);
+    for (let i = 0; i < 100; i++) {
+      const w = await ctx.adminPool.query("select count(*)::int n from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock'");
+      if (w.rows[0].n > 0) break;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    await c.query('commit');
+    await expect(pending).resolves.toBeNull();
+  } finally {
+    c.release();
+  }
+});

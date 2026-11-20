@@ -23,8 +23,8 @@ DATABASE_URL=... BARA_SERVICE_KEY=... npm start   # 서버 실행 (기본 포트
 | --- | --- | --- | --- |
 | `DATABASE_URL` | O | - | `bara_edu_app` 역할로 접속하는 PostgreSQL URL |
 | `BARA_SERVICE_KEY` | O | - | 앱 서버가 `x-bara-service-key` 헤더로 보내는 키. 32자 이상 |
-| `PORT` | | `3100` | 수신 포트 |
-| `SESSION_TTL_DAYS` | | `30` | 세션 유효 일수 |
+| `PORT` | | `3100` | 수신 포트(1~65535 정수) |
+| `SESSION_TTL_DAYS` | | `30` | 세션 유효 일수(1~3650 정수) |
 | `SITE_ORIGINS` | | `https://bara-edu.kr` | 메일 링크에 허용하는 사이트 주소(쉼표 구분) |
 | `LOG_LEVEL` | | `info` | 로그 수준(`fatal`/`error`/`warn`/`info`/`debug`/`trace`/`silent`). 오류 로그에는 pg `detail`·쿼리 값, `x-bara-service-key`·`x-bara-session` 헤더가 남지 않는다 |
 
@@ -84,8 +84,10 @@ DATABASE_URL=... BARA_SERVICE_KEY=... npm start   # 서버 실행 (기본 포트
      name: 'bank_accounts.list',
      access: 'user',
      params: z.object({}).strict(),
-     async run({ tx, userId }, params) {
-       const r = await tx.query('select id, bank_name from bank_accounts order by "order", id');
+     async run({ tx }) {
+       const r = await tx.query(
+         'select id, bank_name, account_number, account_holder, "order" from bank_accounts order by "order", created_at, id',
+       );
        return r.rows;
      },
    });

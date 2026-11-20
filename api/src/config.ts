@@ -9,6 +9,13 @@ export type Config = {
 
 const LOG_LEVELS = ['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'];
 
+function positiveInt(name: string, raw: string | undefined, fallback: number, max: number): number {
+  if (raw === undefined) return fallback;
+  const n = Number(raw);
+  if (!/^[1-9][0-9]*$/.test(raw) || n > max) throw new Error(`${name} must be a positive integer (max ${max})`);
+  return n;
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv): Config {
   const databaseUrl = env.DATABASE_URL;
   if (!databaseUrl) throw new Error('DATABASE_URL is required');
@@ -19,8 +26,8 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
   return {
     databaseUrl,
     serviceKey,
-    port: Number(env.PORT ?? 3100),
-    sessionTtlDays: Number(env.SESSION_TTL_DAYS ?? 30),
+    port: positiveInt('PORT', env.PORT, 3100, 65535),
+    sessionTtlDays: positiveInt('SESSION_TTL_DAYS', env.SESSION_TTL_DAYS, 30, 3650),
     siteOrigins: (env.SITE_ORIGINS ?? 'https://bara-edu.kr')
       .split(',')
       .map((s) => s.trim())
