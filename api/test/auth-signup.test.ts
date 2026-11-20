@@ -108,6 +108,25 @@ test('같은 토큰 두 번째 사용 → 400 invalid_token (Review Focus 3)', a
   expect(r.json()).toEqual({ error: { code: 'validation', message: 'invalid_token' } });
 });
 
+test('인증 처리가 실패하면 토큰 소모도 롤백되어 같은 토큰을 다시 쓸 수 있다', async () => {
+  await signup({ email: 'atomic1@bara-edu.kr' });
+  const token = tokenOf(mailer.sent[0].link);
+  await ctx.adminPool.query(`create function auth.test_block_confirm() returns trigger language plpgsql as $$
+    begin raise exception 'blocked'; end $$`);
+  await ctx.adminPool.query(`create trigger test_block_confirm before update of email_confirmed_at on auth.users
+    for each row execute function auth.test_block_confirm()`);
+  try {
+    const failed = await post('/v1/auth/verify-email', { token });
+    expect(failed.statusCode).toBe(500);
+    const row = await ctx.adminPool.query('select used_at from auth.email_tokens');
+    expect(row.rows[0].used_at).toBeNull();
+  } finally {
+    await ctx.adminPool.query('drop trigger test_block_confirm on auth.users');
+    await ctx.adminPool.query('drop function auth.test_block_confirm()');
+  }
+  expect((await post('/v1/auth/verify-email', { token })).statusCode).toBe(200);
+});
+
 test('만료된 토큰 → 400 invalid_token', async () => {
   await signup();
   const token = tokenOf(mailer.sent[0].link);

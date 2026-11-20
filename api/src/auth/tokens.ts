@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import type pg from 'pg';
-import { withService } from '../db/context.js';
+import { withService, type Tx } from '../db/context.js';
 
 export type TokenPurpose = 'confirm' | 'recovery';
 
@@ -20,14 +20,16 @@ export async function issueEmailToken(pool: pg.Pool, userId: string, purpose: To
   return token;
 }
 
-export async function consumeEmailToken(pool: pg.Pool, token: string, purpose: TokenPurpose): Promise<string | null> {
-  const r = await withService(pool, (tx) =>
-    tx.query<{ user_id: string }>(
-      `update auth.email_tokens set used_at = now()
-        where token_hash = $1 and purpose = $2 and used_at is null and expires_at > now()
-        returning user_id`,
-      [sha256(token), purpose],
-    ),
+export async function consumeEmailTokenIn(tx: Tx, token: string, purpose: TokenPurpose): Promise<string | null> {
+  const r = await tx.query<{ user_id: string }>(
+    `update auth.email_tokens set used_at = now()
+      where token_hash = $1 and purpose = $2 and used_at is null and expires_at > now()
+      returning user_id`,
+    [sha256(token), purpose],
   );
   return r.rowCount === 0 ? null : r.rows[0].user_id;
+}
+
+export function consumeEmailToken(pool: pg.Pool, token: string, purpose: TokenPurpose): Promise<string | null> {
+  return withService(pool, (tx) => consumeEmailTokenIn(tx, token, purpose));
 }

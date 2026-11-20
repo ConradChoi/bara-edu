@@ -2,7 +2,7 @@ import type pg from 'pg';
 import { withService } from '../db/context.js';
 import type { Mailer } from '../mail/mailer.js';
 import { hashPassword } from './passwords.js';
-import { consumeEmailToken, issueEmailToken } from './tokens.js';
+import { consumeEmailTokenIn, issueEmailToken } from './tokens.js';
 import { createSession } from './sessions.js';
 
 type SignupInput = { email: string; password: string; name: string; phone?: string | null; origin: string };
@@ -35,11 +35,14 @@ export async function resendConfirmation(pool: pg.Pool, mailer: Mailer, email: s
 }
 
 export async function verifyEmail(pool: pg.Pool, ttlDays: number, token: string): Promise<{ sessionToken: string; expiresAt: Date } | null> {
-  const userId = await consumeEmailToken(pool, token, 'confirm');
+  const userId = await withService(pool, async (tx) => {
+    const id = await consumeEmailTokenIn(tx, token, 'confirm');
+    if (id) {
+      await tx.query('update auth.users set email_confirmed_at = coalesce(email_confirmed_at, now()), updated_at = now() where id = $1', [id]);
+    }
+    return id;
+  });
   if (!userId) return null;
-  await withService(pool, (tx) =>
-    tx.query('update auth.users set email_confirmed_at = coalesce(email_confirmed_at, now()), updated_at = now() where id = $1', [userId]),
-  );
   const s = await createSession(pool, userId, ttlDays);
   return { sessionToken: s.token, expiresAt: s.expiresAt };
 }
