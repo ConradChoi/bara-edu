@@ -9,7 +9,7 @@ declare module 'fastify' {
   }
 }
 
-function keyMatches(given: unknown, expected: string): boolean {
+export function keyMatches(given: unknown, expected: string): boolean {
   if (typeof given !== 'string') return false;
   const a = Buffer.from(given);
   const b = Buffer.from(expected);

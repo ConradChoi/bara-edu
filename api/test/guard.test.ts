@@ -64,3 +64,13 @@ test('본문 1MB 초과는 400 validation', async () => {
   expect(res.statusCode).toBe(400);
   expect(res.json().error.code).toBe('validation');
 });
+
+test.each(['/%', '/x/%zz'])('잘못된 URL %s: 키 없으면 401, 키 있으면 400 — 모두 오류 형식, URL 미노출', async (u) => {
+  const noKey = await app.inject({ method: 'GET', url: u });
+  expect(noKey.statusCode).toBe(401);
+  expect(noKey.json().error.code).toBe('unauthorized_service');
+  const withKey = await app.inject({ method: 'GET', url: u, headers: { 'x-bara-service-key': KEY } });
+  expect(withKey.statusCode).toBe(400);
+  expect(withKey.json()).toEqual({ error: { code: 'validation', message: expect.any(String) } });
+  expect(noKey.body + withKey.body).not.toContain('%');
+});
