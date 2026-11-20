@@ -1,0 +1,2352 @@
+-- bara-edu-lms schema (PG18 포팅본). 원본: supabase/schema.sql (원본은 운영 Supabase가 아직 쓰므로 수정하지 않는다)
+--
+-- PG18 포팅 변경 목록
+--  1. 맨 위 set role bara_edu_service / 맨 아래 reset role: 모든 객체가 bara_edu_service 소유가 되게 한다.
+--  2. storage.buckets insert와 storage.objects 정책 4개(member_photos_*) 제거.
+--  3. pg_cron: create extension 블록과 cron.schedule 블록 3곳 제거. purge_* 함수 4개는 유지(API가 호출).
+--  4. revoke 7줄의 대상 역할 치환: anon -> bara_edu_anon, authenticated -> bara_edu_authenticated.
+--  5. 재실행 안전성: 원본이 이미 drop ... if exists / 예외 처리로 보장하므로 추가 변경 없음(두 번 적용 테스트로 확인). 그 밖의 PG18 비호환 구문은 발견되지 않음.
+--
+
+set role bara_edu_service;
+
+
+-- ===================== Enums =====================
+-- Postgres는 CREATE TYPE IF NOT EXISTS를 지원하지 않아 예외 처리로 우회한다.
+do $$ begin
+  create type user_role as enum ('learner', 'admin');
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  create type profile_status as enum ('active', 'withdrawn');
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  create type course_status as enum ('active', 'upcoming', 'closed');
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  create type enrollment_status as enum ('pending', 'approved', 'rejected', 'expired');
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  create type assignment_status as enum ('submitted', 'approved', 'rejected');
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  create type legal_doc_type as enum ('terms', 'privacy', 'refund_policy', 'etc');
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  create type lesson_mode as enum ('video', 'online', 'offline');
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  create type course_schedule_type as enum ('weekday', 'weekend', 'both');
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  create type course_material_kind as enum ('main', 'supplementary');
+exception when duplicate_object then null; end $$;
+
+-- 문제은행 문항 유형(2026-09-11 추가) — 객관식만 지원하다가 관리자 요청으로 주관식(단답형,
+-- 정답 텍스트 일치 자동채점) 추가.
+do $$ begin
+  create type exam_question_type as enum ('multiple_choice', 'short_answer');
+exception when duplicate_object then null; end $$;
+
+-- 도형심리 역량진단(/selfcheck) 관련 enum. F-DIAG-*(docs/01-plan/features/bara-edu-diagnosis.menu-features.md).
+do $$ begin
+  create type diagnosis_tier as enum ('level2', 'level1', 'supervision', 'instructor_candidate');
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  create type diagnosis_experience as enum ('none', 'past_course', 'certified', 'active_use');
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  create type diagnosis_lead_status as enum ('new', 'contacted', 'closed');
+exception when duplicate_object then null; end $$;
+
+-- ===================== Tables =====================
+
+-- 회원 프로필 (auth.users 1:1)
+create table if not exists profiles (
+  id uuid primary key references auth.users(id) on delete cascade,
+  name text not null,
+  phone text,
+  role user_role not null default 'learner',
+  status profile_status not null default 'active',
+  withdrawn_at timestamptz,
+  created_at timestamptz not null default now()
+);
+
+-- 카테고리 (최대 3Depth, self-referencing)
+create table if not exists categories (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  parent_id uuid references categories(id) on delete restrict,
+  depth smallint not null check (depth between 1 and 3),
+  "order" integer not null default 0,
+  created_at timestamptz not null default now()
+);
+create index if not exists categories_parent_id_idx on categories(parent_id);
+
+-- 강좌
+create table if not exists courses (
+  id uuid primary key default gen_random_uuid(),
+  title text not null,
+  category_id uuid references categories(id),
+  description text,
+  instructor text,
+  fee integer not null default 0,
+  seats integer not null default 0,
+  government_support boolean not null default false,
+  status course_status not null default 'upcoming',
+  created_at timestamptz not null default now()
+);
+create index if not exists courses_category_id_idx on courses(category_id);
+
+-- slug 컬럼: /courses/[slug] 라우트용 (2026-08-06 추가, 기존 실행분과 호환되도록 alter 방식)
+alter table courses add column if not exists slug text;
+update courses set slug = id::text where slug is null;
+alter table courses alter column slug set not null;
+create unique index if not exists courses_slug_key on courses(slug);
+
+-- 강의 (강좌 내 커리큘럼 항목, 링크형 영상)
+create table if not exists lessons (
+  id uuid primary key default gen_random_uuid(),
+  course_id uuid not null references courses(id) on delete cascade,
+  title text not null,
+  video_url text,
+  "order" integer not null default 0,
+  has_quiz boolean not null default false,
+  has_assignment boolean not null default false
+);
+create index if not exists lessons_course_id_idx on lessons(course_id);
+
+-- 수강 신청 (무통장입금)
+create table if not exists enrollments (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references profiles(id) on delete cascade,
+  course_id uuid not null references courses(id),
+  status enrollment_status not null default 'pending',
+  payment_method text not null default 'bank_transfer',
+  payment_due_at timestamptz not null default (now() + interval '3 days'), -- flows.md Q2: 입금기한 3일
+  created_at timestamptz not null default now(),
+  unique (user_id, course_id)
+);
+create index if not exists enrollments_user_id_idx on enrollments(user_id);
+create index if not exists enrollments_course_id_idx on enrollments(course_id);
+
+-- 진도 (강의 단위 완료 체크 — 사용자가 "학습 완료로 표시" 클릭 시 기록, flows.md 2.3)
+create table if not exists progress (
+  user_id uuid not null references profiles(id) on delete cascade,
+  lesson_id uuid not null references lessons(id) on delete cascade,
+  completed_at timestamptz,
+  primary key (user_id, lesson_id)
+);
+
+-- 퀴즈 응시 (재응시 무제한, flows.md Q5)
+create table if not exists quiz_submissions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references profiles(id) on delete cascade,
+  lesson_id uuid not null references lessons(id) on delete cascade,
+  score integer not null,
+  attempt_no integer not null default 1,
+  submitted_at timestamptz not null default now()
+);
+create index if not exists quiz_submissions_user_lesson_idx on quiz_submissions(user_id, lesson_id);
+
+-- 과제 제출 (기한 초과해도 제출 가능, 감점 없음 — flows.md Q6)
+create table if not exists assignment_submissions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references profiles(id) on delete cascade,
+  lesson_id uuid not null references lessons(id) on delete cascade,
+  content text not null,
+  status assignment_status not null default 'submitted',
+  is_late boolean not null default false,
+  submitted_at timestamptz not null default now()
+);
+create index if not exists assignment_submissions_user_lesson_idx on assignment_submissions(user_id, lesson_id);
+
+-- 수료증 (진도 100% + 과제 승인, 또는 Admin 수동 처리 — flows.md Q7/Q9)
+create table if not exists certificates (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references profiles(id) on delete cascade,
+  course_id uuid not null references courses(id),
+  issued_at timestamptz not null default now(),
+  file_url text,
+  is_manual_override boolean not null default false,
+  unique (user_id, course_id)
+);
+
+-- 약관/정책 CMS (버전 관리)
+create table if not exists legal_documents (
+  id uuid primary key default gen_random_uuid(),
+  type legal_doc_type not null,
+  slug text not null,
+  title text not null,
+  content text not null,
+  version integer not null default 1,
+  is_published boolean not null default false,
+  effective_at timestamptz not null default now(),
+  created_at timestamptz not null default now()
+);
+create index if not exists legal_documents_slug_idx on legal_documents(slug);
+
+-- ===================== Helper: is_admin() =====================
+-- search_path를 고정하지 않으면 호출 세션의 search_path에 따라 SECURITY DEFINER 함수가
+-- 의도하지 않은 스키마의 동명 객체를 참조할 수 있다(고전적 search_path hijacking 패턴).
+-- 이 함수는 거의 모든 RLS 정책·트리거가 의존하는 인가 판정의 근간이라 특히 고정이 중요하다
+-- (security-officer 점검, 2026-08-08 — module-lms-6 검토 중 발견).
+create or replace function is_admin()
+returns boolean
+language sql
+security definer
+stable
+set search_path = public
+as $$
+  select exists (
+    select 1 from profiles where id = auth.uid() and role = 'admin'
+  );
+$$;
+
+-- ===================== Helper: is_active_learner() =====================
+-- withdraw()는 profiles.status를 'withdrawn'으로 바꾸고 progress/quiz_submissions/
+-- assignment_submissions를 삭제하지만, refresh token만 무효화될 뿐 이미 발급된
+-- access_token(JWT)은 자연 만료 전까지 유효하다. 그 창(최대 수십분) 동안 탈퇴 직전
+-- 토큰을 들고 있으면 여전히 approved 상태로 남은 enrollments를 통해 강의실/퀴즈/수료증
+-- 발급 RPC를 그대로 호출할 수 있었다 — "탈퇴 시 즉시 학습이력 파기" 보장과 어긋난다
+-- (security-officer 점검, 2026-08-09). 학습자 자기서비스 접근이 걸린 정책/RPC에는
+-- is_admin() 대신(또는 함께) 이 함수로 profiles.status='active'까지 재확인한다.
+create or replace function is_active_learner()
+returns boolean
+language sql
+security definer
+stable
+set search_path = public
+as $$
+  select exists (
+    select 1 from profiles where id = auth.uid() and status = 'active'
+  );
+$$;
+
+-- ===================== Trigger: auth.users → profiles 자동 생성 =====================
+-- Supabase Auth로 가입/생성된 계정은 profiles 테이블에 행이 없으면 role/status 판단이 불가능하다.
+-- 회원가입(Server Action) 시 name/phone을 auth 메타데이터(raw_user_meta_data)로 함께 넘기면 여기서 반영된다.
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer set search_path = public
+as $$
+begin
+  insert into public.profiles (id, name, phone, role, status, email)
+  values (
+    new.id,
+    coalesce(new.raw_user_meta_data->>'name', split_part(new.email, '@', 1)),
+    new.raw_user_meta_data->>'phone',
+    'learner',
+    'active',
+    new.email
+  )
+  on conflict (id) do nothing;
+  return new;
+end;
+$$;
+
+drop trigger if exists on_auth_user_created on auth.users;
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute function public.handle_new_user();
+
+-- ===================== Trigger: profiles 권한 컬럼 보호 =====================
+-- profiles_self_update 정책은 "본인 행"이라는 조건만 걸려 있어, 로그인한 학습자가 PostgREST를
+-- 직접 호출해 자기 role을 'admin'으로 바꾸거나 status를 임의로 되돌릴 수 있는 권한상승 허점이 있었다.
+-- (module-lms-4 회원탈퇴 self-update 구현 중 발견, 2026-08-06). 관리자가 아닌 요청은 role을 항상
+-- 기존값으로 되돌리고, status는 'active'→'withdrawn' 전환만 허용한다.
+-- email 보호: profiles.email은 auth.users.email의 read-only 복제본으로 관리자 회원
+-- 검색(module-lms-6)이 신뢰하는 값이다. profiles_self_update 정책은 "본인 행"만
+-- 검사하고 컬럼 제한이 없어, 이 보호가 없으면 학습자가 REST API로 자기 email을 임의
+-- 문자열(타인 이메일 사칭 등)로 바꿔 관리자 검색 결과를 오염시킬 수 있었다
+-- (security-officer 점검, 2026-08-08).
+-- 단, withdraw()(app/actions/account.ts)는 관리자 권한 없이 "본인 행"으로
+-- status를 active→withdrawn으로 바꾸면서 email도 함께 익명화하므로, 그 특정
+-- 전환 한 번만 email 변경을 허용한다(그 외의 모든 자기 업데이트는 email을 되돌린다).
+-- photo_path 보호: profiles_self_update 정책은 "본인 행"만 확인하고 컬럼 값의 형식은
+-- 확인하지 않는다. applyToCourse()가 "photo_path는 본인이 업로드한 {auth.uid()}/photo
+-- 경로만 가리킨다"고 가정하고 그 값을 그대로 서명 URL 발급(관리자 회원상세)에 쓰는데,
+-- DB가 이 가정을 강제하지 않으면 학습자가 PostgREST로 자기 photo_path를 다른 회원의
+-- uuid 경로로 바꿔치기해 관리자가 엉뚱한(타인의) 얼굴 사진을 보게 만들 수 있었다
+-- (member_photos_read storage 정책이 admin에게 버킷 내 모든 객체 read를 허용하므로,
+-- 경로 문자열만 알면 어떤 사진이든 가리킬 수 있었음 — security-officer 점검, 2026-08-28).
+create or replace function public.protect_profile_privileged_columns()
+returns trigger
+language plpgsql
+security definer set search_path = public
+as $$
+begin
+  if not is_admin() then
+    new.role := old.role;
+    if old.status = 'active' and new.status = 'withdrawn' then
+      -- 탈퇴 전환: withdraw()가 name/phone/email을 익명화 값으로 바꾸는 것을 허용한다.
+      null;
+    else
+      new.status := old.status;
+      new.withdrawn_at := old.withdrawn_at;
+      new.email := old.email;
+    end if;
+
+    if new.photo_path is not null and new.photo_path <> (auth.uid()::text || '/photo') then
+      new.photo_path := old.photo_path;
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists protect_profile_privileged_columns on profiles;
+create trigger protect_profile_privileged_columns
+  before update on profiles
+  for each row execute function public.protect_profile_privileged_columns();
+
+-- ===================== Trigger: enrollments 재신청 시 course_id 고정 =====================
+-- enrollments_self_reapply 정책의 WITH CHECK는 status만 고정하고 course_id는 그대로 두어,
+-- 반려/만료된 신청 건을 API로 직접 UPDATE하면서 다른 강좌로 바꿔치기할 수 있는 허점이 있었다
+-- (security-officer 점검, 2026-08-06). 관리자가 아닌 요청은 course_id를 항상 기존 값으로 고정한다.
+create or replace function public.protect_enrollment_course_id()
+returns trigger
+language plpgsql
+security definer set search_path = public
+as $$
+begin
+  if not is_admin() then
+    new.course_id := old.course_id;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists protect_enrollment_course_id on enrollments;
+create trigger protect_enrollment_course_id
+  before update on enrollments
+  for each row execute function public.protect_enrollment_course_id();
+
+-- ===================== RLS =====================
+-- 근거: design.md 3.2 RLS 정책 개요
+-- CREATE POLICY는 IF NOT EXISTS를 지원하지 않으므로 매번 DROP POLICY IF EXISTS 후 재생성한다.
+
+alter table profiles enable row level security;
+alter table categories enable row level security;
+alter table courses enable row level security;
+alter table lessons enable row level security;
+alter table enrollments enable row level security;
+alter table progress enable row level security;
+alter table quiz_submissions enable row level security;
+alter table assignment_submissions enable row level security;
+alter table certificates enable row level security;
+alter table legal_documents enable row level security;
+
+-- profiles: 본인 read/update, 관리자 전체 read
+drop policy if exists "profiles_self_select" on profiles;
+create policy "profiles_self_select" on profiles for select using (id = auth.uid() or is_admin());
+drop policy if exists "profiles_self_update" on profiles;
+create policy "profiles_self_update" on profiles for update using (id = auth.uid());
+drop policy if exists "profiles_admin_all" on profiles;
+create policy "profiles_admin_all" on profiles for all using (is_admin());
+
+-- categories: 전체 read, 관리자만 write
+drop policy if exists "categories_public_select" on categories;
+create policy "categories_public_select" on categories for select using (true);
+drop policy if exists "categories_admin_write" on categories;
+create policy "categories_admin_write" on categories for insert with check (is_admin());
+drop policy if exists "categories_admin_update" on categories;
+create policy "categories_admin_update" on categories for update using (is_admin());
+drop policy if exists "categories_admin_delete" on categories;
+create policy "categories_admin_delete" on categories for delete using (is_admin());
+
+-- courses: active/upcoming는 전체 공개, 관리자는 전체 read/write
+drop policy if exists "courses_public_select" on courses;
+create policy "courses_public_select" on courses for select using (status in ('active', 'upcoming') or is_admin());
+drop policy if exists "courses_admin_write" on courses;
+create policy "courses_admin_write" on courses for insert with check (is_admin());
+drop policy if exists "courses_admin_update" on courses;
+create policy "courses_admin_update" on courses for update using (is_admin());
+drop policy if exists "courses_admin_delete" on courses;
+create policy "courses_admin_delete" on courses for delete using (is_admin());
+
+-- lessons: courses와 동일 기준(공개 강좌의 커리큘럼은 공개), 관리자 전체
+drop policy if exists "lessons_public_select" on lessons;
+create policy "lessons_public_select" on lessons for select using (
+  is_admin() or exists (select 1 from courses c where c.id = lessons.course_id and c.status in ('active','upcoming'))
+);
+drop policy if exists "lessons_admin_write" on lessons;
+create policy "lessons_admin_write" on lessons for insert with check (is_admin());
+drop policy if exists "lessons_admin_update" on lessons;
+create policy "lessons_admin_update" on lessons for update using (is_admin());
+drop policy if exists "lessons_admin_delete" on lessons;
+create policy "lessons_admin_delete" on lessons for delete using (is_admin());
+
+-- enrollments: 본인 read/insert, 관리자 전체 read/update
+-- WITH CHECK에 status='pending'이 없으면 학습자가 PostgREST를 직접 호출해 입금 없이
+-- status='approved' 신청 레코드를 만들 수 있다(관리자 승인 절차 완전 우회). 승인은
+-- enrollments_admin_update 정책을 통해 관리자만 할 수 있어야 한다(security-officer 점검, 2026-08-06).
+drop policy if exists "enrollments_self_select" on enrollments;
+create policy "enrollments_self_select" on enrollments for select using (user_id = auth.uid() or is_admin());
+drop policy if exists "enrollments_self_insert" on enrollments;
+create policy "enrollments_self_insert" on enrollments for insert with check (user_id = auth.uid() and status = 'pending');
+drop policy if exists "enrollments_admin_update" on enrollments;
+create policy "enrollments_admin_update" on enrollments for update using (is_admin());
+
+-- 반려/만료(입금기한초과) 건에 한해 본인이 재신청(status→pending)할 수 있도록 허용
+-- (flows.md Q2: "입금기한 3일, 초과 시 자동 만료(재신청 가능)". 'expired' enum 값은 아직 자동 기록되지
+--  않으므로 payment_due_at 초과한 pending 건을 만료로 간주해 재신청을 허용한다. 2026-08-06)
+drop policy if exists "enrollments_self_reapply" on enrollments;
+create policy "enrollments_self_reapply" on enrollments for update
+  using (
+    user_id = auth.uid()
+    and (status = 'rejected' or (status = 'pending' and payment_due_at < now()))
+  )
+  with check (user_id = auth.uid() and status = 'pending');
+
+-- progress / quiz_submissions: 본인 read/write, 관리자 read
+-- with check에 is_active_learner()를 추가해, 탈퇴 직후(토큰이 아직 만료 전인 창) 삭제된
+-- 학습 기록을 본인이 다시 써넣는 것을 막는다(security-officer 점검, 2026-08-09).
+drop policy if exists "progress_self_all" on progress;
+create policy "progress_self_all" on progress for all using (user_id = auth.uid() or is_admin()) with check (user_id = auth.uid() and is_active_learner());
+drop policy if exists "quiz_submissions_self_all" on quiz_submissions;
+create policy "quiz_submissions_self_all" on quiz_submissions for all using (user_id = auth.uid() or is_admin()) with check (user_id = auth.uid() and is_active_learner());
+
+-- assignment_submissions: 본인 read/insert, 관리자 read + status update
+drop policy if exists "assignment_submissions_self_select" on assignment_submissions;
+create policy "assignment_submissions_self_select" on assignment_submissions for select using (user_id = auth.uid() or is_admin());
+drop policy if exists "assignment_submissions_self_insert" on assignment_submissions;
+create policy "assignment_submissions_self_insert" on assignment_submissions for insert with check (user_id = auth.uid() and is_active_learner());
+drop policy if exists "assignment_submissions_admin_update" on assignment_submissions;
+create policy "assignment_submissions_admin_update" on assignment_submissions for update using (is_admin());
+
+-- certificates: 본인 read, 관리자 전체 read/write
+drop policy if exists "certificates_self_select" on certificates;
+create policy "certificates_self_select" on certificates for select using (user_id = auth.uid() or is_admin());
+drop policy if exists "certificates_admin_write" on certificates;
+create policy "certificates_admin_write" on certificates for insert with check (is_admin());
+drop policy if exists "certificates_admin_update" on certificates;
+create policy "certificates_admin_update" on certificates for update using (is_admin());
+
+-- legal_documents: published만 공개, 관리자 전체
+drop policy if exists "legal_documents_public_select" on legal_documents;
+create policy "legal_documents_public_select" on legal_documents for select using (is_published = true or is_admin());
+drop policy if exists "legal_documents_admin_write" on legal_documents;
+create policy "legal_documents_admin_write" on legal_documents for insert with check (is_admin());
+drop policy if exists "legal_documents_admin_update" on legal_documents;
+create policy "legal_documents_admin_update" on legal_documents for update using (is_admin());
+drop policy if exists "legal_documents_admin_delete" on legal_documents;
+create policy "legal_documents_admin_delete" on legal_documents for delete using (is_admin());
+
+-- ===================== 최초 Admin 계정 (flows.md Q8) =====================
+-- 개발 단계에서는 Supabase 콘솔 → Authentication에서 계정 생성 후,
+-- 아래를 SQL Editor에서 실행해 admin으로 지정한다.
+-- (트리거가 이 스키마 실행 "이후"의 신규 가입자에게만 적용되므로,
+--  스키마 실행 전에 이미 만든 계정은 upsert로 처리한다)
+-- insert into profiles (id, name, role, status)
+-- values ('<user-uuid>', '관리자', 'admin', 'active')
+-- on conflict (id) do update set role = 'admin';
+
+-- ===================== module-lms-6: Admin 콘솔 스키마 추가 (2026-08-06) =====================
+
+-- categories.is_active: 삭제 대신 비활성화 지원 (F-ADMCAT-3). 공개 조회는 활성 카테고리만,
+-- 관리자는 전체 조회(is_admin() 우회)한다.
+alter table categories add column if not exists is_active boolean not null default true;
+
+drop policy if exists "categories_public_select" on categories;
+create policy "categories_public_select" on categories for select using (is_active = true or is_admin());
+
+-- profiles.email: auth.users.email의 read-only 복제본. profiles에는 원래 이메일 컬럼이
+-- 없어 관리자가 "이름/이메일"로 회원을 검색할 방법이 없었다(F-ADMM-1). 신규가입은 위
+-- handle_new_user()가 채우고, 탈퇴 시 app/actions/account.ts의 withdraw()가 함께
+-- 익명화해야 한다(그러지 않으면 이 복제본만 탈퇴 전 이메일로 남아 익명화가 무의미해진다).
+alter table profiles add column if not exists email text;
+create index if not exists profiles_email_idx on profiles(email);
+
+update profiles set email = u.email
+from auth.users u
+where u.id = profiles.id and profiles.email is null;
+
+-- enrollments.rejection_reason: 반려/승인취소 사유. 기존 스키마에는 이 값을 저장할 컬럼이
+-- 전혀 없었다(F-ADME-3 "반려 시 사유 입력 필수, 학습자에게 사유 노출"이 구현 불가능했음).
+-- enrollments.approved_at: F-ADM-1 대시보드 "오늘 승인" 카드 계산용 — 승인 시각을 알 수
+-- 있는 컬럼이 없었다(created_at은 "신청" 시각).
+alter table enrollments add column if not exists rejection_reason text;
+alter table enrollments add column if not exists approved_at timestamptz;
+create index if not exists enrollments_status_idx on enrollments(status);
+
+-- certificates.note: 수동 수료 처리 사유 기록 (F-ADMCE-3 "오프라인 보강 등 사유 기록").
+alter table certificates add column if not exists note text;
+
+-- legal_documents: (slug, version) 유일성 보장 — "수정 시 새 버전 행 생성 + 이전 이력
+-- 보존" 방식(F-CMS-2)의 데이터 무결성을 위해 필요하다.
+create unique index if not exists legal_documents_slug_version_key on legal_documents(slug, version);
+
+-- legal_documents.published_at: "이 버전이 최초로 게시된 시각"(한 번 채워지면 이후 게시
+-- 중단되어도 지우지 않는다). is_published는 "지금 이 순간 공개 중인 단 하나의 버전"만
+-- 가리키므로, 예전에 게시됐다가 다음 버전에 밀려 is_published=false가 된 이전 버전과
+-- "게시된 적 자체가 없는 미완성 초안"을 이 컬럼 없이는 구분할 수 없었다 — 사용자가 예전에
+-- 동의한 버전의 실제 문구를 나중에 확인할 방법이 없다는 지적(대표 요청, 2026-09-15:
+-- "이전 버전을 select해서 볼 수가 없다")에 따라 이력 열람 기능을 추가하며 함께 도입한다.
+alter table legal_documents add column if not exists published_at timestamptz;
+
+-- 위 컬럼을 막 추가한 시점에는 기존 행이 전부 published_at=null이라, 이미 게시돼 있던
+-- 최신 버전(v2 등)조차 "게시된 적 없는 버전"으로 오판돼 "이전 버전을 보고 있다"는 안내가
+-- 잘못 뜨는 문제가 있었다(대표 리포트, 2026-09-15). is_published=true인 slug는 그 slug의
+-- 모든 버전이 이 CMS의 "새 버전 만들기 → 게시" 워크플로 안에서 순차적으로 만들어졌을
+-- 것이므로(직접 SQL로 끼워넣지 않는 한), 한 번이라도 게시된 적 있다고 안전하게 간주해
+-- 소급 채운다. 정확한 최초 게시 시각은 알 수 없어 effective_at(없으면 created_at)으로
+-- 근사한다 — 이 마이그레이션 실행 이후 새로 만들어지는 버전은 실제 게시 시점이
+-- publish_legal_document()에 의해 정확히 기록된다.
+update legal_documents ld
+set published_at = coalesce(ld.published_at, ld.effective_at, ld.created_at)
+where ld.published_at is null
+  and exists (select 1 from legal_documents ld2 where ld2.slug = ld.slug and ld2.is_published = true);
+
+-- legal_documents: 공개 조회 범위를 "현재 게시중인 버전"에서 "한 번이라도 게시된 적 있는
+-- 모든 버전"으로 넓힌다 — 위 published_at 도입과 짝을 이루는 변경. 아직 한 번도 게시되지
+-- 않은 초안(작성 중인 새 버전)은 published_at이 null로 남아 이 조건에 걸리지 않으므로
+-- 계속 비공개다.
+drop policy if exists "legal_documents_public_select" on legal_documents;
+create policy "legal_documents_public_select" on legal_documents for select using (
+  is_published = true or published_at is not null or is_admin()
+);
+
+-- 특정 문서를 게시하면서 같은 slug의 다른 버전은 원자적으로 게시 해제하는 함수.
+-- PostgREST는 클라이언트에서 여러 UPDATE를 하나의 트랜잭션으로 묶을 수 없으므로,
+-- "게시 시 한 slug에 published가 하나만 존재"하는 불변식을 DB 함수 안에서 보장한다.
+-- published_at은 최초 게시 시각만 기록하고(coalesce로 이미 있으면 덮어쓰지 않음) 이후
+-- 게시 중단되어도 절대 지우지 않는다 — "언제 처음 사용자에게 공개됐는지"라는 이력 값이다.
+create or replace function public.publish_legal_document(doc_id uuid)
+returns void
+language plpgsql
+security definer set search_path = public
+as $$
+declare
+  target_slug text;
+begin
+  if not is_admin() then
+    raise exception 'not authorized';
+  end if;
+
+  select slug into target_slug from legal_documents where id = doc_id;
+  if target_slug is null then
+    raise exception 'document not found';
+  end if;
+
+  update legal_documents set is_published = false where slug = target_slug and id <> doc_id;
+  update legal_documents set is_published = true, published_at = coalesce(published_at, now()) where id = doc_id;
+end;
+$$;
+
+-- ===================== module-lms-5: 강의실(진도·퀴즈·과제·수료증) 스키마 추가 (2026-08-09) =====================
+
+-- lessons.assignment_due_at: 과제 마감기한. null이면 마감 없음(항상 정시로 간주) — Q6 정책상
+-- 마감 초과 제출도 허용하되 "기한 초과" 표시만 하므로, 감점이 아니라 표시 목적의 컬럼이다.
+alter table lessons add column if not exists assignment_due_at timestamptz;
+
+-- 퀴즈 문항/선택지 (단일 정답 객관식). is_correct는 학습자에게 절대 노출하지 않는다 —
+-- 아래 RLS로 관리자 외 직접 select 자체를 막고, 학습자는 get_quiz_for_lesson()/
+-- submit_quiz_attempt() RPC로만 접근한다(정답 유출·채점 조작 방지).
+create table if not exists quiz_questions (
+  id uuid primary key default gen_random_uuid(),
+  lesson_id uuid not null references lessons(id) on delete cascade,
+  question text not null,
+  "order" integer not null default 0,
+  created_at timestamptz not null default now()
+);
+create index if not exists quiz_questions_lesson_id_idx on quiz_questions(lesson_id);
+
+create table if not exists quiz_options (
+  id uuid primary key default gen_random_uuid(),
+  question_id uuid not null references quiz_questions(id) on delete cascade,
+  label text not null,
+  is_correct boolean not null default false,
+  "order" integer not null default 0
+);
+create index if not exists quiz_options_question_id_idx on quiz_options(question_id);
+
+-- 문항당 정답은 최대 1개만 존재해야 한다 — DB 레벨에서 강제한다(qa-reviewer 점검,
+-- 2026-08-09: 정답 설정이 원자적이지 않으면 한 문항에 정답이 0개 또는 2개 남아
+-- submit_quiz_attempt()의 INNER JOIN 채점 로직이 조용히 틀어질 수 있었다).
+create unique index if not exists quiz_options_one_correct_per_question
+  on quiz_options(question_id) where is_correct;
+
+alter table quiz_questions enable row level security;
+alter table quiz_options enable row level security;
+
+drop policy if exists "quiz_questions_admin_select" on quiz_questions;
+create policy "quiz_questions_admin_select" on quiz_questions for select using (is_admin());
+drop policy if exists "quiz_questions_admin_write" on quiz_questions;
+create policy "quiz_questions_admin_write" on quiz_questions for insert with check (is_admin());
+drop policy if exists "quiz_questions_admin_update" on quiz_questions;
+create policy "quiz_questions_admin_update" on quiz_questions for update using (is_admin());
+drop policy if exists "quiz_questions_admin_delete" on quiz_questions;
+create policy "quiz_questions_admin_delete" on quiz_questions for delete using (is_admin());
+
+drop policy if exists "quiz_options_admin_select" on quiz_options;
+create policy "quiz_options_admin_select" on quiz_options for select using (is_admin());
+drop policy if exists "quiz_options_admin_write" on quiz_options;
+create policy "quiz_options_admin_write" on quiz_options for insert with check (is_admin());
+drop policy if exists "quiz_options_admin_update" on quiz_options;
+create policy "quiz_options_admin_update" on quiz_options for update using (is_admin());
+drop policy if exists "quiz_options_admin_delete" on quiz_options;
+create policy "quiz_options_admin_delete" on quiz_options for delete using (is_admin());
+
+-- courses/lessons: 기존 courses_public_select/lessons_public_select는 course.status가
+-- active/upcoming일 때만 비관리자에게 노출한다. 강좌가 closed로 바뀌면 이미 승인된 학습자도
+-- 강의실 자체에 접근할 수 없게 되는 허점이 있었다(module-lms-5 설계 중 발견, 2026-08-09).
+-- permissive 정책은 기존 정책과 OR로 합쳐지므로, 승인된 신청자는 강좌 상태와 무관하게
+-- 계속 접근 가능하도록 추가만 한다(기존 정책은 건드리지 않음).
+drop policy if exists "courses_enrolled_select" on courses;
+create policy "courses_enrolled_select" on courses for select using (
+  is_active_learner() and exists (
+    select 1 from enrollments e
+    where e.course_id = courses.id and e.user_id = auth.uid() and e.status = 'approved'
+  )
+);
+
+drop policy if exists "lessons_enrolled_select" on lessons;
+create policy "lessons_enrolled_select" on lessons for select using (
+  is_active_learner() and exists (
+    select 1 from enrollments e
+    where e.course_id = lessons.course_id and e.user_id = auth.uid() and e.status = 'approved'
+  )
+);
+
+-- ===================== RPC: 문항 정답 설정 (원자적) =====================
+-- admin-quiz.ts의 setCorrectOption()이 원래 "전체 false → 대상 true" 두 번의 순차 update로
+-- 구현돼 있었는데, 두 번째 update가 실패하면 그 문항의 정답이 0개로 남아 submit_quiz_attempt()
+-- 채점에서 조용히 제외되는 문제가 있었다(qa-reviewer 점검, 2026-08-09). 하나의 함수(=하나의
+-- 트랜잭션)로 묶어 원자성을 보장하고, 위 unique index로 "정답 2개" 상태도 DB가 막는다.
+create or replace function public.set_quiz_correct_option(p_question_id uuid, p_option_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if not is_admin() then
+    raise exception 'not authorized';
+  end if;
+
+  update quiz_options set is_correct = false where question_id = p_question_id and is_correct = true;
+
+  update quiz_options set is_correct = true where id = p_option_id and question_id = p_question_id;
+  -- p_option_id가 p_question_id 소속이 아니면 위 update가 0행에 적용되어, 첫 번째 update로
+  -- 지워진 기존 정답만 남고 해당 문항의 정답이 조용히 0개가 될 수 있었다 — 명시적으로 에러를
+  -- 낸다(security-officer 점검, 2026-08-09).
+  if not found then
+    raise exception 'option does not belong to question';
+  end if;
+end;
+$$;
+
+-- ===================== RPC: 퀴즈 조회 (정답 비공개) =====================
+-- security-officer 점검(2026-08-09)에서 발견: 최초 구현은 auth.uid() is null만 확인하고
+-- 수강 승인 여부를 재검증하지 않아, active/upcoming 강좌는 lesson_id만 알면(커리큘럼
+-- 자체가 공개라 미승인/미가입자도 확인 가능) 로그인만 한 계정으로 퀴즈 문제를 그대로
+-- 열람할 수 있었다. issue_certificate_self()와 동일하게 enrollments.status='approved'를
+-- 재검증한다.
+create or replace function public.get_quiz_for_lesson(p_lesson_id uuid)
+returns table (
+  question_id uuid,
+  question text,
+  question_order integer,
+  option_id uuid,
+  option_label text,
+  option_order integer
+)
+language plpgsql
+security definer
+stable
+set search_path = public
+as $$
+declare
+  v_user_id uuid := auth.uid();
+begin
+  if v_user_id is null or not is_active_learner() then
+    raise exception 'not authorized';
+  end if;
+
+  if not exists (
+    select 1 from lessons l
+    join enrollments e on e.course_id = l.course_id
+    where l.id = p_lesson_id and e.user_id = v_user_id and e.status = 'approved'
+  ) then
+    raise exception 'not enrolled or not approved';
+  end if;
+
+  return query
+    select q.id, q.question, q."order", o.id, o.label, o."order"
+    from quiz_questions q
+    join quiz_options o on o.question_id = q.id
+    where q.lesson_id = p_lesson_id
+    order by q."order", o."order";
+end;
+$$;
+
+-- ===================== RPC: 퀴즈 제출·즉시 채점 =====================
+-- p_selected_option_ids: 문항당 최대 1개(단일 정답 객관식)씩 고른 option id 배열.
+-- auth.uid()를 내부에서만 사용해 타인 명의 제출을 원천 차단한다.
+-- security-officer 점검(2026-08-09)에서 발견한 2건을 함께 수정한다:
+--   1) results jsonb에 correctOptionId를 그대로 담아 반환해, REST로 이 RPC를 직접 호출하면
+--      정답을 그대로 확인할 수 있었다 — isCorrect 불리언만 남기고 정답 id는 제거한다.
+--   2) get_quiz_for_lesson()과 마찬가지로 수강 승인 여부를 재검증하지 않았다 — 추가한다.
+create or replace function public.submit_quiz_attempt(p_lesson_id uuid, p_selected_option_ids uuid[])
+returns table (
+  attempt_no integer,
+  score integer,
+  correct_count integer,
+  total_questions integer,
+  results jsonb
+)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_total_questions integer;
+  v_correct_count integer;
+  v_score integer;
+  v_next_attempt integer;
+  v_results jsonb;
+begin
+  if v_user_id is null or not is_active_learner() then
+    raise exception 'not authorized';
+  end if;
+
+  if not exists (
+    select 1 from lessons l
+    join enrollments e on e.course_id = l.course_id
+    where l.id = p_lesson_id and e.user_id = v_user_id and e.status = 'approved'
+  ) then
+    raise exception 'not enrolled or not approved';
+  end if;
+
+  select count(*) into v_total_questions from quiz_questions where lesson_id = p_lesson_id;
+  if v_total_questions = 0 then
+    raise exception 'quiz not found for lesson';
+  end if;
+
+  select
+    jsonb_agg(jsonb_build_object(
+      'questionId', q.id,
+      'selectedOptionId', sel.option_id,
+      'isCorrect', (sel.option_id is not null and sel.option_id = correct_opt.id)
+    ) order by q."order"),
+    count(*) filter (where sel.option_id is not null and sel.option_id = correct_opt.id)
+  into v_results, v_correct_count
+  from quiz_questions q
+  join quiz_options correct_opt on correct_opt.question_id = q.id and correct_opt.is_correct = true
+  left join lateral (
+    select o.id as option_id
+    from quiz_options o
+    where o.question_id = q.id and o.id = any(p_selected_option_ids)
+    limit 1
+  ) sel on true
+  where q.lesson_id = p_lesson_id;
+
+  v_score := round(100.0 * v_correct_count / v_total_questions);
+
+  select coalesce(max(qs.attempt_no), 0) + 1 into v_next_attempt
+  from quiz_submissions qs
+  where qs.user_id = v_user_id and qs.lesson_id = p_lesson_id;
+
+  insert into quiz_submissions (user_id, lesson_id, score, attempt_no)
+  values (v_user_id, p_lesson_id, v_score, v_next_attempt);
+
+  return query select v_next_attempt, v_score, v_correct_count, v_total_questions, v_results;
+end;
+$$;
+
+-- ===================== RPC: 수료증 자가 발급 =====================
+-- certificates INSERT는 RLS상 is_admin() 전용이라 학습자가 직접 insert할 수 없다.
+-- 이 함수가 서버에서 조건을 재검증한 뒤 SECURITY DEFINER로 insert한다 — 클라이언트가
+-- "나는 자격 있음"이라 보내는 값은 절대 신뢰하지 않는다.
+create or replace function public.issue_certificate_self(p_course_id uuid)
+returns table (certificate_id uuid, issued_at timestamptz)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_enrollment_status enrollment_status;
+  v_total_lessons integer;
+  v_completed_lessons integer;
+  v_missing_assignments integer;
+  v_cert_id uuid;
+  v_issued_at timestamptz;
+begin
+  if v_user_id is null or not is_active_learner() then
+    raise exception 'not authorized';
+  end if;
+
+  select status into v_enrollment_status
+  from enrollments
+  where user_id = v_user_id and course_id = p_course_id;
+
+  if v_enrollment_status is distinct from 'approved' then
+    raise exception 'not enrolled or not approved';
+  end if;
+
+  select count(*) into v_total_lessons from lessons where course_id = p_course_id;
+  if v_total_lessons = 0 then
+    raise exception 'course has no lessons';
+  end if;
+
+  select count(*) into v_completed_lessons
+  from lessons l
+  join progress p on p.lesson_id = l.id and p.user_id = v_user_id and p.completed_at is not null
+  where l.course_id = p_course_id;
+
+  if v_completed_lessons < v_total_lessons then
+    raise exception 'progress incomplete';
+  end if;
+
+  -- 과제 있는 강의는 "가장 최근 제출"이 approved여야 함(재제출 시 이전 rejected 행은 무시)
+  select count(*) into v_missing_assignments
+  from lessons l
+  where l.course_id = p_course_id
+    and l.has_assignment = true
+    and coalesce((
+      select a.status::text
+      from assignment_submissions a
+      where a.lesson_id = l.id and a.user_id = v_user_id
+      order by a.submitted_at desc
+      limit 1
+    ), '') <> 'approved';
+
+  if v_missing_assignments > 0 then
+    raise exception 'assignment not approved';
+  end if;
+
+  insert into certificates (user_id, course_id)
+  values (v_user_id, p_course_id)
+  on conflict (user_id, course_id) do nothing
+  returning id, issued_at into v_cert_id, v_issued_at;
+
+  if v_cert_id is null then
+    select id, issued_at into v_cert_id, v_issued_at
+    from certificates where user_id = v_user_id and course_id = p_course_id;
+  end if;
+
+  return query select v_cert_id, v_issued_at;
+end;
+$$;
+
+-- assignment_submissions.review_note: 반려 사유(flows.md §2.4 "반려 사유와 함께 재제출
+-- 유도"). 원래 스키마에 이 값을 저장할 컬럼이 없었다(module-lms-5 Phase 4.5 설계 중 발견,
+-- 2026-08-09) — enrollments.rejection_reason과 동일한 패턴으로 추가한다.
+alter table assignment_submissions add column if not exists review_note text;
+
+-- courses.total_hours: 총 강좌 시간(단위: 시간). 강좌 등록 시 선택 입력 — 기존 강좌는
+-- null(미입력)로 남고, 공개 화면(/courses, /courses/[slug])은 null이면 표시를 생략한다.
+-- 음수 방지는 fee/seats와 동일하게 앱 레벨(admin-courses.ts readCourseFields)에서 검증한다
+-- — 이 스키마 전체가 재실행 가능(idempotent)해야 하는데 check 제약은 그렇게 걸기 번거롭다
+-- (관리자 요청, 2026-08-17).
+alter table courses add column if not exists total_hours integer;
+
+-- lessons.lesson_mode: 강의 방식(영상 링크/온라인 수업/오프라인 수업). 기존 강의는 전부
+-- 'video'(기존 동작 그대로)로 마이그레이션된다. online/offline 전용 필드는 앱 레벨에서
+-- 모드에 맞게만 채우도록 검증한다(admin-courses.ts) — video_url처럼 전부 nullable로 두고
+-- DB check 제약은 스키마 재실행 편의를 위해 걸지 않는다(관리자 요청, 2026-08-25).
+alter table lessons add column if not exists lesson_mode lesson_mode not null default 'video';
+alter table lessons add column if not exists online_meeting_url text;
+alter table lessons add column if not exists online_scheduled_at timestamptz;
+alter table lessons add column if not exists offline_location_name text;
+alter table lessons add column if not exists offline_address text;
+
+-- courses.start_date: 강좌 시작 년월일(달력 날짜, 시간 없음). total_hours와 동일하게
+-- 선택 입력 — 기존 강좌는 null(미입력)로 남고, 공개 화면은 null이면 표시를 생략한다
+-- (관리자 요청, 2026-08-26).
+alter table courses add column if not exists start_date date;
+
+-- courses.end_date/schedule_type: 종료일과 평일반/주말반/평일+주말반 구분. start_date와
+-- 동일하게 둘 다 선택 입력 — 값이 없으면 공개 화면에서 표시를 생략한다(관리자 요청, 2026-08-28).
+alter table courses add column if not exists end_date date;
+alter table courses add column if not exists schedule_type course_schedule_type;
+
+-- ===================== module: 입금 계좌 관리 + 수강신청 추가정보(주소/사진) (2026-08-28) =====================
+
+-- 입금 계좌(무통장입금 안내용). 이전에는 환경변수(NEXT_PUBLIC_BANK_NAME 등)로 계좌 1개만
+-- 하드코딩했는데 실제로는 한 번도 설정된 적이 없어 항상 "계좌 정보를 준비 중이에요"만
+-- 노출되고 있었다 — Admin에서 관리하는 정식 다중 계좌(최대 3개)로 교체한다.
+create table if not exists bank_accounts (
+  id uuid primary key default gen_random_uuid(),
+  bank_name text not null,
+  account_number text not null,
+  account_holder text not null,
+  "order" integer not null default 0,
+  created_at timestamptz not null default now()
+);
+
+alter table bank_accounts enable row level security;
+
+-- 계좌번호·예금주 실명이 결합된 정보라 비로그인 상태의 완전 공개는 두지 않는다 — 신청
+-- 확인 화면은 어차피 로그인해야 도달하므로 UX 손실 없이 로그인 회원으로만 제한한다
+-- (security-officer 점검 후 대표 확인, 2026-08-28).
+-- 정책 이름을 bank_accounts_public_select에서 바꾸면서 새 이름 쪽 drop을 빠뜨려
+-- 재실행 시 "policy already exists" 에러가 났다(idempotent 원칙 위반, 2026-08-29
+-- 사용자 리포트로 발견). 두 이름 다 drop해 이전 실행 상태와 무관하게 항상 재실행 가능하게 한다.
+drop policy if exists "bank_accounts_public_select" on bank_accounts;
+drop policy if exists "bank_accounts_authenticated_select" on bank_accounts;
+create policy "bank_accounts_authenticated_select" on bank_accounts for select using (auth.role() = 'authenticated');
+drop policy if exists "bank_accounts_admin_write" on bank_accounts;
+create policy "bank_accounts_admin_write" on bank_accounts for insert with check (is_admin());
+drop policy if exists "bank_accounts_admin_update" on bank_accounts;
+create policy "bank_accounts_admin_update" on bank_accounts for update using (is_admin());
+drop policy if exists "bank_accounts_admin_delete" on bank_accounts;
+create policy "bank_accounts_admin_delete" on bank_accounts for delete using (is_admin());
+
+-- 최대 3개 제한을 app 레벨(count 확인 후 insert)로만 두면 동시 요청(빠른 연속 클릭,
+-- 다중 탭)에서 count 확인과 insert 사이 경쟁으로 4개 이상 생성될 수 있다 — 이 프로젝트가
+-- quiz_options_one_correct_per_question(유니크 인덱스)·enrollments 낙관적 동시성 갱신에서
+-- 이미 겪은 것과 같은 유형의 TOCTOU다. advisory lock으로 같은 트랜잭션 안에서 insert를
+-- 직렬화한 뒤 개수를 재확인해 원자적으로 강제한다(qa-reviewer 점검, 2026-08-28).
+create or replace function public.enforce_bank_accounts_limit()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  perform pg_advisory_xact_lock(hashtext('bank_accounts_limit'));
+  if (select count(*) from bank_accounts) >= 3 then
+    raise exception 'bank account limit reached (max 3)';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists enforce_bank_accounts_limit on bank_accounts;
+create trigger enforce_bank_accounts_limit
+  before insert on bank_accounts
+  for each row execute function public.enforce_bank_accounts_limit();
+
+-- profiles.address/photo_path: 수강신청 확인 화면에서 회원당 1회 입력받아 재사용한다
+-- (자격증 발급에 필요, 관리자 요청). photo_path는 공개 URL이 아니라 private 스토리지
+-- 버킷(member-photos) 안의 객체 경로("{user_id}/photo")만 저장한다 — 사람 얼굴이 담긴
+-- 민감한 개인정보라 어디서든 URL만 알면 볼 수 있는 공개 URL로 두지 않는다. Admin이 볼
+-- 때는 매번 짧은 만료시간의 서명 URL을 새로 발급한다(lib/supabase/admin-queries.ts).
+alter table profiles add column if not exists address text;
+alter table profiles add column if not exists photo_path text;
+
+
+-- courses.requires_certificate_info: 강좌마다 자격증 발급용 추가정보(주소/사진)가
+-- 필요한지가 다르다 — 자격과정이 아닌 보수교육·일반교육은 필요 없다(관리자 요청,
+-- 2026-08-29). 기존 강좌는 지금까지 무조건 필수였던 동작을 그대로 유지하도록
+-- true로 마이그레이션하고, 관리자가 강좌별로 끌 수 있게 한다.
+alter table courses add column if not exists requires_certificate_info boolean not null default true;
+
+-- ===================== 강좌 교재(주교재/보조교재) (2026-08-30) =====================
+-- 주교재는 강좌당 1개, 보조교재(유인물·PPT 등 다양한 자료 포함)는 여러 개 등록 가능
+-- (관리자 요청). lessons와 동일하게 별도 테이블로 두고 RLS도 courses_public_select/
+-- courses_enrolled_select와 동일한 기준(공개 강좌는 전체 공개, 승인된 학습자는 강좌
+-- 상태 무관 접근)을 그대로 재사용한다. 셋 다 선택 입력이라 title 외에는 nullable이다.
+create table if not exists course_materials (
+  id uuid primary key default gen_random_uuid(),
+  course_id uuid not null references courses(id) on delete cascade,
+  kind course_material_kind not null,
+  title text not null,
+  publisher text,
+  purchase_url text,
+  "order" integer not null default 0,
+  created_at timestamptz not null default now()
+);
+create index if not exists course_materials_course_id_idx on course_materials(course_id);
+
+-- 주교재는 강좌당 1개만 — app 레벨에서도 UI로 막지만(있으면 "추가" 폼 대신 수정 폼만
+-- 보여줌), DB 레벨에서도 부분 유니크 인덱스로 강제한다(quiz_options_one_correct_per_question과
+-- 동일 패턴).
+create unique index if not exists course_materials_one_main_per_course
+  on course_materials(course_id) where kind = 'main';
+
+alter table course_materials enable row level security;
+
+drop policy if exists "course_materials_public_select" on course_materials;
+create policy "course_materials_public_select" on course_materials for select using (
+  is_admin() or exists (select 1 from courses c where c.id = course_materials.course_id and c.status in ('active','upcoming'))
+);
+drop policy if exists "course_materials_enrolled_select" on course_materials;
+create policy "course_materials_enrolled_select" on course_materials for select using (
+  is_active_learner() and exists (
+    select 1 from enrollments e
+    where e.course_id = course_materials.course_id and e.user_id = auth.uid() and e.status = 'approved'
+  )
+);
+drop policy if exists "course_materials_admin_write" on course_materials;
+create policy "course_materials_admin_write" on course_materials for insert with check (is_admin());
+drop policy if exists "course_materials_admin_update" on course_materials;
+create policy "course_materials_admin_update" on course_materials for update using (is_admin());
+drop policy if exists "course_materials_admin_delete" on course_materials;
+create policy "course_materials_admin_delete" on course_materials for delete using (is_admin());
+
+-- ===================== module: 자격시험(Course Exam) (2026-09-09) =====================
+-- 1Depth 카테고리가 "자격증"인 강좌는 교육 이수 후 시험을 볼 수도 있다(강좌별 선택).
+-- 강의 퀴즈(quiz_questions 등)와는 완전히 분리된 테이블로 둔다 — 퀴즈는 "무제한 재응시,
+-- 수료 조건과 무관"이고 이 시험은 "횟수 제한, 합격이 수료증 발급 조건"이라 정반대 규칙이라
+-- 한 테이블에 섞으면 무제한 재응시 로직이 곧 수료 게이팅 우회 경로가 된다(product-manager
+-- 확정, menu-features.md F-ADMC-7~9 제약).
+
+-- categories.is_certification: 1Depth 카테고리 중 "이 카테고리는 자격증 과정"임을 표시하는
+-- 플래그. 카테고리 이름 문자열("자격증")로 판정하면 관리자가 이름을 바꾸는 순간 기능이
+-- 조용히 사라지므로 별도 컬럼으로 둔다(product-manager 지적). depth 2/3에서는 항상 false.
+alter table categories add column if not exists is_certification boolean not null default false;
+
+-- courses.requires_exam/exam_pass_score/exam_max_attempts: 강좌별 시험 설정. requires_exam이
+-- false면 나머지 둘은 null로 유지된다(app 레벨에서 카테고리가 자격증이 아니면 항상
+-- false로 정규화 — admin-courses.ts readCourseFields 참고).
+alter table courses add column if not exists requires_exam boolean not null default false;
+alter table courses add column if not exists exam_pass_score integer;
+alter table courses add column if not exists exam_max_attempts integer;
+
+-- ===================== 자격시험 문제은행 (2026-09-10 재설계) =====================
+-- 처음엔 문항을 강좌별로 독립 저장했으나(course_exam_questions), 관리자 요청으로
+-- "같은 자격증(1Depth 카테고리) 안에서는 강좌가 여러 개(2급/3급, 기수 반복 등)여도 문제를
+-- 공유해서 쓸 수 있어야 한다"는 요구가 추가돼 문제은행 구조로 다시 설계한다.
+-- exam_question_bank/exam_bank_options가 실제 문항 저장소이고, course_exam_question_links가
+-- "이 강좌의 시험은 문제은행의 어떤 문항들을 어떤 순서로 쓰는지"만 가리키는 얇은 연결
+-- 테이블이다 — 문항 내용을 한 번 고치면 그 문항을 쓰는 모든 강좌에 즉시 반영된다.
+-- 정답 비노출 원칙(quiz_questions와 동일)은 그대로 유지: 관리자만 직접 select 가능,
+-- 학습자는 get_course_exam()/submit_course_exam() RPC로만 접근한다.
+
+-- category_id는 반드시 1Depth이자 is_certification=true인 카테고리여야 한다(앱 레벨
+-- admin-exam-bank.ts에서 검증 — 카테고리마다 시험 내용이 완전히 달라 전체 공용으로 섞으면
+-- 관리자가 엉뚱한 자격증 문제를 실수로 연결하기 쉽다는 관리자 판단, 2026-09-10).
+create table if not exists exam_question_bank (
+  id uuid primary key default gen_random_uuid(),
+  category_id uuid not null references categories(id),
+  question text not null,
+  "order" integer not null default 0,
+  created_at timestamptz not null default now()
+);
+create index if not exists exam_question_bank_category_id_idx on exam_question_bank(category_id);
+
+-- 주관식(단답형) 지원(2026-09-11 추가). question_type='short_answer'인 문항은
+-- exam_bank_options에 보기 행이 없고, answer_text에 저장된 정답과 학습자 답안을 대소문자·
+-- 앞뒤 공백 무시하고 일치시켜 자동채점한다(submit_course_exam() RPC 참고).
+alter table exam_question_bank add column if not exists question_type exam_question_type not null default 'multiple_choice';
+alter table exam_question_bank add column if not exists answer_text text;
+
+create table if not exists exam_bank_options (
+  id uuid primary key default gen_random_uuid(),
+  bank_question_id uuid not null references exam_question_bank(id) on delete cascade,
+  label text not null,
+  is_correct boolean not null default false,
+  "order" integer not null default 0
+);
+create index if not exists exam_bank_options_bank_question_id_idx on exam_bank_options(bank_question_id);
+
+-- quiz_options_one_correct_per_question과 동일한 이유(정답 설정이 원자적이지 않으면
+-- 문항당 정답이 0개/2개로 남을 수 있음) — DB 레벨로 강제한다.
+create unique index if not exists exam_bank_options_one_correct_per_question
+  on exam_bank_options(bank_question_id) where is_correct;
+
+-- 강좌의 시험 = 문제은행에서 가져다 쓰는 문항들의 순서 있는 목록. 같은 문항을 여러 강좌가
+-- 동시에 쓸 수 있으므로 (course_id, bank_question_id) 조합은 강좌당 한 번만 존재해야 한다.
+create table if not exists course_exam_question_links (
+  id uuid primary key default gen_random_uuid(),
+  course_id uuid not null references courses(id) on delete cascade,
+  bank_question_id uuid not null references exam_question_bank(id) on delete cascade,
+  "order" integer not null default 0,
+  unique (course_id, bank_question_id)
+);
+create index if not exists course_exam_question_links_course_id_idx on course_exam_question_links(course_id);
+create index if not exists course_exam_question_links_bank_question_id_idx on course_exam_question_links(bank_question_id);
+
+-- 1Depth 조상 카테고리 id를 반환한다(최대 3Depth라 최대 2번만 상위로 이동) — 문제은행
+-- 소속 카테고리 판정, 마이그레이션에 재사용한다.
+create or replace function public.get_root_category_id(p_category_id uuid)
+returns uuid
+language plpgsql
+stable
+set search_path = public
+as $$
+declare
+  v_id uuid := p_category_id;
+  v_parent uuid;
+  v_depth smallint;
+begin
+  for i in 1..3 loop
+    select parent_id, depth into v_parent, v_depth from categories where id = v_id;
+    if v_depth is null or v_depth = 1 or v_parent is null then
+      return v_id;
+    end if;
+    v_id := v_parent;
+  end loop;
+  return v_id;
+end;
+$$;
+
+-- 예전 course_exam_questions/course_exam_options(강좌 전용 저장) 데이터를 문제은행+링크로
+-- 1회 이전한다. 이 스키마를 여러 번 재실행해도 안전하도록, 예전 테이블이 남아있을 때만
+-- 이전을 시도하고 끝나면 예전 테이블을 삭제한다 — 그 다음 재실행부터는 테이블이 없으므로
+-- 이 블록 전체가 조용히 스킵된다(idempotent).
+do $$
+begin
+  if exists (select 1 from information_schema.tables where table_schema = 'public' and table_name = 'course_exam_questions') then
+    insert into exam_question_bank (id, category_id, question, "order", created_at)
+    select q.id, public.get_root_category_id(c.category_id), q.question, q."order", q.created_at
+    from course_exam_questions q
+    join courses c on c.id = q.course_id
+    on conflict (id) do nothing;
+
+    insert into exam_bank_options (id, bank_question_id, label, is_correct, "order")
+    select o.id, o.question_id, o.label, o.is_correct, o."order"
+    from course_exam_options o
+    on conflict (id) do nothing;
+
+    insert into course_exam_question_links (course_id, bank_question_id, "order")
+    select q.course_id, q.id, q."order"
+    from course_exam_questions q
+    on conflict (course_id, bank_question_id) do nothing;
+
+    drop table if exists course_exam_options;
+    drop table if exists course_exam_questions;
+  end if;
+end $$;
+
+-- 문제은행 스코프를 1Depth 전체 공용에서 2Depth(세부과정) 단위로 좁히면서(2026-09-10,
+-- 관리자 피드백: "1Depth 전체 공용은 너무 넓어 문항 찾기가 어렵다"), 위 마이그레이션이
+-- 이미 1Depth id로 만들어둔 기존 문항의 category_id를 실제로 연결된 강좌 기준으로
+-- 재계산한다. 결정론적 재계산이라 몇 번을 재실행해도 항상 같은 결과로 수렴해 안전하고,
+-- 연결된 강좌가 없는(관리자가 아직 아무 강좌에도 안 붙인) 문항은 그대로 둔다.
+update exam_question_bank eb
+set category_id = resolved.bank_category_id
+from (
+  select distinct on (l.bank_question_id)
+    l.bank_question_id,
+    case when cat.depth >= 3 then cat.parent_id else c.category_id end as bank_category_id
+  from course_exam_question_links l
+  join courses c on c.id = l.course_id
+  join categories cat on cat.id = c.category_id
+  order by l.bank_question_id, l.id
+) resolved
+where resolved.bank_question_id = eb.id
+  and resolved.bank_category_id is not null
+  and resolved.bank_category_id <> eb.category_id;
+
+-- 응시 기록. passed는 응시 시점 exam_pass_score 기준 스냅샷으로, 이후 합격 기준이
+-- 바뀌어도 재계산하지 않는다(지난 합격이 나중에 뒤집히면 안 됨 — product-manager 확정).
+-- attempt_no는 "가장 최근 리셋 이후" 1부터 재기산한다(잔여 응시 횟수 계산 기준).
+create table if not exists course_exam_submissions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references profiles(id) on delete cascade,
+  course_id uuid not null references courses(id) on delete cascade,
+  score integer not null,
+  passed boolean not null,
+  attempt_no integer not null,
+  submitted_at timestamptz not null default now()
+);
+create index if not exists course_exam_submissions_user_course_idx on course_exam_submissions(user_id, course_id);
+
+-- submit_course_exam()의 잔여횟수 계산(SELECT count → INSERT)은 두 단계 사이에 잠금이
+-- 없으면 동시에 여러 요청이 들어왔을 때 전부 count=0을 읽어 재응시 제한을 우회할 수
+-- 있다(qa-reviewer 지적, 2026-09-09) — 앱 레벨 advisory lock(아래 RPC 참고)과 별개로,
+-- 최종 방어선을 DB 유니크 제약으로 둔다. attempt_no가 같은 (user,course) 쌍은 동시에
+-- 두 행이 성립할 수 없어, 레이스가 나더라도 한쪽은 반드시 unique violation으로 실패한다.
+create unique index if not exists course_exam_submissions_user_course_attempt
+  on course_exam_submissions(user_id, course_id, attempt_no);
+
+-- 관리자가 응시 횟수를 리셋해줄 때의 사유 기록(F-ADMCE-4, 사유 필수). 기존 응시 기록은
+-- 삭제하지 않고, "잔여 횟수"는 exam_max_attempts − (가장 최근 리셋 시각 이후 제출 수)로 계산한다.
+create table if not exists course_exam_attempt_resets (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references profiles(id) on delete cascade,
+  course_id uuid not null references courses(id) on delete cascade,
+  reason text not null,
+  reset_at timestamptz not null default now(),
+  reset_by uuid not null references profiles(id)
+);
+create index if not exists course_exam_attempt_resets_user_course_idx on course_exam_attempt_resets(user_id, course_id);
+
+alter table exam_question_bank enable row level security;
+alter table exam_bank_options enable row level security;
+alter table course_exam_question_links enable row level security;
+alter table course_exam_submissions enable row level security;
+alter table course_exam_attempt_resets enable row level security;
+
+drop policy if exists "exam_question_bank_admin_select" on exam_question_bank;
+create policy "exam_question_bank_admin_select" on exam_question_bank for select using (is_admin());
+drop policy if exists "exam_question_bank_admin_write" on exam_question_bank;
+create policy "exam_question_bank_admin_write" on exam_question_bank for insert with check (is_admin());
+drop policy if exists "exam_question_bank_admin_update" on exam_question_bank;
+create policy "exam_question_bank_admin_update" on exam_question_bank for update using (is_admin());
+drop policy if exists "exam_question_bank_admin_delete" on exam_question_bank;
+create policy "exam_question_bank_admin_delete" on exam_question_bank for delete using (is_admin());
+
+drop policy if exists "exam_bank_options_admin_select" on exam_bank_options;
+create policy "exam_bank_options_admin_select" on exam_bank_options for select using (is_admin());
+drop policy if exists "exam_bank_options_admin_write" on exam_bank_options;
+create policy "exam_bank_options_admin_write" on exam_bank_options for insert with check (is_admin());
+drop policy if exists "exam_bank_options_admin_update" on exam_bank_options;
+create policy "exam_bank_options_admin_update" on exam_bank_options for update using (is_admin());
+drop policy if exists "exam_bank_options_admin_delete" on exam_bank_options;
+create policy "exam_bank_options_admin_delete" on exam_bank_options for delete using (is_admin());
+
+drop policy if exists "course_exam_question_links_admin_select" on course_exam_question_links;
+create policy "course_exam_question_links_admin_select" on course_exam_question_links for select using (is_admin());
+drop policy if exists "course_exam_question_links_admin_write" on course_exam_question_links;
+create policy "course_exam_question_links_admin_write" on course_exam_question_links for insert with check (is_admin());
+drop policy if exists "course_exam_question_links_admin_update" on course_exam_question_links;
+create policy "course_exam_question_links_admin_update" on course_exam_question_links for update using (is_admin());
+drop policy if exists "course_exam_question_links_admin_delete" on course_exam_question_links;
+create policy "course_exam_question_links_admin_delete" on course_exam_question_links for delete using (is_admin());
+
+-- course_exam_submissions: 본인+관리자 select만 허용하고 insert/update/delete 정책은
+-- 아예 두지 않는다 — quiz_submissions(무제한 재응시, 수료와 무관)와 달리 이 테이블은
+-- 합격 여부가 수료증 발급을 게이팅하므로, 학습자가 REST로 직접 유리한 점수를 꽂아 넣는
+-- 경로를 원천 차단한다. 쓰기는 오직 submit_course_exam() RPC(SECURITY DEFINER, RLS 우회)로만.
+drop policy if exists "course_exam_submissions_self_select" on course_exam_submissions;
+create policy "course_exam_submissions_self_select" on course_exam_submissions for select using (
+  user_id = auth.uid() or is_admin()
+);
+
+drop policy if exists "course_exam_attempt_resets_admin_select" on course_exam_attempt_resets;
+create policy "course_exam_attempt_resets_admin_select" on course_exam_attempt_resets for select using (is_admin());
+-- reset_by는 서버 액션이 자기 자신의 id로만 채우지만, is_admin()만 확인하는 with check는
+-- 이론상 다른 관리자 명의로 감사기록을 남기는 걸 막지 못한다 — reset_by=auth.uid()까지
+-- 요구해 위조를 원천 차단한다(privacy-security-officer 지적, 2026-09-09).
+drop policy if exists "course_exam_attempt_resets_admin_write" on course_exam_attempt_resets;
+create policy "course_exam_attempt_resets_admin_write" on course_exam_attempt_resets for insert with check (
+  is_admin() and reset_by = auth.uid()
+);
+
+-- ===================== RPC: 시험 문항 정답 설정 (원자적) =====================
+-- set_quiz_correct_option()과 동일한 이유로 하나의 트랜잭션에 묶는다.
+create or replace function public.set_course_exam_correct_option(p_question_id uuid, p_option_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if not is_admin() then
+    raise exception 'not authorized';
+  end if;
+
+  update exam_bank_options set is_correct = false where bank_question_id = p_question_id and is_correct = true;
+
+  update exam_bank_options set is_correct = true where id = p_option_id and bank_question_id = p_question_id;
+  if not found then
+    raise exception 'option does not belong to question';
+  end if;
+end;
+$$;
+
+-- ===================== RPC: 시험 조회 (정답 비공개) =====================
+-- get_quiz_for_lesson()은 강의 하나만 걸려 있어 열람 자체를 막지 않아도 유출 비용이
+-- 낮지만, 자격시험 문항은 재작성 비용이 커 진도100%+과제승인(LOCKED 게이트)까지 통과한
+-- 학습자에게만 열람을 허용한다(privacy-security-officer 지적, 2026-09-09) — 제출 게이팅
+-- (submit_course_exam)과 동일한 조건을 열람에도 적용.
+-- 반환 컬럼에 question_type을 추가하면서 리턴 타입이 바뀌어(2026-09-11, 주관식 지원)
+-- create or replace로는 안 되므로 먼저 drop한다. answer_text(주관식 정답)는 절대
+-- 포함하지 않는다 — 정답 유출 방지 원칙은 객관식/주관식 동일하게 적용.
+drop function if exists public.get_course_exam(uuid);
+create function public.get_course_exam(p_course_id uuid)
+returns table (
+  question_id uuid,
+  question text,
+  question_order integer,
+  question_type exam_question_type,
+  option_id uuid,
+  option_label text,
+  option_order integer
+)
+language plpgsql
+security definer
+stable
+set search_path = public
+as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_total_lessons integer;
+  v_completed_lessons integer;
+  v_missing_assignments integer;
+begin
+  if v_user_id is null or not is_active_learner() then
+    raise exception 'not authorized';
+  end if;
+
+  if not exists (
+    select 1 from enrollments e
+    where e.course_id = p_course_id and e.user_id = v_user_id and e.status = 'approved'
+  ) then
+    raise exception 'not enrolled or not approved';
+  end if;
+
+  select count(*) into v_total_lessons from lessons where course_id = p_course_id;
+  select count(*) into v_completed_lessons
+  from lessons l
+  join progress p on p.lesson_id = l.id and p.user_id = v_user_id and p.completed_at is not null
+  where l.course_id = p_course_id;
+
+  if v_total_lessons = 0 or v_completed_lessons < v_total_lessons then
+    raise exception 'progress incomplete';
+  end if;
+
+  select count(*) into v_missing_assignments
+  from lessons l
+  where l.course_id = p_course_id
+    and l.has_assignment = true
+    and coalesce((
+      select a.status::text
+      from assignment_submissions a
+      where a.lesson_id = l.id and a.user_id = v_user_id
+      order by a.submitted_at desc
+      limit 1
+    ), '') <> 'approved';
+
+  if v_missing_assignments > 0 then
+    raise exception 'assignment not approved';
+  end if;
+
+  -- 주관식 문항은 exam_bank_options에 보기 행이 없으므로 left join — inner join이면
+  -- 그런 문항이 통째로 결과에서 사라져(존재하는데도 학습자에게 안 보임) 응시 자체가
+  -- 불가능해진다(qa-reviewer 지적, 2026-09-11).
+  return query
+    select eb.id, eb.question, l."order", eb.question_type, ebo.id, ebo.label, ebo."order"
+    from course_exam_question_links l
+    join exam_question_bank eb on eb.id = l.bank_question_id
+    left join exam_bank_options ebo on ebo.bank_question_id = eb.id
+    where l.course_id = p_course_id
+    order by l."order", ebo."order";
+end;
+$$;
+
+-- 로그인한 본인의 "가장 최근 응시횟수 리셋 시각"만 반환한다. course_exam_attempt_resets는
+-- 관리자 전용 select 정책이라(reason에 관리자 내부 메모가 담길 수 있어 학습자에게 그대로
+-- 노출하지 않는다) 일반 세션으로는 0행만 보여 getCourseExamState()의 잔여횟수 계산이
+-- "리셋 없음"으로 잘못 고정되는 문제가 있었다(qa-reviewer/privacy-security-officer 공통 지적,
+-- 2026-09-09) — reset_at 시각 하나만 SECURITY DEFINER로 우회해 내려준다.
+create or replace function public.get_my_exam_reset_at(p_course_id uuid)
+returns timestamptz
+language plpgsql
+security definer
+stable
+set search_path = public
+as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_reset_at timestamptz;
+begin
+  if v_user_id is null or not is_active_learner() then
+    raise exception 'not authorized';
+  end if;
+
+  select max(reset_at) into v_reset_at
+  from course_exam_attempt_resets
+  where user_id = v_user_id and course_id = p_course_id;
+
+  return v_reset_at;
+end;
+$$;
+
+-- 강의실 사이드바가 시험 섹션 상태(locked/not_ready/available/...)를 계산하려면 "문항이
+-- 몇 개고 그중 정답 미설정 문항이 있는지"만 알면 되고 문항 내용 자체는 필요 없다.
+-- course_exam_question_links/exam_question_bank/exam_bank_options는 전부 admin-only
+-- select RLS라(2026-09-10 문제은행 재설계로도 이 원칙 유지) 학습자 세션으로 직접 select하면
+-- 항상 빈 결과만 돌아온다 — get_my_exam_reset_at()과 동일한 이유로 이 두 숫자만 SECURITY
+-- DEFINER로 우회해 내려준다(qa-reviewer 지적, 2026-09-10: getCourseExamState()가 옛
+-- course_exam_questions/options 직접 select에 의존해왔는데 애초에 그 테이블들도
+-- admin-only였어서 모든 학습자에게 시험 섹션이 항상 'not_ready'로만 보였던 잠재 버그 발견).
+create or replace function public.get_course_exam_readiness(p_course_id uuid)
+returns table (question_count integer, has_unresolved_question boolean)
+language plpgsql
+security definer
+stable
+set search_path = public
+as $$
+begin
+  if auth.uid() is null or not is_active_learner() then
+    raise exception 'not authorized';
+  end if;
+
+  -- 2026-09-11: 주관식(short_answer) 문항은 보기가 없으므로 "정답 미설정" 판정 기준이
+  -- 객관식과 다르다(answer_text 비어있음 여부) — submit_course_exam()의 동일 조건과 맞춘다.
+  return query
+    select
+      count(*)::integer,
+      coalesce(bool_or(
+        (eb.question_type = 'multiple_choice' and not exists (
+          select 1 from exam_bank_options o where o.bank_question_id = eb.id and o.is_correct
+        ))
+        or
+        (eb.question_type = 'short_answer' and coalesce(btrim(eb.answer_text), '') = '')
+      ), false)
+    from course_exam_question_links l
+    join exam_question_bank eb on eb.id = l.bank_question_id
+    where l.course_id = p_course_id;
+end;
+$$;
+
+-- ===================== RPC: 시험 제출·즉시 채점 =====================
+-- issue_certificate_self()와 동일한 진도100%+과제승인 재검증에 더해, 문항 존재/잔여
+-- 응시횟수/기합격 여부까지 서버에서 재검증한다. auth.uid()를 내부에서만 사용해 타인 명의
+-- 제출을 차단하고, 응답에는 correct_option_id/answer_text를 절대 포함하지 않는다
+-- (submit_quiz_attempt 정답 유출 수정 이력과 동일 원칙).
+-- p_answers 형식(2026-09-11, 주관식 지원으로 uuid[]에서 jsonb로 변경 — 파라미터 타입이
+-- 바뀌면 create or replace가 아니라 새 오버로드가 생기므로 먼저 옛 시그니처를 drop한다):
+-- [{"question_id": "...", "option_id": "..."}, {"question_id": "...", "answer_text": "..."}]
+-- 문항 하나당 항목 하나만 허용 — option_id/answer_text 중 그 문항 유형에 맞는 쪽만 채운다.
+-- 아래 drop은 uuid[] 시절의 옛 시그니처 전용 1회성 정리라 재실행해도 안전(존재 안 하면
+-- no-op)하지만, 정작 새 시그니처(uuid, jsonb) 자체는 create function(not or replace)으로
+-- 만들고 있어 이 스크립트를 두 번째로 재실행하면 "already exists with same argument types"
+-- 에러가 났다(2026-09-14, 대표 재실행 중 발견) — 시그니처가 안정된 뒤에는 다른 모든 RPC와
+-- 동일하게 create or replace를 쓰는 게 맞다.
+drop function if exists public.submit_course_exam(uuid, uuid[]);
+create or replace function public.submit_course_exam(p_course_id uuid, p_answers jsonb)
+returns table (score integer, passed boolean, attempt_no integer)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_enrollment_status enrollment_status;
+  v_total_lessons integer;
+  v_completed_lessons integer;
+  v_missing_assignments integer;
+  v_pass_score integer;
+  v_max_attempts integer;
+  v_total_questions integer;
+  v_unresolved_questions integer;
+  v_answer_count integer;
+  v_distinct_question_count integer;
+  v_correct_count integer;
+  v_score integer;
+  v_passed boolean;
+  v_already_passed boolean;
+  v_last_reset_at timestamptz;
+  v_attempts_since_reset integer;
+  v_next_attempt integer;
+begin
+  if v_user_id is null or not is_active_learner() then
+    raise exception 'not authorized';
+  end if;
+
+  -- 잔여횟수 계산(SELECT)과 제출(INSERT) 사이에 잠금이 없으면 동시 요청이 전부 같은
+  -- "잔여 N회"를 읽어 max_attempts를 넘겨 제출할 수 있었다(privacy-security-officer +
+  -- qa-reviewer 공통 지적, 2026-09-09 — 병렬 20건 전송 시 전부 성공하는 걸로 확인됨).
+  -- 이 함수 안에서는 항상 사용자×강좌 단위로 직렬화한다. 아래 unique index는 그래도
+  -- 남는 이론적 허점(예: 잠금 해시 충돌)에 대비한 최종 방어선이다.
+  perform pg_advisory_xact_lock(hashtextextended(v_user_id::text || ':' || p_course_id::text, 0));
+
+  select status into v_enrollment_status from enrollments where user_id = v_user_id and course_id = p_course_id;
+  if v_enrollment_status is distinct from 'approved' then
+    raise exception 'not enrolled or not approved';
+  end if;
+
+  select count(*) into v_total_lessons from lessons where course_id = p_course_id;
+  if v_total_lessons = 0 then
+    raise exception 'course has no lessons';
+  end if;
+
+  select count(*) into v_completed_lessons
+  from lessons l
+  join progress p on p.lesson_id = l.id and p.user_id = v_user_id and p.completed_at is not null
+  where l.course_id = p_course_id;
+
+  if v_completed_lessons < v_total_lessons then
+    raise exception 'progress incomplete';
+  end if;
+
+  select count(*) into v_missing_assignments
+  from lessons l
+  where l.course_id = p_course_id
+    and l.has_assignment = true
+    and coalesce((
+      select a.status::text
+      from assignment_submissions a
+      where a.lesson_id = l.id and a.user_id = v_user_id
+      order by a.submitted_at desc
+      limit 1
+    ), '') <> 'approved';
+
+  if v_missing_assignments > 0 then
+    raise exception 'assignment not approved';
+  end if;
+
+  select exam_pass_score, exam_max_attempts into v_pass_score, v_max_attempts
+  from courses where id = p_course_id and requires_exam = true;
+
+  if v_pass_score is null or v_max_attempts is null then
+    raise exception 'exam not configured for course';
+  end if;
+
+  select count(*) into v_total_questions from course_exam_question_links where course_id = p_course_id;
+  if v_total_questions = 0 then
+    raise exception 'exam not found for course';
+  end if;
+
+  -- 정답이 하나도 설정되지 않은 문항(객관식)이나 정답 텍스트가 비어있는 문항(주관식)이
+  -- 있으면 그 문항은 항상 오답 처리돼(아래 grading에서 분자 대상에서 빠짐) 100% 합격이
+  -- 구조적으로 불가능해진다 — 관리자 실수로 학습자가 응시 횟수만 소모하지 않도록, 응시
+  -- 자체를 막는다(횟수 미소모). 관리자 화면(admin/courses/[id]/exam)의 경고 배너와
+  -- 동일한 조건이다(qa-reviewer 지적, 2026-09-09, 2026-09-11 주관식 조건 추가).
+  select count(*) into v_unresolved_questions
+  from course_exam_question_links l
+  join exam_question_bank eb on eb.id = l.bank_question_id
+  where l.course_id = p_course_id
+    and (
+      (eb.question_type = 'multiple_choice'
+        and not exists (select 1 from exam_bank_options o where o.bank_question_id = eb.id and o.is_correct = true))
+      or
+      (eb.question_type = 'short_answer' and coalesce(btrim(eb.answer_text), '') = '')
+    );
+  if v_unresolved_questions > 0 then
+    raise exception 'exam not ready';
+  end if;
+
+  -- 문항 하나당 답을 2개 이상 제출하면 채점 쿼리의 lateral join이 어떤 걸 고를지 순서가
+  -- 보장되지 않는다(privacy-security-officer 지적, 2026-09-09 — 원래는 "선택지 2개 이상"
+  -- 이었으나 2026-09-11 주관식 추가로 "문항당 answers 배열 항목 1개"로 일반화). 폼 구조가
+  -- 애초에 문항당 1개만 만들지만, REST 직접 호출로 우회 가능하므로 서버에서 명시적으로 거부한다.
+  select count(*), count(distinct (elem->>'question_id'))
+  into v_answer_count, v_distinct_question_count
+  from jsonb_array_elements(p_answers) elem;
+
+  if v_answer_count <> v_distinct_question_count then
+    raise exception 'invalid submission: duplicate answer for a question';
+  end if;
+
+  select exists(
+    select 1 from course_exam_submissions where user_id = v_user_id and course_id = p_course_id and passed = true
+  ) into v_already_passed;
+  if v_already_passed then
+    raise exception 'already passed';
+  end if;
+
+  select max(reset_at) into v_last_reset_at
+  from course_exam_attempt_resets
+  where user_id = v_user_id and course_id = p_course_id;
+
+  select count(*) into v_attempts_since_reset
+  from course_exam_submissions
+  where user_id = v_user_id and course_id = p_course_id
+    and (v_last_reset_at is null or submitted_at > v_last_reset_at);
+
+  if v_attempts_since_reset >= v_max_attempts then
+    raise exception 'attempts exhausted';
+  end if;
+
+  -- 객관식은 제출된 option_id가 정답 옵션과 일치하는지, 주관식은 제출된 answer_text가
+  -- (대소문자·앞뒤공백 무시) 저장된 정답과 일치하는지로 채점한다. correct_opt는 객관식에만
+  -- 존재하므로 left join(주관식 문항은 correct_opt가 전부 null).
+  select count(*) filter (
+    where
+      (eb.question_type = 'multiple_choice' and ans.option_id is not null and ans.option_id = correct_opt.id)
+      or
+      (eb.question_type = 'short_answer' and ans.answer_text is not null
+        and lower(btrim(ans.answer_text)) = lower(btrim(eb.answer_text)))
+  )
+  into v_correct_count
+  from course_exam_question_links l
+  join exam_question_bank eb on eb.id = l.bank_question_id
+  left join exam_bank_options correct_opt on correct_opt.bank_question_id = eb.id and correct_opt.is_correct = true
+  left join lateral (
+    select
+      nullif(elem->>'option_id', '')::uuid as option_id,
+      elem->>'answer_text' as answer_text
+    from jsonb_array_elements(p_answers) elem
+    where (elem->>'question_id')::uuid = l.bank_question_id
+    limit 1
+  ) ans on true
+  where l.course_id = p_course_id;
+
+  v_score := round(100.0 * v_correct_count / v_total_questions);
+  v_passed := v_score >= v_pass_score;
+  v_next_attempt := v_attempts_since_reset + 1;
+
+  insert into course_exam_submissions (user_id, course_id, score, passed, attempt_no)
+  values (v_user_id, p_course_id, v_score, v_passed, v_next_attempt);
+
+  return query select v_score, v_passed, v_next_attempt;
+end;
+$$;
+
+-- ===================== issue_certificate_self() 갱신: 시험 합격 조건 추가 (F-LRN-9) =====================
+-- 기존 함수를 그대로 두고 마지막 insert 직전에 시험 조건만 추가한다(진도100%+과제승인은
+-- 기존 로직 그대로). create or replace로 전체를 다시 정의한다.
+create or replace function public.issue_certificate_self(p_course_id uuid)
+returns table (certificate_id uuid, issued_at timestamptz)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_enrollment_status enrollment_status;
+  v_total_lessons integer;
+  v_completed_lessons integer;
+  v_missing_assignments integer;
+  v_requires_exam boolean;
+  v_exam_passed boolean;
+  v_cert_id uuid;
+  v_issued_at timestamptz;
+begin
+  if v_user_id is null or not is_active_learner() then
+    raise exception 'not authorized';
+  end if;
+
+  select status into v_enrollment_status
+  from enrollments
+  where user_id = v_user_id and course_id = p_course_id;
+
+  if v_enrollment_status is distinct from 'approved' then
+    raise exception 'not enrolled or not approved';
+  end if;
+
+  select count(*) into v_total_lessons from lessons where course_id = p_course_id;
+  if v_total_lessons = 0 then
+    raise exception 'course has no lessons';
+  end if;
+
+  select count(*) into v_completed_lessons
+  from lessons l
+  join progress p on p.lesson_id = l.id and p.user_id = v_user_id and p.completed_at is not null
+  where l.course_id = p_course_id;
+
+  if v_completed_lessons < v_total_lessons then
+    raise exception 'progress incomplete';
+  end if;
+
+  select count(*) into v_missing_assignments
+  from lessons l
+  where l.course_id = p_course_id
+    and l.has_assignment = true
+    and coalesce((
+      select a.status::text
+      from assignment_submissions a
+      where a.lesson_id = l.id and a.user_id = v_user_id
+      order by a.submitted_at desc
+      limit 1
+    ), '') <> 'approved';
+
+  if v_missing_assignments > 0 then
+    raise exception 'assignment not approved';
+  end if;
+
+  select requires_exam into v_requires_exam from courses where id = p_course_id;
+  if v_requires_exam then
+    select exists(
+      select 1 from course_exam_submissions
+      where user_id = v_user_id and course_id = p_course_id and passed = true
+    ) into v_exam_passed;
+
+    if not v_exam_passed then
+      raise exception 'exam not passed';
+    end if;
+  end if;
+
+  insert into certificates (user_id, course_id)
+  values (v_user_id, p_course_id)
+  on conflict (user_id, course_id) do nothing
+  returning id, issued_at into v_cert_id, v_issued_at;
+
+  if v_cert_id is null then
+    select id, issued_at into v_cert_id, v_issued_at
+    from certificates where user_id = v_user_id and course_id = p_course_id;
+  end if;
+
+  return query select v_cert_id, v_issued_at;
+end;
+$$;
+
+-- ===================== module: 미인증 계정 자동 파기 + 관리자 접속기록 (2026-09-10) =====================
+-- 관리자 결정(2026-09-10): (1) 이메일 미인증 가입은 가입일로부터 7일 경과 시 행 자체를
+-- 완전 삭제(사전 안내 없음), (2) 개인정보처리시스템 접속기록(제8조 5항)은 최대 1년 보관.
+-- 둘 다 앱 서버 없이도 항상 실행되도록 pg_cron으로 DB 안에서 직접 스케줄링한다(Amplify는
+-- 상시 구동 서버가 아니라 앱 코드의 setInterval 등으로는 스케줄을 보장할 수 없다).
+-- 개인정보처리시스템 접속기록. 위변조 방지를 위해 update/delete 정책을 두지 않는다 —
+-- 유일한 삭제 경로는 아래 purge_old_admin_access_logs()(1년 경과분만, SECURITY DEFINER)뿐이다.
+create table if not exists admin_access_logs (
+  id uuid primary key default gen_random_uuid(),
+  admin_id uuid not null references profiles(id),
+  target_user_id uuid references profiles(id) on delete set null,
+  action text not null, -- '조회' | '수정' | '삭제' | '다운로드' 등 수행업무
+  detail text,
+  ip_address text,
+  created_at timestamptz not null default now()
+);
+create index if not exists admin_access_logs_admin_id_idx on admin_access_logs(admin_id);
+create index if not exists admin_access_logs_target_user_id_idx on admin_access_logs(target_user_id);
+create index if not exists admin_access_logs_created_at_idx on admin_access_logs(created_at);
+
+alter table admin_access_logs enable row level security;
+
+drop policy if exists "admin_access_logs_admin_select" on admin_access_logs;
+create policy "admin_access_logs_admin_select" on admin_access_logs for select using (is_admin());
+drop policy if exists "admin_access_logs_admin_insert" on admin_access_logs;
+create policy "admin_access_logs_admin_insert" on admin_access_logs for insert with check (
+  is_admin() and admin_id = auth.uid()
+);
+
+-- ===================== RPC: 미인증 계정 자동 파기 =====================
+-- auth.users를 직접 delete하면 profiles.id의 on delete cascade로 profiles 행도 함께 삭제된다
+-- (사전 안내 없음, 관리자 결정). role='admin'은 절대 대상이 아니다.
+create or replace function public.purge_unverified_signups()
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_deleted_count integer;
+begin
+  with target as (
+    select p.id
+    from profiles p
+    where p.role = 'learner'
+      and p.created_at < now() - interval '7 days'
+      and not exists (
+        select 1 from auth.users u where u.id = p.id and u.email_confirmed_at is not null
+      )
+  )
+  delete from auth.users where id in (select id from target);
+  get diagnostics v_deleted_count = row_count;
+  return v_deleted_count;
+end;
+$$;
+
+-- ===================== RPC: 관리자 접속기록 보관기간(1년) 초과분 파기 =====================
+create or replace function public.purge_old_admin_access_logs()
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_deleted_count integer;
+begin
+  delete from admin_access_logs where created_at < now() - interval '1 year';
+  get diagnostics v_deleted_count = row_count;
+  return v_deleted_count;
+end;
+$$;
+
+-- 두 함수 모두 PostgREST/RPC로 호출될 이유가 없다(pg_cron이 DB 내부에서만 실행) — 클라이언트
+-- 노출을 차단한다(anon/authenticated에게 EXECUTE 권한 자체를 주지 않음).
+revoke execute on function public.purge_unverified_signups() from public, bara_edu_anon, bara_edu_authenticated;
+revoke execute on function public.purge_old_admin_access_logs() from public, bara_edu_anon, bara_edu_authenticated;
+
+
+-- ===================== module: 도형심리 역량진단 /selfcheck (2026-09-14) =====================
+-- 결제·수강 이전 유입 퍼널. LMS 도메인과 분리된 별도 기능 — 근거는
+-- docs/01-plan/features/bara-edu-diagnosis.{menu-features,flows,design}.md. 이 프로젝트에서
+-- 처음으로 "비회원"이 개인정보(이름/휴대전화/이메일)를 직접 입력하는 경로다 — 최소수집
+-- 원칙에 따라 결과 조회는 access_token(추측 불가) 경유로만 하고, 문항 원응답과 연락처는
+-- 관리자 전용으로 RLS를 잠근다. 라우트명은 `/diagnosis`가 아니라 `/selfcheck`로 확정됐지만
+-- (향후 다른 자가진단 유형 확장 대비, 2026-09-14 대표 결정) DB 객체명은 `diagnosis_*`를
+-- 그대로 쓴다 — 두 번째 자가진단 유형이 실제로 생기기 전까지는 일반화하지 않기로 함.
+
+-- respondent_name/phone/email은 의도적으로 not null이 아니다 — 90일 미귀속 자동 파기
+-- (purge_unclaimed_diagnosis_pii()) 시점에 이 세 컬럼을 null로 비우고 점수/판정 결과만
+-- 통계 목적으로 남기기 때문이다(제출 시점 검증은 submit_diagnosis() RPC가 담당).
+-- phone/email은 "회원가입 최소수집 원칙"에 따라 Phase 1부터 "둘 중 최소 1개"만 필수로
+-- 완화했다(privacy-security-officer M-4 지적, 대표 결정 2026-09-14) — RPC가 검증한다.
+create table if not exists diagnosis_results (
+  id uuid primary key default gen_random_uuid(),
+  access_token uuid not null unique default gen_random_uuid(),
+  user_id uuid references profiles(id) on delete set null,
+  claimed_at timestamptz,
+  respondent_name text,
+  phone text,
+  email text,
+  learning_experience diagnosis_experience not null,
+  certificate_level text,
+  age_confirmed boolean not null,
+  version text not null,
+  score_theory smallint not null,
+  score_reading smallint not null,
+  score_analysis smallint not null,
+  score_counseling smallint not null,
+  score_case_record smallint not null,
+  score_teaching smallint not null,
+  total_score numeric(5,2) not null,
+  recommended_tier diagnosis_tier not null,
+  strength_areas text[] not null default '{}',
+  improvement_areas text[] not null default '{}',
+  consent_privacy boolean not null,
+  consent_privacy_doc_version integer,
+  utm_source text,
+  utm_medium text,
+  utm_campaign text,
+  created_at timestamptz not null default now()
+);
+create index if not exists diagnosis_results_user_id_idx on diagnosis_results(user_id);
+create index if not exists diagnosis_results_created_at_idx on diagnosis_results(created_at desc);
+create index if not exists diagnosis_results_tier_idx on diagnosis_results(recommended_tier);
+
+-- 문항별 원응답 30건. 문항/임계값이 개정돼도 재채점·분석이 가능하도록 보존한다.
+-- 관리자 전용 — 학습자 화면에는 어떤 경로로도 노출하지 않는다.
+create table if not exists diagnosis_answers (
+  result_id uuid not null references diagnosis_results(id) on delete cascade,
+  item_code text not null,
+  score smallint not null check (score between 0 and 4),
+  primary key (result_id, item_code)
+);
+
+-- 강사과정 관심 문의(리드). "강사과정 사전 적합 후보" tier는 실제 판매 중인 상품이 없어
+-- 과정 상세로 연결하지 않고 이 테이블로 접수만 한다 — enrollments 상태머신(입금기한·수료조건)에
+-- 전용하지 않는 이유는 도메인이 완전히 다르기 때문(service-planner 판단, flows.md 7.4절).
+create table if not exists diagnosis_leads (
+  id uuid primary key default gen_random_uuid(),
+  result_id uuid references diagnosis_results(id) on delete set null,
+  user_id uuid references profiles(id) on delete set null,
+  topic text not null default 'instructor_course',
+  name text not null,
+  contact text not null,
+  message text,
+  consent_contact boolean not null,
+  status diagnosis_lead_status not null default 'new',
+  admin_note text,
+  handled_by uuid references profiles(id),
+  handled_at timestamptz,
+  created_at timestamptz not null default now()
+);
+create index if not exists diagnosis_leads_status_idx on diagnosis_leads(status);
+create index if not exists diagnosis_leads_created_at_idx on diagnosis_leads(created_at desc);
+
+-- tier → 강좌 매핑(운영 설정). slug를 코드에 하드코딩하지 않는 이유는 F-ADMC-7 제약과
+-- 동일(관리자가 카테고리/강좌를 재구성해도 코드 배포 없이 매핑만 바꾸면 됨).
+create table if not exists diagnosis_course_links (
+  tier diagnosis_tier primary key,
+  course_id uuid references courses(id),
+  cta_label text not null,
+  description text,
+  is_active boolean not null default true,
+  updated_at timestamptz not null default now()
+);
+
+-- Phase 1 시드 — slug는 실제 등록된 강좌 기준. 1급은 `shape-test-analysis-1`로 확인됨(관리자
+-- 확인, 2026-09-14). 2급은 같은 명명 규칙으로 `shape-test-analysis-2`로 추정 — 실제와 다르면
+-- `update diagnosis_course_links set course_id=... where tier='level2'`로 직접 고치면 되고,
+-- on conflict do nothing이라 재실행해도 그 수정을 덮어쓰지 않는다.
+insert into diagnosis_course_links (tier, course_id, cta_label, description)
+values
+  ('level2', (select id from courses where slug = 'shape-test-analysis-2'), '도형기질활용지도자 2급 자세히 보기', '기초부터 체계적으로 정리하는 단계'),
+  ('level1', (select id from courses where slug = 'shape-test-analysis-1'), '도형기질활용지도자 1급 자세히 보기', '기본 분석에서 실전 활용으로 확장하는 단계'),
+  ('supervision', (select id from courses where slug = 'shape-test-analysis-1'), '도형기질활용지도자 1급(실습·슈퍼비전 중심) 자세히 보기', '새로운 이론보다 사례와 피드백이 필요한 단계'),
+  ('instructor_candidate', null, '강사과정 관심 문의하기', '강사과정 사전 적합 후보')
+on conflict (tier) do nothing;
+
+alter table diagnosis_results enable row level security;
+alter table diagnosis_answers enable row level security;
+alter table diagnosis_leads enable row level security;
+alter table diagnosis_course_links enable row level security;
+
+-- diagnosis_results/diagnosis_answers: 직접 select/insert/update 전부 차단(관리자 select만
+-- 예외) — 쓰기는 submit_diagnosis()/claim_diagnosis() RPC로만, 학습자 읽기는
+-- get_diagnosis_summary()/get_diagnosis_detail() RPC로만(전부 SECURITY DEFINER, RLS 우회).
+-- course_exam_submissions와 동일한 이유: 학습자가 REST로 직접 유리한 값을 꽂아 넣거나
+-- 타인 결과를 열람하는 경로를 원천 차단한다.
+drop policy if exists "diagnosis_results_admin_select" on diagnosis_results;
+create policy "diagnosis_results_admin_select" on diagnosis_results for select using (is_admin());
+
+drop policy if exists "diagnosis_answers_admin_select" on diagnosis_answers;
+create policy "diagnosis_answers_admin_select" on diagnosis_answers for select using (is_admin());
+
+-- diagnosis_leads: 쓰기는 submit_diagnosis_lead() RPC로만, select·update는 관리자만
+-- (상태 전환·메모 수정은 admin-enrollments.ts와 동일한 조건부 update 패턴을 앱 레벨에서 사용).
+drop policy if exists "diagnosis_leads_admin_select" on diagnosis_leads;
+create policy "diagnosis_leads_admin_select" on diagnosis_leads for select using (is_admin());
+drop policy if exists "diagnosis_leads_admin_update" on diagnosis_leads;
+create policy "diagnosis_leads_admin_update" on diagnosis_leads for update using (is_admin());
+
+-- diagnosis_course_links: 결과 화면 CTA 계산에 필요해 전체 공개 read, 관리자만 write.
+drop policy if exists "diagnosis_course_links_public_select" on diagnosis_course_links;
+create policy "diagnosis_course_links_public_select" on diagnosis_course_links for select using (true);
+drop policy if exists "diagnosis_course_links_admin_write" on diagnosis_course_links;
+create policy "diagnosis_course_links_admin_write" on diagnosis_course_links for insert with check (is_admin());
+drop policy if exists "diagnosis_course_links_admin_update" on diagnosis_course_links;
+create policy "diagnosis_course_links_admin_update" on diagnosis_course_links for update using (is_admin());
+
+-- ===================== RPC: 진단 제출·자동 채점 =====================
+-- 비회원도 호출 가능한 공개 RPC다(로그인 불필요) — 로그인 상태로 제출하면 그 자리에서
+-- user_id/claimed_at을 채워 claim 절차 자체를 건너뛴다(flows.md 1.5절). 클라이언트가 계산한
+-- 점수·추천 tier는 신뢰하지 않고 서버에서 30개 원응답만으로 재계산한다(기존 시험 RPC 원칙 승계).
+create or replace function public.submit_diagnosis(
+  p_name text,
+  p_phone text,
+  p_email text,
+  p_learning_experience diagnosis_experience,
+  p_certificate_level text,
+  p_consent_privacy boolean,
+  p_consent_privacy_doc_version integer,
+  p_age_confirmed boolean,
+  p_answers jsonb,
+  p_utm_source text default null,
+  p_utm_medium text default null,
+  p_utm_campaign text default null
+)
+returns table (access_token uuid, recommended_tier diagnosis_tier, total_score numeric)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_result_id uuid;
+  v_access_token uuid := gen_random_uuid();
+  v_answer_count integer;
+  v_raw integer;
+  v_theory integer; v_reading integer; v_analysis integer;
+  v_counseling integer; v_case_record integer; v_teaching integer;
+  v_overall numeric;
+  v_tier diagnosis_tier;
+  v_strength text[];
+  v_improvement text[];
+  area_prefixes text[] := array['A','B','C','D','E','F'];
+  v_expected_codes text[];
+  v_submitted_codes text[];
+  i integer;
+begin
+  if not coalesce(p_consent_privacy, false) then
+    raise exception 'privacy consent required';
+  end if;
+  -- 만 14세 미만 개인정보 수집은 법정대리인 동의가 별도로 필요하다(PIPA 제22조의2) —
+  -- Phase 1은 비회원 직접수집 경로라 회원가입과 달리 이 확인이 없었다
+  -- (privacy-security-officer M-5 지적, 대표 결정 2026-09-14). 클라이언트 체크박스와
+  -- 별개로 서버에서도 반드시 재검증한다(다른 모든 동의 항목과 동일한 원칙).
+  if not coalesce(p_age_confirmed, false) then
+    raise exception 'age confirmation required';
+  end if;
+  if p_name is null or btrim(p_name) = '' then
+    raise exception 'name required';
+  end if;
+  -- 연락처는 "휴대전화 또는 이메일 중 최소 1개"만 필수다(최소수집 원칙, M-4 지적 반영—
+  -- Phase 1은 리드 상담 연결 외에 연락처를 쓰는 발송 기능 자체가 없어 둘 다 강제할
+  -- 근거가 없다). 최소 1개 원칙은 여기서만 검증하고 테이블에는 별도 CHECK를 두지 않는다
+  -- (90일 미귀속 파기 시 phone/email을 함께 null로 비우는 purge_unclaimed_diagnosis_pii()와
+  -- 충돌하지 않기 위함).
+  if (p_phone is null or btrim(p_phone) = '') and (p_email is null or btrim(p_email) = '') then
+    raise exception 'phone or email required';
+  end if;
+
+  select count(*) into v_answer_count from jsonb_object_keys(p_answers);
+  if v_answer_count <> 30 then
+    raise exception 'expected exactly 30 answers, got %', v_answer_count;
+  end if;
+  if exists (
+    select 1 from jsonb_each_text(p_answers) e
+    where (e.value)::integer < 0 or (e.value)::integer > 4
+  ) then
+    raise exception 'answer scores must be between 0 and 4';
+  end if;
+
+  -- 응답 키 자체가 A1~F5 30개 정확한 문항 코드와 일치하는지 확인한다(qa-reviewer 지적 —
+  -- 개수(30)·값 범위(0~4)만 확인하면 X1..X30 같은 엉뚱한 키로도 통과해 조용히 0점 처리될 수 있었다).
+  select array_agg(code order by code) into v_expected_codes
+  from (select p || n::text as code from unnest(area_prefixes) p, generate_series(1, 5) n) t;
+  select array_agg(k order by k) into v_submitted_codes from jsonb_object_keys(p_answers) k;
+  if v_submitted_codes is distinct from v_expected_codes then
+    raise exception 'answers must contain exactly the 30 canonical item codes';
+  end if;
+
+  -- 동일 연락처의 단시간(5분 이내) 반복 제출을 막는다 — 비회원 공개 쓰기 경로라 최소한의
+  -- 남용 방지가 필요하다(PM 문서 Q7, "Should" 수준의 최소 방어). phone이 없을 수도 있어
+  -- email까지 함께 확인한다.
+  if exists (
+    select 1 from diagnosis_results
+    where created_at > now() - interval '5 minutes'
+      and ((p_phone is not null and phone = btrim(p_phone)) or (p_email is not null and email = btrim(p_email)))
+  ) then
+    raise exception 'duplicate submission too soon';
+  end if;
+
+  -- 영역별 원점수(0~20) → 100점 환산. item_code 앞 글자(A~F)로 영역을 판별한다.
+  for i in 1..6 loop
+    select coalesce(sum((e.value)::integer), 0) into v_raw
+    from jsonb_each_text(p_answers) e
+    where left(e.key, 1) = area_prefixes[i];
+
+    case i
+      when 1 then v_theory := round(v_raw / 20.0 * 100);
+      when 2 then v_reading := round(v_raw / 20.0 * 100);
+      when 3 then v_analysis := round(v_raw / 20.0 * 100);
+      when 4 then v_counseling := round(v_raw / 20.0 * 100);
+      when 5 then v_case_record := round(v_raw / 20.0 * 100);
+      when 6 then v_teaching := round(v_raw / 20.0 * 100);
+    end case;
+  end loop;
+
+  v_overall := round((v_theory + v_reading + v_analysis + v_counseling + v_case_record + v_teaching) / 6.0, 2);
+
+  -- 추천 tier 판정(원본 요구사항서 §8.1~8.5, PM 문서 F-DIAG-7 그대로 구현). 경계값 우선순위:
+  -- ① 기본 역량 결손 있으면 무조건 2급 ② 그 외 상위 tier부터 역순 평가 ③ 강사후보는 7개
+  -- 기준 전부 충족 시에만. elsif가 위에서부터 순서대로 평가되므로 supervision/level1
+  -- 조건에는 "상담·사례기록이 아직 부족하다"는 배타 조건을 걸 필요가 없다 — 그보다 상위
+  -- tier(instructor_candidate/supervision)는 이미 각자의 elsif에서 먼저 걸러졌기 때문이다.
+  -- 원래 이 배타 조건이 있었을 때는 상담·사례기록까지 65~72점대로 고르게 준수한 응답자가
+  -- 어떤 분기에도 걸리지 않고 else(level2, "기초부터 다시")로 강등되는 결함이 있었다
+  -- (qa-reviewer 재현: theory70/reading70/analysis65/counseling72/case_record72/teaching70).
+  if v_theory < 60 or v_reading < 60 or v_overall < 60 then
+    v_tier := 'level2';
+  elsif v_theory >= 80 and v_reading >= 80 and v_analysis >= 80
+        and v_counseling >= 75 and v_case_record >= 75 and v_teaching >= 75 and v_overall >= 80 then
+    v_tier := 'instructor_candidate';
+  elsif v_theory >= 75 and v_reading >= 75 and v_analysis >= 70 then
+    v_tier := 'supervision';
+  elsif v_theory >= 65 and v_reading >= 65 and v_analysis >= 60 then
+    v_tier := 'level1';
+  else
+    v_tier := 'level2';
+  end if;
+
+  -- 강점/보완 영역(PM 문서 Q4 확정: 동점 시 영역 정의 순서 우선, 최대 2개. 전 영역 동점이면 빈 배열).
+  if greatest(v_theory, v_reading, v_analysis, v_counseling, v_case_record, v_teaching)
+     = least(v_theory, v_reading, v_analysis, v_counseling, v_case_record, v_teaching) then
+    v_strength := '{}';
+    v_improvement := '{}';
+  else
+    with scored as (
+      select 'theory' as code, v_theory as score, 1 as idx
+      union all select 'reading', v_reading, 2
+      union all select 'analysis', v_analysis, 3
+      union all select 'counseling', v_counseling, 4
+      union all select 'case_record', v_case_record, 5
+      union all select 'teaching', v_teaching, 6
+    )
+    select array_agg(code) into v_strength from (select code from scored order by score desc, idx asc limit 2) s;
+
+    with scored as (
+      select 'theory' as code, v_theory as score, 1 as idx
+      union all select 'reading', v_reading, 2
+      union all select 'analysis', v_analysis, 3
+      union all select 'counseling', v_counseling, 4
+      union all select 'case_record', v_case_record, 5
+      union all select 'teaching', v_teaching, 6
+    )
+    select array_agg(code) into v_improvement from (select code from scored order by score asc, idx asc limit 2) s;
+  end if;
+
+  insert into diagnosis_results (
+    access_token, user_id, claimed_at, respondent_name, phone, email, learning_experience, certificate_level,
+    age_confirmed, version, score_theory, score_reading, score_analysis, score_counseling, score_case_record, score_teaching,
+    total_score, recommended_tier, strength_areas, improvement_areas,
+    consent_privacy, consent_privacy_doc_version, utm_source, utm_medium, utm_campaign
+  ) values (
+    v_access_token, v_user_id, case when v_user_id is not null then now() else null end,
+    btrim(p_name), nullif(btrim(coalesce(p_phone, '')), ''), nullif(btrim(coalesce(p_email, '')), ''), p_learning_experience,
+    nullif(btrim(coalesce(p_certificate_level, '')), ''),
+    true, 'shape-v1', v_theory, v_reading, v_analysis, v_counseling, v_case_record, v_teaching,
+    v_overall, v_tier, coalesce(v_strength, '{}'), coalesce(v_improvement, '{}'),
+    true, p_consent_privacy_doc_version, p_utm_source, p_utm_medium, p_utm_campaign
+  )
+  returning id into v_result_id;
+
+  insert into diagnosis_answers (result_id, item_code, score)
+  select v_result_id, e.key, (e.value)::integer
+  from jsonb_each_text(p_answers) e;
+
+  return query select v_access_token, v_tier, v_overall;
+end;
+$$;
+
+-- ===================== RPC: 결과 요약 조회 (비로그인 공개, 이름·연락처 미포함) =====================
+-- F-DIAG-8 "클라이언트 숨김 금지" 원칙 — 서버 응답 자체에 이름/연락처/영역별 점수를
+-- 절대 포함하지 않는다(단순히 화면에서 안 보여주는 게 아니라 응답에 없어야 함).
+create or replace function public.get_diagnosis_summary(p_token uuid)
+returns table (
+  recommended_tier diagnosis_tier,
+  total_score numeric,
+  cta_label text,
+  cta_description text,
+  course_id uuid,
+  course_slug text,
+  course_title text,
+  has_owner boolean,
+  is_owned_by_caller boolean
+)
+language plpgsql
+security definer
+stable
+set search_path = public
+as $$
+declare
+  v_tier diagnosis_tier;
+  v_score numeric;
+  v_owner uuid;
+begin
+  select r.recommended_tier, r.total_score, r.user_id
+  into v_tier, v_score, v_owner
+  from diagnosis_results r
+  where r.access_token = p_token;
+
+  if not found then
+    raise exception 'result not found';
+  end if;
+
+  return query
+    select
+      v_tier,
+      v_score,
+      dcl.cta_label,
+      dcl.description,
+      c.id,
+      c.slug,
+      c.title,
+      (v_owner is not null),
+      coalesce(v_owner = auth.uid(), false)
+    from diagnosis_course_links dcl
+    left join courses c on c.id = dcl.course_id and c.status in ('active', 'upcoming')
+    where dcl.tier = v_tier;
+end;
+$$;
+
+-- ===================== RPC: 결과 상세 조회 (로그인 + 본인 소유만) =====================
+-- F-DIAG-9 게이팅. 연락처(phone/email)는 화면에 쓰이지 않아 본인이라도 재노출하지 않는다
+-- (불필요한 노출을 피한다는 원칙 — 요약과 동일한 방어심층).
+create or replace function public.get_diagnosis_detail(p_token uuid)
+returns table (
+  respondent_name text,
+  recommended_tier diagnosis_tier,
+  total_score numeric,
+  score_theory smallint,
+  score_reading smallint,
+  score_analysis smallint,
+  score_counseling smallint,
+  score_case_record smallint,
+  score_teaching smallint,
+  strength_areas text[],
+  improvement_areas text[],
+  created_at timestamptz
+)
+language plpgsql
+security definer
+stable
+set search_path = public
+as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_owner uuid;
+begin
+  if v_user_id is null then
+    raise exception 'not authorized';
+  end if;
+
+  select r.user_id into v_owner from diagnosis_results r where r.access_token = p_token;
+  if not found then
+    raise exception 'result not found';
+  end if;
+  if v_owner is distinct from v_user_id then
+    raise exception 'not authorized for this result';
+  end if;
+
+  return query
+    select r.respondent_name, r.recommended_tier, r.total_score,
+           r.score_theory, r.score_reading, r.score_analysis,
+           r.score_counseling, r.score_case_record, r.score_teaching,
+           r.strength_areas, r.improvement_areas, r.created_at
+    from diagnosis_results r
+    where r.access_token = p_token;
+end;
+$$;
+
+-- ===================== RPC: 결과 귀속(claim) =====================
+-- flows.md 1.6.3 — 미귀속 결과만 최초 1회 귀속. 이미 다른 계정에 연결된 결과는 예외를
+-- 던져 프런트가 "이미 다른 계정에 연결됨" 거부 화면을 보여주게 한다. 제3자가 공유받은
+-- 토큰을 로그인 상태로 열람했을 때 확인 없이 자동 귀속할지는 app/actions/diagnosis.ts가
+-- submitDiagnosis() 성공 시점에 심는 httpOnly 쿠키(RECENT_SUBMIT_COOKIE)로 판단한다
+-- (qa-reviewer + privacy-security-officer 공통 지적으로 2026-09-14 재설계 — 이전에는
+-- 결과 페이지의 `?claim=auto` 쿼리파라미터를 그대로 신뢰해 제3자가 URL만 조작해도 확인 없이
+-- 귀속될 수 있었다). 이 RPC 자체는 여전히 "귀속 시도"만 원자적으로 처리한다.
+create or replace function public.claim_diagnosis(p_token uuid)
+returns table (claimed boolean)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_owner uuid;
+  v_updated integer;
+begin
+  if v_user_id is null then
+    raise exception 'not authorized';
+  end if;
+
+  select user_id into v_owner from diagnosis_results where access_token = p_token;
+  if not found then
+    raise exception 'result not found';
+  end if;
+
+  if v_owner = v_user_id then
+    return query select true;
+    return;
+  end if;
+
+  if v_owner is not null then
+    raise exception 'already claimed by another account';
+  end if;
+
+  update diagnosis_results set user_id = v_user_id, claimed_at = now()
+  where access_token = p_token and user_id is null;
+  get diagnostics v_updated = row_count;
+
+  if v_updated = 0 then
+    raise exception 'already claimed by another account';
+  end if;
+
+  return query select true;
+end;
+$$;
+
+-- ===================== RPC: 강사과정 관심 문의 제출 =====================
+-- tier가 instructor_candidate인 결과에서만 접수 가능하도록 서버에서 재검증한다(클라이언트가
+-- 화면을 조작해 다른 tier에서 리드를 보내는 경로 차단).
+create or replace function public.submit_diagnosis_lead(
+  p_token uuid,
+  p_name text,
+  p_contact text,
+  p_message text,
+  p_consent_contact boolean
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_result_id uuid;
+  v_tier diagnosis_tier;
+  v_user_id uuid := auth.uid();
+  v_lead_id uuid;
+begin
+  if not coalesce(p_consent_contact, false) then
+    raise exception 'contact consent required';
+  end if;
+  if p_name is null or btrim(p_name) = '' or p_contact is null or btrim(p_contact) = '' then
+    raise exception 'name and contact required';
+  end if;
+
+  select id, recommended_tier into v_result_id, v_tier
+  from diagnosis_results where access_token = p_token;
+  if not found then
+    raise exception 'result not found';
+  end if;
+  if v_tier <> 'instructor_candidate' then
+    raise exception 'lead form not available for this tier';
+  end if;
+
+  if exists (
+    select 1 from diagnosis_leads where contact = btrim(p_contact) and created_at > now() - interval '5 minutes'
+  ) then
+    raise exception 'duplicate submission too soon';
+  end if;
+
+  insert into diagnosis_leads (result_id, user_id, topic, name, contact, message, consent_contact)
+  values (v_result_id, v_user_id, 'instructor_course', btrim(p_name), btrim(p_contact),
+          nullif(btrim(coalesce(p_message, '')), ''), true)
+  returning id into v_lead_id;
+
+  return v_lead_id;
+end;
+$$;
+
+-- 학습자 RPC 중 로그인 필수 항목은 anon 역할에서 실행 권한 자체를 제거한다(defense-in-depth
+-- — RPC 내부에서 이미 auth.uid() is null을 막고 있지만, purge_unverified_signups() 등과
+-- 동일하게 애초에 호출 표면을 최소화한다. privacy-security-officer 권고, 2026-09-14).
+revoke execute on function public.claim_diagnosis(uuid) from bara_edu_anon;
+revoke execute on function public.get_diagnosis_detail(uuid) from bara_edu_anon;
+
+-- ===================== RPC: 미귀속 진단 결과 90일 경과 시 개인정보 파기 =====================
+-- PM 문서 Q3 확정 사항의 실제 구현체 — 지금까지는 방침 문서에만 적혀 있고 이 함수 자체가
+-- 없었다(privacy-security-officer C-1 지적). 회원에게 귀속되지 않은(user_id is null) 결과 중
+-- 접수 90일이 지난 건은 이름/연락처만 null로 비우고, 점수·판정·문항 응답은 통계 목적으로
+-- 남긴다(행 자체를 지우지 않음 — diagnosis_leads.result_id가 참조 중일 수도 있어 삭제 대신
+-- 익명화를 택했다).
+create or replace function public.purge_unclaimed_diagnosis_pii()
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_updated_count integer;
+begin
+  update diagnosis_results
+  set respondent_name = null, phone = null, email = null, certificate_level = null,
+      utm_source = null, utm_medium = null, utm_campaign = null
+  where user_id is null
+    and created_at < now() - interval '90 days'
+    and respondent_name is not null;
+  get diagnostics v_updated_count = row_count;
+  return v_updated_count;
+end;
+$$;
+
+-- ===================== RPC: 강사과정 관심 문의(리드) 1년 경과 시 파기 =====================
+-- 대표 결정(2026-09-14): 접수일로부터 1년 고정(종료 여부와 무관). 리드는 진단결과와 달리
+-- 통계적으로 남겨둘 값이 따로 없어(익명화가 아니라) 행 자체를 삭제한다.
+create or replace function public.purge_old_diagnosis_leads()
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_deleted_count integer;
+begin
+  delete from diagnosis_leads where created_at < now() - interval '1 year';
+  get diagnostics v_deleted_count = row_count;
+  return v_deleted_count;
+end;
+$$;
+
+revoke execute on function public.purge_unclaimed_diagnosis_pii() from public, bara_edu_anon, bara_edu_authenticated;
+revoke execute on function public.purge_old_diagnosis_leads() from public, bara_edu_anon, bara_edu_authenticated;
+
+-- ===================== module: 마이페이지 계정 설정 (2026-09-16) =====================
+-- 대표 요청 — 이름/휴대전화 변경은 지원하지 않되(회원 식별 정보라 관리자 문의로만 처리),
+-- 로그인 비밀번호 변경과 수강신청 시 등록한 주소/사진 수정은 본인이 직접 할 수 있어야
+-- 하고, 회원탈퇴도 사유 선택·입력 없이 바로 처리되지 않아야 한다.
+
+-- profiles.withdrawal_reason/withdrawal_reason_detail: 탈퇴 사유(고정 목록 중 선택) +
+-- 자유 서술(선택). 탈퇴 시점에만 채워지고, 익명화되는 이름/이메일과 달리 개인식별 정보가
+-- 아니라 별도 파기 대상은 아니다 — 탈퇴 사유 통계는 서비스 개선에 계속 참고할 수 있어야
+-- 한다. app 레벨(app/actions/account.ts)에서 고정 목록 값인지 검증하고, DB에는 별도
+-- enum을 두지 않는다(diagnosis_leads.topic과 동일하게, 목록이 바뀔 수 있어 enum 마이그레이션
+-- 부담을 지지 않기 위함).
+alter table profiles add column if not exists withdrawal_reason text;
+alter table profiles add column if not exists withdrawal_reason_detail text;
+
+-- ===================== RPC: 내 자가진단 이력 조회 (2026-09-17) =====================
+-- 마이페이지에 "자가진단내역" 메뉴가 새로 생기며 필요해졌다(대표 요청) — 지금까지
+-- diagnosis_results는 access_token 하나를 아는 경우에만(get_diagnosis_summary/detail)
+-- 조회할 수 있었고, "내 계정에 연결된 진단 결과 전체 목록"을 가져오는 경로가 없었다.
+-- get_diagnosis_detail()과 동일한 최소수집 원칙을 지켜 이름/연락처/영역별 점수는
+-- 반환하지 않고 목록에 필요한 값만 내려준다 — 각 행 클릭 시 이동하는 기존
+-- /selfcheck/result/[token] 페이지가 본인 소유 확인 후 상세를 보여준다.
+create or replace function public.get_my_diagnosis_results()
+returns table (access_token uuid, recommended_tier diagnosis_tier, total_score numeric, created_at timestamptz)
+language plpgsql
+security definer
+stable
+set search_path = public
+as $$
+begin
+  if auth.uid() is null then
+    raise exception 'not authorized';
+  end if;
+
+  return query
+    select r.access_token, r.recommended_tier, r.total_score, r.created_at
+    from diagnosis_results r
+    where r.user_id = auth.uid()
+    order by r.created_at desc;
+end;
+$$;
+
+revoke execute on function public.get_my_diagnosis_results() from bara_edu_anon;
+
+reset role;
