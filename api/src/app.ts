@@ -5,10 +5,14 @@ import type { Mailer } from './mail/mailer.js';
 import { registerAuthRoutes } from './auth/routes.js';
 import { registerErrorHandlers, sendError } from './http/errors.js';
 import { keyMatches, registerGuard } from './http/guard.js';
+import { bankAccountsList } from './ops/bank-accounts.js';
+import { profilesGetMine } from './ops/profiles.js';
+import { registerOps, type Op } from './ops/registry.js';
+import { registerOpRoutes } from './ops/routes.js';
 
 export type AppDeps = { config: Config; pool: pg.Pool; mailer: Mailer };
 
-export function buildApp(deps: AppDeps): FastifyInstance {
+export function buildApp(deps: AppDeps, extraOps: Op[] = []): FastifyInstance {
   const app = Fastify({
     logger: false,
     bodyLimit: 1_048_576,
@@ -22,6 +26,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   registerGuard(app);
   app.get('/healthz', async () => ({ ok: true }));
   registerAuthRoutes(app);
+  registerOpRoutes(app, registerOps([profilesGetMine, bankAccountsList, ...extraOps]));
   return app;
 }
 
