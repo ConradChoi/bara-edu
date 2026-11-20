@@ -252,3 +252,14 @@ test('resend: 허용되지 않은 origin → 400', async () => {
   const r = await post('/v1/auth/resend', { email: 'x@bara-edu.kr', origin: 'https://evil.example' });
   expect(r.statusCode).toBe(400);
 });
+
+test('verify-email 성공 시 그 회원의 다른 confirm 토큰(이전 재발송분)은 모두 무효', async () => {
+  await signup({ email: 'multi-confirm@bara-edu.kr' });
+  const first = tokenOf(mailer.sent[0].link);
+  const id = (await ctx.adminPool.query("select id from auth.users where email = 'multi-confirm@bara-edu.kr'")).rows[0].id;
+  const second = await issueEmailToken(ctx.pool, id, 'confirm');
+  expect((await post('/v1/auth/verify-email', { token: second })).statusCode).toBe(200);
+  const again = await post('/v1/auth/verify-email', { token: first });
+  expect(again.statusCode).toBe(400);
+  expect(again.json().error.message).toBe('invalid_token');
+});

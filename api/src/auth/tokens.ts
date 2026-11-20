@@ -30,6 +30,13 @@ export async function consumeEmailTokenIn(tx: Tx, token: string, purpose: TokenP
   return r.rowCount === 0 ? null : r.rows[0].user_id;
 }
 
+export async function invalidateEmailTokensIn(tx: Tx, userId: string, purpose?: TokenPurpose): Promise<void> {
+  await tx.query(
+    'update auth.email_tokens set used_at = now() where user_id = $1 and used_at is null and ($2::text is null or purpose = $2)',
+    [userId, purpose ?? null],
+  );
+}
+
 export function consumeEmailToken(pool: pg.Pool, token: string, purpose: TokenPurpose): Promise<string | null> {
   return withService(pool, (tx) => consumeEmailTokenIn(tx, token, purpose));
 }

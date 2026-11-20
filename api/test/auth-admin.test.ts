@@ -4,6 +4,7 @@ import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/app.js';
 import { loadConfig } from '../src/config.js';
 import { MemoryMailer, type Mailer } from '../src/mail/mailer.js';
+import { issueEmailToken } from '../src/auth/tokens.js';
 import { setupTestDb } from './helpers/db.js';
 
 const KEY = 'k'.repeat(32);
@@ -185,4 +186,16 @@ test('없는 회원 id → 404, UUID가 아닌 id → 400', async () => {
   const bad = await call('POST', '/v1/admin/users/not-a-uuid/confirm-email', undefined, admin);
   expect(bad.statusCode).toBe(400);
   expect(bad.json().error.code).toBe('validation');
+});
+
+test('withdraw-anonymize 후 남아 있던 confirm·recovery 토큰으로 세션·비밀번호를 얻을 수 없다', async () => {
+  const u = await addUser();
+  const confirm = await issueEmailToken(ctx.pool, u.id, 'confirm');
+  const recovery = await issueEmailToken(ctx.pool, u.id, 'recovery');
+  const s = await sessionOf(u.email);
+  const anon = `withdrawn+${u.id}@deleted.invalid`;
+  expect((await call('POST', '/v1/auth/withdraw-anonymize', { anonymizedEmail: anon }, s)).statusCode).toBe(200);
+  expect((await call('POST', '/v1/auth/verify-email', { token: confirm })).statusCode).toBe(400);
+  expect((await call('POST', '/v1/auth/reset-password', { token: recovery, newPassword: 'hijacked123' })).statusCode).toBe(400);
+  expect((await login(anon, 'hijacked123')).statusCode).toBe(401);
 });

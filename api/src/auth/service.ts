@@ -4,7 +4,7 @@ import type { Mailer } from '../mail/mailer.js';
 import { randomBytes } from 'node:crypto';
 import { hashPassword, verifyPassword } from './passwords.js';
 import { release, reserve } from './rate-limit.js';
-import { consumeEmailTokenIn, issueEmailToken } from './tokens.js';
+import { consumeEmailTokenIn, invalidateEmailTokensIn, issueEmailToken } from './tokens.js';
 import { createSession, revokeAllSessionsIn, revokeOtherSessionsIn } from './sessions.js';
 
 type SignupInput = { email: string; password: string; name: string; phone?: string | null; origin: string };
@@ -43,6 +43,7 @@ export async function verifyEmail(pool: pg.Pool, ttlDays: number, token: string)
     const id = await consumeEmailTokenIn(tx, token, 'confirm');
     if (id) {
       await tx.query('update auth.users set email_confirmed_at = coalesce(email_confirmed_at, now()), updated_at = now() where id = $1', [id]);
+      await invalidateEmailTokensIn(tx, id, 'confirm');
     }
     return id;
   });
@@ -89,6 +90,7 @@ export async function changePassword(pool: pg.Pool, userId: string, currentToken
   await withService(pool, async (tx) => {
     await tx.query('update auth.users set encrypted_password = $2, updated_at = now() where id = $1', [userId, newHash]);
     await revokeOtherSessionsIn(tx, userId, currentToken);
+    await invalidateEmailTokensIn(tx, userId);
   });
   return true;
 }
@@ -110,6 +112,7 @@ export async function resetPassword(pool: pg.Pool, token: string, newPassword: s
       [id, newHash],
     );
     await tx.query('delete from auth.sessions where user_id = $1', [id]);
+    await invalidateEmailTokensIn(tx, id);
     return true;
   });
 }
@@ -149,6 +152,7 @@ export async function withdrawAnonymize(pool: pg.Pool, userId: string, anonymize
     );
     if (r.rowCount === 0) return false;
     await revokeAllSessionsIn(tx, userId);
+    await invalidateEmailTokensIn(tx, userId);
     return true;
   });
 }
