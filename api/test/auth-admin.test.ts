@@ -140,7 +140,7 @@ test('send-reset: 허용되지 않은 origin → 400, 없는 회원 → 404', as
   expect(mailer.sent).toHaveLength(0);
 });
 
-test('withdraw-anonymize: 이메일 변경, 기존 비밀번호 로그인 불가, 세션 전부 폐기', async () => {
+test('withdraw-anonymize: 이메일 변경, 기존 비밀번호 로그인 불가, 세션은 logout-all 전까지 유지', async () => {
   const u = await addUser();
   const s1 = await sessionOf(u.email);
   const s2 = await sessionOf(u.email);
@@ -150,10 +150,41 @@ test('withdraw-anonymize: 이메일 변경, 기존 비밀번호 로그인 불가
   const row = await ctx.adminPool.query('select email, raw_user_meta_data from auth.users where id=$1', [u.id]);
   expect(row.rows[0].email).toBe(anon);
   expect(row.rows[0].raw_user_meta_data).toEqual({});
+  expect(await sessionStatus(s1)).toBe(200);
+  expect(await sessionStatus(s2)).toBe(200);
+  expect((await login(u.email)).statusCode).toBe(401);
+  expect((await login(anon)).statusCode).toBe(401);
+
+  const out = await call('POST', '/v1/auth/logout-all', undefined, s1);
+  expect(out.statusCode).toBe(200);
+  expect(out.json()).toEqual({ ok: true });
   expect(await sessionStatus(s1)).toBe(401);
   expect(await sessionStatus(s2)).toBe(401);
   expect((await login(u.email)).statusCode).toBe(401);
-  expect((await login(anon)).statusCode).toBe(401);
+});
+
+test('탈퇴 3단계: 익명화 후에도 자기 세션으로 op 호출 가능 → logout-all 후 401', async () => {
+  const u = await addUser();
+  const s = await sessionOf(u.email);
+  expect((await call('POST', '/v1/auth/withdraw-anonymize', { anonymizedEmail: `withdrawn+${u.id}@deleted.invalid` }, s)).statusCode).toBe(200);
+  const mine = await call('POST', '/v1/op/profiles.getMine', { params: {} }, s);
+  expect(mine.statusCode).toBe(200);
+  expect(mine.json().data.id).toBe(u.id);
+  expect((await call('POST', '/v1/auth/logout-all', undefined, s)).statusCode).toBe(200);
+  expect((await call('POST', '/v1/op/profiles.getMine', { params: {} }, s)).statusCode).toBe(401);
+});
+
+test('logout-all: 세션 없으면 401, 다른 회원 세션은 그대로', async () => {
+  const a = await addUser();
+  const b = await addUser();
+  const sa = await sessionOf(a.email);
+  const sb = await sessionOf(b.email);
+  const r = await call('POST', '/v1/auth/logout-all');
+  expect(r.statusCode).toBe(401);
+  expect(r.json().error.code).toBe('unauthenticated');
+  expect((await call('POST', '/v1/auth/logout-all', undefined, sa)).statusCode).toBe(200);
+  expect(await sessionStatus(sa)).toBe(401);
+  expect(await sessionStatus(sb)).toBe(200);
 });
 
 test('withdraw-anonymize 후 기존 이메일로 다시 가입 가능', async () => {

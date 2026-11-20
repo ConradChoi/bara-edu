@@ -43,15 +43,24 @@ DATABASE_URL=... BARA_SERVICE_KEY=... npm start   # 서버 실행 (기본 포트
 | POST | `/v1/auth/verify-email` | 이메일 인증 후 세션 발급 |
 | POST | `/v1/auth/login` | 로그인 |
 | POST | `/v1/auth/logout` | 로그아웃(세션 필요) |
+| POST | `/v1/auth/logout-all` | 내 모든 세션 폐기, 현재 세션 포함(세션 필요) |
 | POST | `/v1/auth/change-password` | 비밀번호 변경(세션 필요) |
 | POST | `/v1/auth/request-reset` | 비밀번호 재설정 메일 요청 |
 | POST | `/v1/auth/reset-password` | 비밀번호 재설정 |
-| POST | `/v1/auth/withdraw-anonymize` | 탈퇴 익명화(세션 필요) |
+| POST | `/v1/auth/withdraw-anonymize` | 탈퇴 익명화(세션 필요, 세션은 폐기하지 않음) |
 | GET | `/v1/auth/session` | 현재 세션의 사용자·프로필(세션 필요) |
 | POST | `/v1/admin/users/:id/confirm-email` | 관리자: 이메일 인증 처리 |
 | POST | `/v1/admin/users/:id/send-reset` | 관리자: 재설정 메일 발송 |
 | GET | `/v1/admin/users/confirmations` | 관리자: 인증 대기 목록 |
 | POST | `/v1/op/:name` | 오퍼레이션 실행 |
+
+## 회원 탈퇴 순서
+
+앱 서버는 반드시 아래 순서로 호출한다. 세션 폐기를 마지막에 해야 2단계에서 본인 권한(RLS)으로 profiles를 갱신할 수 있다.
+
+1. `POST /v1/auth/withdraw-anonymize` — 이메일을 `withdrawn+<id>@deleted.invalid`로 바꾸고 비밀번호를 임의 값으로, 메타데이터를 비우고, 남은 이메일 토큰을 무효화한다(한 트랜잭션). 세션은 그대로 둔다.
+2. 같은 세션으로 오퍼레이션/RPC를 호출해 profiles 등을 탈퇴 상태로 갱신한다.
+3. `POST /v1/auth/logout-all` — 그 회원의 모든 세션(현재 세션 포함)을 폐기한다.
 
 ## 오퍼레이션
 

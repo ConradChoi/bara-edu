@@ -5,7 +5,7 @@ import { randomBytes } from 'node:crypto';
 import { hashPassword, verifyPassword } from './passwords.js';
 import { release, reserve } from './rate-limit.js';
 import { consumeEmailTokenIn, invalidateEmailTokensIn, issueEmailToken } from './tokens.js';
-import { createSession, revokeAllSessionsIn, revokeOtherSessionsIn } from './sessions.js';
+import { createSession, revokeOtherSessionsIn } from './sessions.js';
 
 type SignupInput = { email: string; password: string; name: string; phone?: string | null; origin: string };
 
@@ -151,7 +151,6 @@ export async function withdrawAnonymize(pool: pg.Pool, userId: string, anonymize
       [userId, anonymizedEmail, hash],
     );
     if (r.rowCount === 0) return false;
-    await revokeAllSessionsIn(tx, userId);
     await invalidateEmailTokensIn(tx, userId);
     return true;
   });

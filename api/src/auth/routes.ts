@@ -3,7 +3,7 @@ import { withService, withUser } from '../db/context.js';
 import { z } from 'zod';
 import { sendError } from '../http/errors.js';
 import { hit, normalizeEmail } from './rate-limit.js';
-import { revokeSession } from './sessions.js';
+import { revokeAllSessions, revokeSession } from './sessions.js';
 import { changePassword, confirmEmailAsAdmin, listConfirmations, login, requestReset, resendConfirmation, resetPassword, sendResetAsAdmin, signup, verifyEmail, withdrawAnonymize } from './service.js';
 
 type SessionRow = {
@@ -85,6 +85,13 @@ export function registerAuthRoutes(app: FastifyInstance): void {
   app.post('/v1/auth/logout', async (req, reply) => {
     if (!req.auth.userId) return sendError(reply, 'unauthenticated', '로그인이 필요합니다.');
     await revokeSession(app.deps.pool, String(req.headers['x-bara-session']));
+    return { ok: true };
+  });
+
+  app.post('/v1/auth/logout-all', async (req, reply) => {
+    const userId = req.auth.userId;
+    if (!userId) return sendError(reply, 'unauthenticated', '로그인이 필요합니다.');
+    await revokeAllSessions(app.deps.pool, userId);
     return { ok: true };
   });
 
