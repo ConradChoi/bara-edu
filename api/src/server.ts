@@ -1,10 +1,17 @@
 import { buildApp } from './app.js';
 import { loadConfig } from './config.js';
 import { createPool } from './db/pool.js';
+import type { Mailer } from './mail/mailer.js';
 
 const config = loadConfig(process.env);
 const pool = createPool(config.databaseUrl);
-const app = buildApp({ config, pool, mailer: undefined });
+// SES mailer lands in the next plan; fail loudly instead of dropping mail silently
+const mailer: Mailer = {
+  async send() {
+    throw new Error('mailer not configured');
+  },
+};
+const app = buildApp({ config, pool, mailer });
 
 app.listen({ port: config.port, host: '0.0.0.0' }).catch((err) => {
   console.error(err);

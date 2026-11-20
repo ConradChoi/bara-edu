@@ -1,11 +1,12 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import type pg from 'pg';
 import type { Config } from './config.js';
+import type { Mailer } from './mail/mailer.js';
 import { registerAuthRoutes } from './auth/routes.js';
 import { registerErrorHandlers, sendError } from './http/errors.js';
 import { keyMatches, registerGuard } from './http/guard.js';
 
-export type AppDeps = { config: Config; pool: pg.Pool; mailer: unknown };
+export type AppDeps = { config: Config; pool: pg.Pool; mailer: Mailer };
 
 export function buildApp(deps: AppDeps): FastifyInstance {
   const app = Fastify({
