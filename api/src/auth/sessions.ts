@@ -47,3 +47,7 @@ export async function revokeAllSessions(pool: pg.Pool, userId: string): Promise<
 export async function revokeOtherSessionsIn(tx: Tx, userId: string, keepToken: string): Promise<void> {
   await tx.query('delete from auth.sessions where user_id = $1 and token_hash <> $2', [userId, sha256(keepToken)]);
 }
+
+export async function revokeAllSessionsIn(tx: Tx, userId: string): Promise<void> {
+  await tx.query('delete from auth.sessions where user_id = $1', [userId]);
+}

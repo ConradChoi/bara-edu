@@ -1,10 +1,10 @@
-import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { withService } from '../db/context.js';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import { withService, withUser } from '../db/context.js';
 import { z } from 'zod';
 import { sendError } from '../http/errors.js';
 import { hit, normalizeEmail } from './rate-limit.js';
 import { revokeSession } from './sessions.js';
-import { changePassword, login, requestReset, resendConfirmation, resetPassword, signup, verifyEmail } from './service.js';
+import { changePassword, confirmEmailAsAdmin, listConfirmations, login, requestReset, resendConfirmation, resetPassword, sendResetAsAdmin, signup, verifyEmail, withdrawAnonymize } from './service.js';
 
 type SessionRow = {
   id: string;
@@ -29,6 +29,9 @@ const verifyBody = z.object({ token: z.string().min(1).max(200) });
 const loginBody = z.object({ email, password: z.string().min(1).max(200) });
 const changeBody = z.object({ currentPassword: z.string().min(1).max(200), newPassword: z.string().min(8).max(200) });
 const resetBody = z.object({ token: z.string().min(1).max(200), newPassword: z.string().min(8).max(200) });
+
+const sendResetBody = z.object({ origin: z.string() });
+const idParam = z.object({ id: z.string().uuid() });
 
 const INVALID = '요청 형식이 올바르지 않습니다.';
 
@@ -109,6 +112,52 @@ export function registerAuthRoutes(app: FastifyInstance): void {
     const body = resetBody.safeParse(req.body);
     if (!body.success) return sendError(reply, 'validation', INVALID);
     if (!(await resetPassword(app.deps.pool, body.data.token, body.data.newPassword))) return sendError(reply, 'validation', 'invalid_token');
+    return { ok: true };
+  });
+
+  const requireAdmin = async (req: FastifyRequest, reply: FastifyReply): Promise<boolean> => {
+    const userId = req.auth.userId;
+    if (!userId) {
+      sendError(reply, 'unauthenticated', '로그인이 필요합니다.');
+      return false;
+    }
+    const r = await withUser(app.deps.pool, userId, (tx) => tx.query<{ ok: boolean | null }>('select public.is_admin() as ok'));
+    if (r.rows[0]?.ok !== true) {
+      sendError(reply, 'forbidden', '관리자 권한이 필요합니다.');
+      return false;
+    }
+    return true;
+  };
+
+  app.post('/v1/admin/users/:id/confirm-email', async (req, reply) => {
+    if (!(await requireAdmin(req, reply))) return reply;
+    const params = idParam.safeParse(req.params);
+    if (!params.success) return sendError(reply, 'validation', INVALID);
+    if (!(await confirmEmailAsAdmin(app.deps.pool, params.data.id))) return sendError(reply, 'not_found', '회원을 찾을 수 없습니다.');
+    return { ok: true };
+  });
+
+  app.post('/v1/admin/users/:id/send-reset', async (req, reply) => {
+    if (!(await requireAdmin(req, reply))) return reply;
+    const params = idParam.safeParse(req.params);
+    const body = sendResetBody.safeParse(req.body);
+    if (!params.success || !body.success || !originAllowed(body.data.origin)) return sendError(reply, 'validation', INVALID);
+    const r = await sendResetAsAdmin(app.deps.pool, app.deps.mailer, params.data.id, body.data.origin, onMailError);
+    if (r === 'not_found') return sendError(reply, 'not_found', '회원을 찾을 수 없습니다.');
+    return { ok: true, mailSent: r === 'sent' };
+  });
+
+  app.get('/v1/admin/users/confirmations', async (req, reply) => {
+    if (!(await requireAdmin(req, reply))) return reply;
+    return { items: await listConfirmations(app.deps.pool) };
+  });
+
+  app.post('/v1/auth/withdraw-anonymize', async (req, reply) => {
+    const userId = req.auth.userId;
+    if (!userId) return sendError(reply, 'unauthenticated', '로그인이 필요합니다.');
+    const body = z.object({ anonymizedEmail: z.string() }).safeParse(req.body);
+    if (!body.success || body.data.anonymizedEmail !== `withdrawn+${userId}@deleted.invalid`) return sendError(reply, 'validation', INVALID);
+    if (!(await withdrawAnonymize(app.deps.pool, userId, body.data.anonymizedEmail))) return sendError(reply, 'not_found', '회원을 찾을 수 없습니다.');
     return { ok: true };
   });
 

@@ -1,10 +1,11 @@
 import type pg from 'pg';
 import { withService } from '../db/context.js';
 import type { Mailer } from '../mail/mailer.js';
+import { randomBytes } from 'node:crypto';
 import { hashPassword, verifyPassword } from './passwords.js';
 import { release, reserve } from './rate-limit.js';
 import { consumeEmailTokenIn, issueEmailToken } from './tokens.js';
-import { createSession, revokeOtherSessionsIn } from './sessions.js';
+import { createSession, revokeAllSessionsIn, revokeOtherSessionsIn } from './sessions.js';
 
 type SignupInput = { email: string; password: string; name: string; phone?: string | null; origin: string };
 
@@ -109,6 +110,45 @@ export async function resetPassword(pool: pg.Pool, token: string, newPassword: s
       [id, newHash],
     );
     await tx.query('delete from auth.sessions where user_id = $1', [id]);
+    return true;
+  });
+}
+
+export async function confirmEmailAsAdmin(pool: pg.Pool, userId: string): Promise<boolean> {
+  const r = await withService(pool, (tx) =>
+    tx.query('update auth.users set email_confirmed_at = coalesce(email_confirmed_at, now()), updated_at = now() where id = $1', [userId]),
+  );
+  return r.rowCount > 0;
+}
+
+export async function sendResetAsAdmin(pool: pg.Pool, mailer: Mailer, userId: string, origin: string, onMailError: MailErrorLogger): Promise<'not_found' | 'sent' | 'mail_failed'> {
+  const r = await withService(pool, (tx) => tx.query<{ email: string }>('select email from auth.users where id = $1', [userId]));
+  if (r.rowCount === 0) return 'not_found';
+  const token = await issueEmailToken(pool, userId, 'recovery');
+  let failed = false;
+  await mailer.send({ to: r.rows[0].email, template: 'recovery', link: `${origin}/reset-password?token=${token}` }).catch((err) => {
+    failed = true;
+    onMailError(err);
+  });
+  return failed ? 'mail_failed' : 'sent';
+}
+
+export async function listConfirmations(pool: pg.Pool): Promise<Array<{ id: string; emailConfirmedAt: string | null }>> {
+  const r = await withService(pool, (tx) =>
+    tx.query<{ id: string; email_confirmed_at: Date | null }>('select id, email_confirmed_at from auth.users order by created_at, id'),
+  );
+  return r.rows.map((row) => ({ id: row.id, emailConfirmedAt: row.email_confirmed_at ? row.email_confirmed_at.toISOString() : null }));
+}
+
+export async function withdrawAnonymize(pool: pg.Pool, userId: string, anonymizedEmail: string): Promise<boolean> {
+  const hash = await hashPassword(randomBytes(32).toString('base64url'));
+  return withService(pool, async (tx) => {
+    const r = await tx.query(
+      "update auth.users set email = $2, encrypted_password = $3, raw_user_meta_data = '{}'::jsonb, updated_at = now() where id = $1",
+      [userId, anonymizedEmail, hash],
+    );
+    if (r.rowCount === 0) return false;
+    await revokeAllSessionsIn(tx, userId);
     return true;
   });
 }
