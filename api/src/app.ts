@@ -12,6 +12,7 @@ import { registerOps, type Op } from './ops/registry.js';
 import { registerOpRoutes } from './ops/routes.js';
 import { lazyCatalog } from './query/catalog.js';
 import { registerQueryRoutes } from './query/routes.js';
+import { lazyRpcCatalog, registerRpcRoutes } from './query/rpc.js';
 
 export type AppDeps = { config: Config; pool: pg.Pool; mailer: Mailer; logger?: LogOptions };
 
@@ -31,6 +32,7 @@ export function buildApp(deps: AppDeps, extraOps: Op[] = []): FastifyInstance {
   registerAuthRoutes(app);
   registerOpRoutes(app, registerOps([profilesGetMine, bankAccountsList, ...extraOps]));
   registerQueryRoutes(app, lazyCatalog(deps.pool));
+  registerRpcRoutes(app, lazyRpcCatalog(deps.pool));
   return app;
 }
 
