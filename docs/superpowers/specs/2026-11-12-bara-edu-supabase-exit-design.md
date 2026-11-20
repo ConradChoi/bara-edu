@@ -131,10 +131,10 @@
 
 ## 7. 착수 전 확인(결과에 따라 설계가 바뀜)
 
-1. **비밀번호 해시 형식**: Supabase는 `auth.users.encrypted_password`에 bcrypt 해시를 저장한다(여러 이관 가이드로 확인, 2026-11-12). 이관 때 해시 접두어(`$2a$`/`$2b$`)를 전수 확인하고, 아닌 계정만 "다음 로그인 때 재설정"으로 처리.
+1. **비밀번호 해시 형식**: Supabase는 `auth.users.encrypted_password`에 bcrypt 해시를 저장한다(여러 이관 가이드로 확인, 2026-11-12). 이관 때 해시 접두어(`$2a$`/`$2b$`)를 전수 확인하고, 아닌 계정만 "다음 로그인 때 재설정"으로 처리. **확인(2026-11-20, 운영 DB 읽기 전용): 회원 5명 전원 `$2a$`, 전원 이메일 인증 완료 → 재설정 없이 이관 가능.** 접속 정보는 대표 로컬 `~/.config/bara-edu/supabase.env`(권한 600, Session pooler).
 2. **Amplify SSR은 VPC에 직접 붙지 못한다**(AWS 문서·re:Post 기준 확인, 2026-11-12 — 공식 우회는 VPC 안 Lambda 경유). 따라서 §4의 API 경유 구조가 맞다.
 3. **WAS 메모리 실측**: CloudWatch 에이전트 설치(대표 승인 필요) 후 며칠 관측. ShapeTest 피크 + 여유가 512MB 이상이면 증설 없이 진행. 부족하면 자동으로 증설하지 않는다 — 실측 결과를 대표에게 보고하고, 대표가 검토 후 증설 여부를 정한다(대표 결정 2026-11-12). 그동안 실측과 무관한 작업(API 개발·스테이징 검증)은 병행한다.
-4. **PostgreSQL 15 → 18 호환성**: `schema.sql`이 18.3에서 그대로 적용되는지 스테이징에서 확인. Supabase 전용 확장·스키마(`storage`, `extensions`, `auth` 함수) 참조는 제거/대체.
+4. **PostgreSQL 17 → 18 호환성**(운영 Supabase는 17.6, 2026-11-20 확인. 포팅 스키마는 1차에서 PG18 적용 확인됨): `schema.sql`이 18.3에서 그대로 적용되는지 스테이징에서 확인. Supabase 전용 확장·스키마(`storage`, `extensions`, `auth` 함수) 참조는 제거/대체.
 5. **SES**: 발신 도메인(`bara-edu.kr`) 인증과 샌드박스 해제(대표가 콘솔에서 직접). 2026-11-12 현재 SES에 등록된 것은 `ylia.io`·`jhc@ylia.io`뿐이고 `bara-edu.kr`은 없다. 샌드박스 여부는 읽기 권한이 없어 미확인. Route53에 `bara-edu.kr` 호스팅 영역은 있다.
 6. **Amplify 서버 런타임 환경변수**: Amplify는 콘솔 환경변수를 Next.js 서버 런타임에 기본으로 넘기지 않는다(AWS 문서). 현재 빌드 설정(콘솔 buildSpec·`amplify.yml`)은 `.env.production`에 값을 쓰지 않는다. 그래서 (a) **지금 운영에서 `SUPABASE_SERVICE_ROLE_KEY`를 쓰는 관리자 기능 4개 파일이 실제로 동작하는지 먼저 확인**하고(미확인 — 동작한다면 전달 경로를 파악), (b) 새 구조의 "서버 간 비밀키"를 런타임에 어떻게 넘길지 정한다. 초안(Claude 판단): 빌드 때 `.env.production`에 쓰는 AWS 문서 방식. 단 빌드 산출물에 비밀이 남는다는 AWS 경고가 있어, 키는 bara-edu API 전용·주기적 교체로 한다. 대안은 Amplify 컴퓨트 역할 + Parameter Store 조회.
 
