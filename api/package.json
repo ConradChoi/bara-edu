@@ -11,6 +11,7 @@
     "start": "node dist/server.js"
   },
   "dependencies": {
+    "bcryptjs": "^3.0.3",
     "fastify": "^5.0.0",
     "pg": "^8.13.0"
   },
