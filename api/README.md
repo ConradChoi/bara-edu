@@ -26,6 +26,7 @@ DATABASE_URL=... BARA_SERVICE_KEY=... npm start   # 서버 실행 (기본 포트
 | `PORT` | | `3100` | 수신 포트 |
 | `SESSION_TTL_DAYS` | | `30` | 세션 유효 일수 |
 | `SITE_ORIGINS` | | `https://bara-edu.kr` | 메일 링크에 허용하는 사이트 주소(쉼표 구분) |
+| `LOG_LEVEL` | | `info` | 로그 수준(`fatal`/`error`/`warn`/`info`/`debug`/`trace`/`silent`). 오류 로그에는 pg `detail`·쿼리 값, `x-bara-service-key`·`x-bara-session` 헤더가 남지 않는다 |
 
 ## 공통 규칙
 

@@ -11,7 +11,7 @@ const mailer: Mailer = {
     throw new Error('mailer not configured');
   },
 };
-const app = buildApp({ config, pool, mailer });
+const app = buildApp({ config, pool, mailer, logger: { level: config.logLevel } });
 
 app.listen({ port: config.port, host: '0.0.0.0' }).catch((err) => {
   console.error(err);
