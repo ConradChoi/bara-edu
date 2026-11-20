@@ -34,6 +34,7 @@ function clientIp(req: FastifyRequest): string {
 }
 
 export function registerAuthRoutes(app: FastifyInstance): void {
+  const onMailError = (err: unknown) => app.log.error({ errorName: err instanceof Error ? err.name : 'unknown' }, 'confirmation mail failed');
   const originAllowed = (origin: string) => app.deps.config.siteOrigins.includes(origin);
 
   app.post('/v1/auth/signup', async (req, reply) => {
@@ -42,7 +43,7 @@ export function registerAuthRoutes(app: FastifyInstance): void {
     if (!(await hit(app.deps.pool, 'signup', clientIp(req), 10, 3600))) {
       return sendError(reply, 'rate_limited', '요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.');
     }
-    return { status: await signup(app.deps.pool, app.deps.mailer, body.data) };
+    return { status: await signup(app.deps.pool, app.deps.mailer, body.data, onMailError) };
   });
 
   app.post('/v1/auth/resend', async (req, reply) => {
@@ -51,13 +52,13 @@ export function registerAuthRoutes(app: FastifyInstance): void {
     const { pool, mailer } = app.deps;
     const { email: to, origin } = body.data;
     const allowed = (await hit(pool, 'resend-60s', to, 1, 60)) && (await hit(pool, 'resend-1h', to, 4, 3600));
-    if (allowed) await resendConfirmation(pool, mailer, to, origin);
+    if (allowed) await resendConfirmation(pool, mailer, to, origin, onMailError);
     return { status: 'pending_confirmation' };
   });
 
   app.post('/v1/auth/verify-email', async (req, reply) => {
     const body = verifyBody.safeParse(req.body);
-    if (!body.success) return sendError(reply, 'validation', INVALID);
+    if (!body.success) return sendError(reply, 'validation', 'invalid_token');
     const { pool, config } = app.deps;
     const r = await verifyEmail(pool, config.sessionTtlDays, body.data.token);
     if (!r) return sendError(reply, 'validation', 'invalid_token');

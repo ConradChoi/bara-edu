@@ -22,3 +22,10 @@ test('동시 호출에도 한도를 넘기지 않는다', async () => {
   const results = await Promise.all(Array.from({ length: 8 }, () => hit(ctx.pool, 'c', 'k', 3, 60)));
   expect(results.filter(Boolean)).toHaveLength(3);
 });
+
+test('hit은 보존기간(1일)이 지난 기록을 지우고 최근 기록은 남긴다', async () => {
+  await ctx.adminPool.query("insert into auth.rate_events (bucket, key, created_at) values ('old', 'a', now() - interval '25 hours'), ('old', 'b', now() - interval '23 hours')");
+  await hit(ctx.pool, 'd', 'k', 3, 60);
+  const r = await ctx.adminPool.query("select key from auth.rate_events where bucket = 'old'");
+  expect(r.rows.map((x) => x.key)).toEqual(['b']);
+});

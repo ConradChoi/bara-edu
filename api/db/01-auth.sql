@@ -35,6 +35,7 @@ create table if not exists auth.rate_events (
   created_at timestamptz not null default now()
 );
 create index if not exists rate_events_bucket_key_created_idx on auth.rate_events (bucket, key, created_at);
+create index if not exists rate_events_created_idx on auth.rate_events (created_at);
 
 create or replace function auth.uid() returns uuid
   language sql stable

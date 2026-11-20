@@ -157,10 +157,42 @@ test('토큰 유효기간: confirm 24시간, recovery 1시간', async () => {
   expect(by.recovery).toBeLessThanOrEqual(3_600);
 });
 
-test('verify-email: 토큰 누락·이상한 값 → 400 invalid_token 또는 validation', async () => {
-  expect((await post('/v1/auth/verify-email', {})).statusCode).toBe(400);
-  const r = await post('/v1/auth/verify-email', { token: 'nope' });
-  expect(r.json()).toEqual({ error: { code: 'validation', message: 'invalid_token' } });
+test('verify-email: 토큰 누락·과대·이상한 값 → 모두 400 invalid_token', async () => {
+  const expected = { error: { code: 'validation', message: 'invalid_token' } };
+  for (const payload of [{}, { token: '' }, { token: 'x'.repeat(201) }, { token: 5 }, { token: 'nope' }]) {
+    const r = await post('/v1/auth/verify-email', payload);
+    expect(r.statusCode).toBe(400);
+    expect(r.json()).toEqual(expected);
+  }
+});
+
+const failingMailer = { async send() { throw new Error('smtp down'); } };
+
+test('signup: 메일 발송 실패여도 200 pending_confirmation, 계정은 생성됨', async () => {
+  const failApp = buildApp({ config: app.deps.config, pool: ctx.pool, mailer: failingMailer });
+  const email = 'mailfail1@bara-edu.kr';
+  const r = await failApp.inject({
+    method: 'POST', url: '/v1/auth/signup', headers: { 'x-bara-service-key': KEY },
+    payload: { email, password: 'password1', name: '홍길동', origin: ORIGIN },
+  });
+  await failApp.close();
+  expect(r.statusCode).toBe(200);
+  expect(r.json()).toEqual({ status: 'pending_confirmation' });
+  const u = await ctx.adminPool.query('select 1 from auth.users where email = $1', [email]);
+  expect(u.rowCount).toBe(1);
+});
+
+test('resend: 메일 발송 실패여도 없는 이메일과 동일한 200 응답', async () => {
+  await signup({ email: 'mailfail2@bara-edu.kr' });
+  const failApp = buildApp({ config: app.deps.config, pool: ctx.pool, mailer: failingMailer });
+  const call = (email: string) =>
+    failApp.inject({ method: 'POST', url: '/v1/auth/resend', headers: { 'x-bara-service-key': KEY }, payload: { email, origin: ORIGIN } });
+  const existing = await call('mailfail2@bara-edu.kr');
+  const ghost = await call('ghost2@bara-edu.kr');
+  await failApp.close();
+  expect(existing.statusCode).toBe(200);
+  expect(existing.statusCode).toBe(ghost.statusCode);
+  expect(existing.json()).toEqual(ghost.json());
 });
 
 test('signup: IP당 1시간 10회, 11번째는 429 (x-bara-client-ip 기준)', async () => {

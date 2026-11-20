@@ -9,7 +9,9 @@ type SignupInput = { email: string; password: string; name: string; phone?: stri
 
 const confirmLink = (origin: string, token: string) => `${origin}/auth/confirm?token=${token}`;
 
-export async function signup(pool: pg.Pool, mailer: Mailer, input: SignupInput): Promise<'pending_confirmation' | 'already_registered'> {
+export type MailErrorLogger = (err: unknown) => void;
+
+export async function signup(pool: pg.Pool, mailer: Mailer, input: SignupInput, onMailError: MailErrorLogger): Promise<'pending_confirmation' | 'already_registered'> {
   const passwordHash = await hashPassword(input.password);
   const meta = { name: input.name, ...(input.phone ? { phone: input.phone } : {}) };
   const r = await withService(pool, (tx) =>
@@ -21,17 +23,17 @@ export async function signup(pool: pg.Pool, mailer: Mailer, input: SignupInput):
   );
   if (r.rowCount === 0) return 'already_registered';
   const token = await issueEmailToken(pool, r.rows[0].id, 'confirm');
-  await mailer.send({ to: input.email, template: 'confirm', link: confirmLink(input.origin, token) });
+  await mailer.send({ to: input.email, template: 'confirm', link: confirmLink(input.origin, token) }).catch(onMailError);
   return 'pending_confirmation';
 }
 
-export async function resendConfirmation(pool: pg.Pool, mailer: Mailer, email: string, origin: string): Promise<void> {
+export async function resendConfirmation(pool: pg.Pool, mailer: Mailer, email: string, origin: string, onMailError: MailErrorLogger): Promise<void> {
   const r = await withService(pool, (tx) =>
     tx.query<{ id: string }>('select id from auth.users where lower(email) = $1 and email_confirmed_at is null', [email]),
   );
   if (r.rowCount === 0) return;
   const token = await issueEmailToken(pool, r.rows[0].id, 'confirm');
-  await mailer.send({ to: email, template: 'confirm', link: confirmLink(origin, token) });
+  await mailer.send({ to: email, template: 'confirm', link: confirmLink(origin, token) }).catch(onMailError);
 }
 
 export async function verifyEmail(pool: pg.Pool, ttlDays: number, token: string): Promise<{ sessionToken: string; expiresAt: Date } | null> {
