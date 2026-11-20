@@ -1,6 +1,8 @@
+revoke execute on all functions in schema public from public;
+revoke execute on all functions in schema auth from public;
+
 set role bara_edu_service;
 
-grant usage on schema public to bara_edu_anon, bara_edu_authenticated;
 grant select, insert, update, delete on all tables in schema public to bara_edu_anon, bara_edu_authenticated;
 grant usage on all sequences in schema public to bara_edu_anon, bara_edu_authenticated;
 grant execute on all functions in schema public to bara_edu_anon, bara_edu_authenticated;
