@@ -6,6 +6,7 @@ import type { Mailer } from './mail/mailer.js';
 import { SesMailer } from './mail/ses.js';
 import type { Storage } from './storage/storage.js';
 import { S3Storage } from './storage/s3.js';
+import { startScheduler } from './jobs/scheduler.js';
 
 const config = loadConfig(process.env);
 const pool = createPool(config.databaseUrl);
@@ -31,7 +32,15 @@ const storage: Storage = config.s3Bucket
     };
 const app = buildApp({ config, pool, mailer, storage, logger: { level: config.logLevel } });
 
-app.listen({ port: config.port, host: '0.0.0.0' }).catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+let scheduler: { stop(): void } | undefined;
+app.addHook('onClose', async () => scheduler?.stop());
+
+app
+  .listen({ port: config.port, host: '0.0.0.0' })
+  .then(() => {
+    scheduler = startScheduler(pool, { log: app.log });
+  })
+  .catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
