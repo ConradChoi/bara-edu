@@ -82,3 +82,39 @@ export async function resetPassword(token: string, newPassword: string): Promise
 export async function getSession(token: string, clientIp: string | null): Promise<ApiResult<SessionInfo>> {
   return apiFetch<SessionInfo>('/v1/auth/session', { method: 'GET', session: token, clientIp });
 }
+
+export async function withdrawAnonymize(anonymizedEmail: string): Promise<boolean> {
+  const r = await apiFetch('/v1/auth/withdraw-anonymize', { method: 'POST', session: await readSession(), body: { anonymizedEmail } });
+  return r.ok;
+}
+
+export async function withdrawCleanup(): Promise<boolean> {
+  const r = await apiFetch('/v1/op/account.withdrawCleanup', { method: 'POST', session: await readSession(), body: { params: {} } });
+  return r.ok;
+}
+
+export async function logoutAll(): Promise<boolean> {
+  return (await apiFetch('/v1/auth/logout-all', { method: 'POST', session: await readSession() })).ok;
+}
+
+export async function adminConfirmEmail(userId: string): Promise<boolean> {
+  const r = await apiFetch(`/v1/admin/users/${encodeURIComponent(userId)}/confirm-email`, { method: 'POST', session: await readSession() });
+  return r.ok;
+}
+
+export async function adminSendReset(userId: string, origin: string): Promise<boolean> {
+  const r = await apiFetch<{ mailSent: boolean }>(`/v1/admin/users/${encodeURIComponent(userId)}/send-reset`, {
+    method: 'POST',
+    session: await readSession(),
+    body: { origin },
+  });
+  return r.ok && r.data.mailSent === true;
+}
+
+export async function listEmailConfirmations(): Promise<Array<{ id: string; emailConfirmedAt: string | null }> | null> {
+  const r = await apiFetch<{ items: Array<{ id: string; emailConfirmedAt: string | null }> }>('/v1/admin/users/confirmations', {
+    method: 'GET',
+    session: await readSession(),
+  });
+  return r.ok ? r.data.items : null;
+}

@@ -10,7 +10,6 @@ vi.mock('@/lib/db/api', () => ({
   },
 }));
 vi.mock('@/lib/db/session-cookie', () => ({ readSession: async () => 'tok' }));
-vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: () => ({}) }));
 vi.mock('next/headers', () => ({ headers: async () => ({ get: () => null }), cookies: async () => ({}) }));
 
 import {

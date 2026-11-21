@@ -1,21 +1,12 @@
 'use server';
 
-import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import * as auth from '@/lib/db/auth';
+import { getSiteOrigin } from '@/lib/site-origin';
 
 export type AuthFormState = { error: string } | { pendingConfirmation: true; email: string } | undefined;
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-// 인증·재설정 메일 링크의 도메인 — 요청이 실제로 들어온 호스트 기준(로컬/운영 모두 맞게).
-// API가 허용 목록(siteOrigins)에 없는 origin은 거부한다.
-async function getSiteOrigin(): Promise<string> {
-  const headersList = await headers();
-  const host = headersList.get('x-forwarded-host') ?? headersList.get('host') ?? 'localhost:3000';
-  const proto = headersList.get('x-forwarded-proto') ?? (host.startsWith('localhost') ? 'http' : 'https');
-  return `${proto}://${host}`;
-}
 
 // ?redirect= 값을 검증 없이 그대로 redirect()에 넘기면 오픈 리다이렉트(CWE-601)로
 // 피싱에 악용될 수 있다(security-officer 점검, 2026-08-06). 사이트 내부 상대경로만 허용한다.

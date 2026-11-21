@@ -1,10 +1,11 @@
 'use server';
 
 import { redirect } from 'next/navigation';
-import { detectImageMimeType } from '@/lib/image-validation';
 import { getApprovedSeatsTaken } from '@/lib/supabase/queries';
 import { createClient } from '@/lib/db/server';
+import { uploadMemberPhoto } from '@/lib/db/storage';
 
+const PHOTO_ERROR = { 'too-large': 'photo-too-large', invalid: 'photo-invalid', failed: 'conflict' } as const;
 const PAYMENT_WINDOW_MS = 3 * 24 * 60 * 60 * 1000; // flows.md Q2: 입금 기한 3일
 
 // 신청 확인 화면(/courses/[slug]/apply)에서 "신청 확정" 클릭 시 호출된다.
@@ -48,22 +49,11 @@ export async function applyToCourse(courseId: string, slug: string, formData: Fo
     const photoFile = formData.get('photo') as File | null;
     let photoPath = profile.photo_path;
     if (photoFile && photoFile.size > 0) {
-      if (photoFile.size > 5 * 1024 * 1024) redirect(`/courses/${slug}/apply?error=photo-too-large`);
-
-      // File.type은 브라우저가 보낸 자기신고 값이라 실제 바이트를 신뢰하지 않는다 —
-      // image/svg+xml처럼 MIME 검사만으로는 걸러지지 않는 스크립트 포함 가능 포맷을
-      // 허용하지 않도록 실제 매직바이트로 JPEG/PNG/GIF/WebP만 판별한다
-      // (security-officer 점검, 2026-08-28).
-      const header = new Uint8Array(await photoFile.slice(0, 12).arrayBuffer());
-      const detectedType = detectImageMimeType(header);
-      if (!detectedType) redirect(`/courses/${slug}/apply?error=photo-invalid`);
-
-      const path = `${user.id}/photo`;
-      const { error: uploadError } = await supabase.storage
-        .from('member-photos')
-        .upload(path, photoFile, { upsert: true, contentType: detectedType });
-      if (uploadError) redirect(`/courses/${slug}/apply?error=conflict`);
-      photoPath = path;
+      // 사진 검증(5MB, 실제 매직바이트로 JPEG/PNG/WebP만 — security-officer 점검, 2026-08-28)은
+      // uploadMemberPhoto 안에서 업로드 전에 한다.
+      const uploaded = await uploadMemberPhoto(photoFile);
+      if ('error' in uploaded) redirect(`/courses/${slug}/apply?error=${PHOTO_ERROR[uploaded.error]}`);
+      photoPath = uploaded.path;
     }
     if (!photoPath) redirect(`/courses/${slug}/apply?error=photo-required`);
 
