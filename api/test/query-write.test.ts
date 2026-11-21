@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, expect, test } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/app.js';
+import { MemoryStorage } from '../src/storage/storage.js';
 import { MemoryMailer } from '../src/mail/mailer.js';
 import { loadConfig } from '../src/config.js';
 import { createSession } from '../src/auth/sessions.js';
@@ -40,7 +41,7 @@ beforeAll(async () => {
     grant select, insert, update, delete on public.write_probe to bara_edu_anon, bara_edu_authenticated;
     grant usage on all sequences in schema public to bara_edu_anon, bara_edu_authenticated;
     reset role`);
-  app = buildApp({ config, pool: ctx.pool, mailer: new MemoryMailer() });
+  app = buildApp({ config, pool: ctx.pool, mailer: new MemoryMailer(), storage: new MemoryStorage() });
   await app.ready();
 });
 afterAll(async () => {

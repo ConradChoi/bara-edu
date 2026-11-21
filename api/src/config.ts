@@ -5,6 +5,8 @@ export type Config = {
   sessionTtlDays: number;
   siteOrigins: string[];
   logLevel: string;
+  s3Bucket: string | null;
+  awsRegion: string;
 };
 
 const LOG_LEVELS = ['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'];
@@ -33,5 +35,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
       .map((s) => s.trim())
       .filter(Boolean),
     logLevel,
+    s3Bucket: env.S3_BUCKET || null,
+    awsRegion: env.AWS_REGION || 'ap-northeast-2',
   };
 }

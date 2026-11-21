@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, expect, test } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/app.js';
+import { MemoryStorage } from '../src/storage/storage.js';
 import { loadConfig } from '../src/config.js';
 import { MemoryMailer } from '../src/mail/mailer.js';
 import { issueEmailToken } from '../src/auth/tokens.js';
@@ -17,7 +18,7 @@ beforeAll(async () => {
   ctx = await setupTestDb();
   mailer = new MemoryMailer();
   const config = loadConfig({ DATABASE_URL: 'postgresql://x/x', BARA_SERVICE_KEY: KEY });
-  app = buildApp({ config, pool: ctx.pool, mailer });
+  app = buildApp({ config, pool: ctx.pool, mailer, storage: new MemoryStorage() });
   await app.ready();
 });
 afterAll(async () => {
@@ -169,7 +170,7 @@ test('verify-email: 토큰 누락·과대·이상한 값 → 모두 400 invalid_
 const failingMailer = { async send() { throw new Error('smtp down'); } };
 
 test('signup: 메일 발송 실패여도 200 pending_confirmation, 계정은 생성됨', async () => {
-  const failApp = buildApp({ config: app.deps.config, pool: ctx.pool, mailer: failingMailer });
+  const failApp = buildApp({ config: app.deps.config, pool: ctx.pool, mailer: failingMailer, storage: new MemoryStorage() });
   const email = 'mailfail1@bara-edu.kr';
   const r = await failApp.inject({
     method: 'POST', url: '/v1/auth/signup', headers: { 'x-bara-service-key': KEY },
@@ -184,7 +185,7 @@ test('signup: 메일 발송 실패여도 200 pending_confirmation, 계정은 생
 
 test('resend: 메일 발송 실패여도 없는 이메일과 동일한 200 응답', async () => {
   await signup({ email: 'mailfail2@bara-edu.kr' });
-  const failApp = buildApp({ config: app.deps.config, pool: ctx.pool, mailer: failingMailer });
+  const failApp = buildApp({ config: app.deps.config, pool: ctx.pool, mailer: failingMailer, storage: new MemoryStorage() });
   const call = (email: string) =>
     failApp.inject({ method: 'POST', url: '/v1/auth/resend', headers: { 'x-bara-service-key': KEY }, payload: { email, origin: ORIGIN } });
   const existing = await call('mailfail2@bara-edu.kr');

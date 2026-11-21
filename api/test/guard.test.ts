@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, expect, test } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/app.js';
+import { MemoryStorage } from '../src/storage/storage.js';
 import { MemoryMailer } from '../src/mail/mailer.js';
 import { loadConfig } from '../src/config.js';
 import { createPool } from '../src/db/pool.js';
@@ -12,7 +13,7 @@ let app: FastifyInstance;
 
 beforeAll(async () => {
   const config = loadConfig({ DATABASE_URL: url, BARA_SERVICE_KEY: KEY });
-  app = buildApp({ config, pool, mailer: new MemoryMailer() });
+  app = buildApp({ config, pool, mailer: new MemoryMailer(), storage: new MemoryStorage() });
   app.get('/v1/_boom', async () => {
     throw new Error('pg: secret');
   });

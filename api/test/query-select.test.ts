@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, expect, test } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/app.js';
+import { MemoryStorage } from '../src/storage/storage.js';
 import { MemoryMailer } from '../src/mail/mailer.js';
 import { loadConfig } from '../src/config.js';
 import { createSession } from '../src/auth/sessions.js';
@@ -49,7 +50,7 @@ beforeAll(async () => {
   await db.query(`insert into lessons (id, course_id, title) values ($1, $2, '1강')`, [LESSON, C1]);
   await db.query(`insert into quiz_questions (id, lesson_id, question, "order") values ($1, $3, '문1', 1), ($2, $3, '문2', 2)`, [Q1, Q2, LESSON]);
   await db.query(`insert into quiz_options (question_id, label, "order") values ($1, '가', 1), ($1, '나', 2)`, [Q1]);
-  app = buildApp({ config, pool: ctx.pool, mailer: new MemoryMailer() });
+  app = buildApp({ config, pool: ctx.pool, mailer: new MemoryMailer(), storage: new MemoryStorage() });
   await app.ready();
 });
 afterAll(async () => {

@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, expect, test } from 'vitest';
 import bcrypt from 'bcryptjs';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/app.js';
+import { MemoryStorage } from '../src/storage/storage.js';
 import { loadConfig } from '../src/config.js';
 import { MemoryMailer, type Mailer } from '../src/mail/mailer.js';
 import { issueEmailToken } from '../src/auth/tokens.js';
@@ -25,7 +26,7 @@ beforeAll(async () => {
     },
   };
   const config = loadConfig({ DATABASE_URL: 'postgresql://x/x', BARA_SERVICE_KEY: KEY });
-  app = buildApp({ config, pool: ctx.pool, mailer: flaky });
+  app = buildApp({ config, pool: ctx.pool, mailer: flaky, storage: new MemoryStorage() });
   await app.ready();
 });
 afterAll(async () => {

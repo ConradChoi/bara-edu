@@ -2,6 +2,7 @@ import { afterAll, beforeAll, expect, test } from 'vitest';
 import { z } from 'zod';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/app.js';
+import { MemoryStorage } from '../src/storage/storage.js';
 import { MemoryMailer } from '../src/mail/mailer.js';
 import { loadConfig } from '../src/config.js';
 import { createSession } from '../src/auth/sessions.js';
@@ -24,7 +25,7 @@ const dup = defineOp({
 beforeAll(async () => {
   ctx = await setupTestDb();
   const config = loadConfig({ DATABASE_URL: 'postgresql://x/x', BARA_SERVICE_KEY: KEY });
-  app = buildApp({ config, pool: ctx.pool, mailer: new MemoryMailer(), logger: { level: 'info', stream: { write: (l: string) => void lines.push(l) } } }, [dup]);
+  app = buildApp({ config, pool: ctx.pool, mailer: new MemoryMailer(), storage: new MemoryStorage(), logger: { level: 'info', stream: { write: (l: string) => void lines.push(l) } } }, [dup]);
   await app.ready();
 });
 afterAll(async () => {

@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, expect, test } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/app.js';
+import { MemoryStorage } from '../src/storage/storage.js';
 import { MemoryMailer } from '../src/mail/mailer.js';
 import { loadConfig } from '../src/config.js';
 import { createSession } from '../src/auth/sessions.js';
@@ -21,7 +22,7 @@ beforeAll(async () => {
   await ctx.adminPool.query('insert into auth.users (id, email, raw_user_meta_data) values ($1, $2, $3)', [A, 'hong@example.com', JSON.stringify({ name: '홍길동' })]);
   tokenA = (await createSession(ctx.pool, A, 30)).token;
   await ctx.adminPool.query(`insert into courses (id, title, slug, fee, status) values ($1, '도형심리 1급', 'shape-1', 150000, 'active')`, [C1]);
-  app = buildApp({ config, pool: ctx.pool, mailer: new MemoryMailer() });
+  app = buildApp({ config, pool: ctx.pool, mailer: new MemoryMailer(), storage: new MemoryStorage() });
   await app.ready();
 });
 afterAll(async () => {
