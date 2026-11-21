@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation';
-import { createClient } from '@/lib/supabase/server';
+import { createClient } from '@/lib/db/server';
 
 // Admin 서버 액션은 지금까지 로그인 여부조차 확인하지 않고 RLS(is_admin())와
 // proxy.ts 미들웨어(경로 기반 /admin 차단)에만 의존하고 있었다 — module-lms-5의

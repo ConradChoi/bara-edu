@@ -9,7 +9,8 @@ import { getKstStartOfDaysAgoIso, getKstStartOfTodayIso, getKstStartOfWeekIso, f
 import { createAdminClient } from '@/lib/supabase/admin';
 import { verifyRevealToken } from '@/lib/supabase/admin-pii-reveal';
 import { requireAdminClient } from '@/lib/supabase/require-admin';
-import { createClient } from '@/lib/supabase/server';
+import { createClient } from '@/lib/db/server';
+import { groupBy, selectIn } from '@/lib/db/embed';
 import {
   deriveStatus,
   collectDescendantIds,
@@ -352,13 +353,32 @@ async function getApprovedEnrollmentProgressStats(): Promise<ApprovedEnrollmentP
 
   const { data: enrollmentRows, error: enrollmentError } = await supabase
     .from('enrollments')
-    .select(
-      'user_id, course_id, profiles(name), courses(title, requires_exam, exam_max_attempts, lessons(id, has_assignment), course_exam_question_links(id))'
-    )
+    .select('user_id, course_id, profiles(name), courses(title, requires_exam, exam_max_attempts)')
     .eq('status', 'approved');
   if (enrollmentError) throw new Error(enrollmentError.message);
 
-  const rows = enrollmentRows as unknown as {
+  // 새 API는 관계 안의 관계를 지원하지 않아 강의·시험문항은 강좌 id로 따로 조회해 붙인다.
+  const baseRows = enrollmentRows as {
+    user_id: string;
+    course_id: string;
+    profiles: { name: string };
+    courses: { title: string; requires_exam: boolean; exam_max_attempts: number | null } | null;
+  }[];
+  const courseIds = baseRows.map((r) => r.course_id);
+  const [lessonRows, linkRows] = await Promise.all([
+    selectIn<{ id: string; course_id: string; has_assignment: boolean }>(supabase, 'lessons', 'id, course_id, has_assignment', 'course_id', courseIds),
+    selectIn<{ id: string; course_id: string }>(supabase, 'course_exam_question_links', 'id, course_id', 'course_id', courseIds),
+  ]);
+  const lessonsByCourse = groupBy(lessonRows, (l) => l.course_id);
+  const linksByCourse = groupBy(linkRows, (l) => l.course_id);
+  const rows = baseRows.map((r) => ({
+    ...r,
+    courses: r.courses && {
+      ...r.courses,
+      lessons: (lessonsByCourse.get(r.course_id) ?? []).map((l) => ({ id: l.id, has_assignment: l.has_assignment })),
+      course_exam_question_links: (linksByCourse.get(r.course_id) ?? []).map((l) => ({ id: l.id })),
+    },
+  })) as {
     user_id: string;
     course_id: string;
     profiles: { name: string };
@@ -1262,15 +1282,35 @@ export async function getCourseExamQuestionsForCourse(courseId: string): Promise
   const supabase = await createClient();
   const { data, error } = await supabase
     .from('course_exam_question_links')
-    .select(
-      'id, bank_question_id, order, exam_question_bank(question, question_type, answer_text, exam_bank_options(id, label, is_correct, order))'
-    )
+    .select('id, bank_question_id, order, exam_question_bank(question, question_type, answer_text)')
     .eq('course_id', courseId)
     .order('order', { ascending: true });
   if (error) throw new Error(error.message);
 
+  // 보기는 관계 안의 관계라 문항 id로 따로 조회해 붙인다.
+  const links = data as {
+    id: string;
+    bank_question_id: string;
+    order: number;
+    exam_question_bank: { question: string; question_type: AdminExamQuestionType; answer_text: string | null } | null;
+  }[];
+  const optionRows = await selectIn<{ id: string; bank_question_id: string; label: string; is_correct: boolean; order: number }>(
+    supabase,
+    'exam_bank_options',
+    'id, bank_question_id, label, is_correct, order',
+    'bank_question_id',
+    links.map((l) => l.bank_question_id)
+  );
+  const optionsByQuestion = groupBy(optionRows, (o) => o.bank_question_id);
+
   return (
-    data as unknown as {
+    links.map((l) => ({
+      ...l,
+      exam_question_bank: l.exam_question_bank && {
+        ...l.exam_question_bank,
+        exam_bank_options: (optionsByQuestion.get(l.bank_question_id) ?? []).map((o) => ({ id: o.id, label: o.label, is_correct: o.is_correct, order: o.order })),
+      },
+    })) as {
       id: string;
       bank_question_id: string;
       order: number;
@@ -1346,12 +1386,26 @@ export async function getAdminAssignmentSubmissions(filters?: {
   const { data, error } = await supabase
     .from('assignment_submissions')
     .select(
-      'id, user_id, lesson_id, status, content, is_late, submitted_at, review_note, profiles(name, email), lessons(title, course_id, courses(title))'
+      'id, user_id, lesson_id, status, content, is_late, submitted_at, review_note, profiles(name, email), lessons(title, course_id)'
     )
     .order('submitted_at', { ascending: false });
   if (error) throw new Error(error.message);
 
-  const rows = data as unknown as {
+  // 강좌 제목은 관계 안의 관계라 강좌 id로 따로 조회해 붙인다.
+  const baseRows = data as { lessons: { title: string; course_id: string } | null }[];
+  const courseRows = await selectIn<{ id: string; title: string }>(
+    supabase,
+    'courses',
+    'id, title',
+    'id',
+    baseRows.flatMap((r) => (r.lessons ? [r.lessons.course_id] : []))
+  );
+  const courseById = new Map(courseRows.map((c) => [c.id, { title: c.title }]));
+
+  const rows = baseRows.map((r) => ({
+    ...r,
+    lessons: r.lessons && { ...r.lessons, courses: courseById.get(r.lessons.course_id) ?? null },
+  })) as unknown as {
     id: string;
     user_id: string;
     lesson_id: string;

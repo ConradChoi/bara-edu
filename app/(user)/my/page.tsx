@@ -9,7 +9,7 @@ import {
 } from '@/lib/supabase/classroom-queries';
 import { getMyDiagnosisResults } from '@/lib/supabase/diagnosis-queries';
 import { getMyEnrollments, type MyEnrollment } from '@/lib/supabase/queries';
-import { createClient } from '@/lib/supabase/server';
+import { createClient } from '@/lib/db/server';
 import type { EnrollmentStatus } from '@/lib/types';
 import { DIAGNOSIS_TIER_LABELS, type DiagnosisTier } from '@/data/diagnosis/config';
 

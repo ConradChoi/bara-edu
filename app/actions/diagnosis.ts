@@ -2,7 +2,7 @@
 
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
-import { createClient } from '@/lib/supabase/server';
+import { createClient } from '@/lib/db/server';
 import { getLegalDocument } from '@/lib/supabase/queries';
 import { DIAGNOSIS_QUESTIONS } from '@/data/diagnosis/questions';
 import { RECENT_SUBMIT_COOKIE } from '@/data/diagnosis/config';

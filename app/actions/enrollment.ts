@@ -3,7 +3,7 @@
 import { redirect } from 'next/navigation';
 import { detectImageMimeType } from '@/lib/image-validation';
 import { getApprovedSeatsTaken } from '@/lib/supabase/queries';
-import { createClient } from '@/lib/supabase/server';
+import { createClient } from '@/lib/db/server';
 
 const PAYMENT_WINDOW_MS = 3 * 24 * 60 * 60 * 1000; // flows.md Q2: 입금 기한 3일
 

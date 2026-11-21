@@ -1,7 +1,7 @@
 import { notFound, redirect } from 'next/navigation';
 import ClassroomAccessNotice from '@/components/classroom/ClassroomAccessNotice';
 import { getClassroomAccess, getCourseForClassroom, getLessonsForClassroom } from '@/lib/supabase/classroom-queries';
-import { createClient } from '@/lib/supabase/server';
+import { createClient } from '@/lib/db/server';
 
 // 첫 강의로 리다이렉트하는 진입점. 미승인이면 접근 차단 안내(F-LRN-6)를 여기서 보여준다.
 export default async function ClassroomEntryPage({ params }: { params: Promise<{ courseId: string }> }) {

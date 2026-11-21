@@ -8,7 +8,7 @@ import DiagnosisBanner from '@/components/home/DiagnosisBanner';
 import HeroBanner from '@/components/home/HeroBanner';
 import NoticeModal from '@/components/home/NoticeModal';
 import RecoveryRedirect from '@/components/auth/RecoveryRedirect';
-import { createClient } from '@/lib/supabase/server';
+import { createClient } from '@/lib/db/server';
 
 // app/page.tsx에서 이 (public) 그룹으로 옮겨왔다 — 홈도 (public)/layout.tsx의 AppHeader
 // (세션에 따라 로그인/마이페이지 전환)와 전역 Footer를 상속받아야 하기 때문이다

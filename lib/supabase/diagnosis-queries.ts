@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server';
+import { createClient } from '@/lib/db/server';
 import type { DiagnosisTier } from '@/data/diagnosis/config';
 
 // 도형심리 역량진단(/selfcheck) 학습자·비회원 공용 조회. 전부 SECURITY DEFINER RPC를

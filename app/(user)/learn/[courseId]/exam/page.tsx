@@ -15,7 +15,7 @@ import {
   getProgressLessonIds,
 } from '@/lib/supabase/classroom-queries';
 import { getCourseMaterialsForCourse } from '@/lib/supabase/queries';
-import { createClient } from '@/lib/supabase/server';
+import { createClient } from '@/lib/db/server';
 
 export async function generateMetadata({ params }: { params: Promise<{ courseId: string }> }): Promise<Metadata> {
   const { courseId } = await params;

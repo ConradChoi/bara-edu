@@ -1,7 +1,7 @@
 'use server';
 
 import { redirect } from 'next/navigation';
-import { createClient } from '@/lib/supabase/server';
+import { createClient } from '@/lib/db/server';
 
 // 자격시험(module-lms-9, 2026-09-09; 2026-09-11 주관식 추가) 학습자 액션. 채점/게이팅
 // (진도·과제·잔여횟수·기합격 여부)은 전부 submit_course_exam() RPC가 서버에서 auth.uid()

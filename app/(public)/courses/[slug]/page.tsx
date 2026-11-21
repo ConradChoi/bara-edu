@@ -12,7 +12,7 @@ import {
   getMyEnrollmentForCourse,
   getPublicLessonsForCourse,
 } from '@/lib/supabase/queries';
-import { createClient } from '@/lib/supabase/server';
+import { createClient } from '@/lib/db/server';
 import type { CourseScheduleType, LessonMode } from '@/lib/types';
 
 const LESSON_MODE_LABEL: Record<LessonMode, string> = { video: '영상', online: '온라인', offline: '오프라인' };

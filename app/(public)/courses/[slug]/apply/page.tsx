@@ -4,7 +4,7 @@ import { notFound, redirect } from 'next/navigation';
 import { applyToCourse } from '@/app/actions/enrollment';
 import BankAccountList from '@/components/enrollment/BankAccountList';
 import { getApprovedSeatsTaken, getCourseBySlug, getMyContactInfo, getMyEnrollmentForCourse } from '@/lib/supabase/queries';
-import { createClient } from '@/lib/supabase/server';
+import { createClient } from '@/lib/db/server';
 
 export const metadata: Metadata = { title: '신청 확인 | 바라 평생교육원' };
 

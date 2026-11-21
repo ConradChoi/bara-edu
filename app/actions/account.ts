@@ -3,7 +3,7 @@
 import { randomUUID } from 'node:crypto';
 import { redirect } from 'next/navigation';
 import { detectImageMimeType } from '@/lib/image-validation';
-import { createClient } from '@/lib/supabase/server';
+import { createClient } from '@/lib/db/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { hasIncompleteApprovedEnrollment } from '@/lib/supabase/classroom-queries';
 import { WITHDRAWAL_REASONS } from '@/data/account-settings';

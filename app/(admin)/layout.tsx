@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
 import AdminShell from '@/components/admin/AdminShell';
-import { createClient } from '@/lib/supabase/server';
+import { createClient } from '@/lib/db/server';
 
 // role='admin' 검증은 proxy.ts 미들웨어(lib/supabase/proxy.ts)가 이미 수행하지만, 서버
 // 액션마다 requireAdminClient()로 재검증하게 만든 것과 같은 이유로 레이아웃 자체도

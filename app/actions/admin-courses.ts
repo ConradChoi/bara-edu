@@ -4,10 +4,8 @@ import { redirect } from 'next/navigation';
 import { requireAdminClient } from '@/lib/supabase/require-admin';
 import { getCertificateCountsByCourse, getEnrollmentCountsByCourse } from '@/lib/supabase/admin-queries';
 import { parseKstDatetimeLocal } from '@/lib/kst';
-import type { SupabaseClient } from '@supabase/supabase-js';
+import type { DbClient } from '@/lib/db/server';
 import type { CourseScheduleType, CourseStatus } from '@/lib/types';
-
-type SupabaseServerClient = SupabaseClient;
 
 // 강좌 관리 (F-ADMC-1~4). category_id/course_id FK에 ON DELETE 절이 없어 참조가 있는
 // 상태로 삭제를 시도하면 raw FK 에러(23503)가 난다 — 미리 참조 건수를 확인해 친절한
@@ -27,7 +25,7 @@ function readOptionalDateField(formData: FormData, name: string): string | null 
 // courseId의 카테고리를 1Depth 조상까지 거슬러 올라가 is_certification을 확인한다
 // (최대 3Depth라 최대 2번만 상위로 이동). categories 테이블 조회 실패/미존재 시 false로
 // 안전하게 취급한다.
-async function getCategoryIsCertification(supabase: SupabaseServerClient, categoryId: string): Promise<boolean> {
+async function getCategoryIsCertification(supabase: DbClient, categoryId: string): Promise<boolean> {
   let currentId: string | null = categoryId;
   for (let i = 0; i < 3 && currentId; i++) {
     const result = await supabase.from('categories').select('parent_id, depth, is_certification').eq('id', currentId).maybeSingle();
@@ -39,7 +37,7 @@ async function getCategoryIsCertification(supabase: SupabaseServerClient, catego
   return false;
 }
 
-async function readCourseFields(supabase: SupabaseServerClient, formData: FormData) {
+async function readCourseFields(supabase: DbClient, formData: FormData) {
   const title = (formData.get('title') as string | null)?.trim();
   const slug = (formData.get('slug') as string | null)?.trim();
   const categoryId = (formData.get('categoryId') as string | null) || null;

@@ -3,7 +3,7 @@
 // error 시 throw)을 따르되, 강의실 전용 조회가 많아 파일을 분리했다.
 
 import { COURSE_COLUMNS, getMyEnrollmentForCourse, mapCourseRow, type CourseRow } from '@/lib/supabase/queries';
-import { createClient } from '@/lib/supabase/server';
+import { createClient } from '@/lib/db/server';
 import type {
   AssignmentSubmissionStatus,
   Course,
