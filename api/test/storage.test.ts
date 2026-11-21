@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, expect, test } from 'vitest';
 import type { FastifyInstance } from 'fastify';
-import { PutObjectCommand, DeleteObjectCommand, GetObjectCommand, type S3Client } from '@aws-sdk/client-s3';
+import { PutObjectCommand, DeleteObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { buildApp } from '../src/app.js';
 import { MemoryMailer } from '../src/mail/mailer.js';
 import { MemoryStorage } from '../src/storage/storage.js';
@@ -143,8 +143,9 @@ test('S3Storage: 주입한 클라이언트에 올바른 Bucket/Key/ContentType �
   expect(sent[0].input).toMatchObject({ Bucket: 'bkt', Key: 'u/a.png', ContentType: 'image/png' });
   expect(sent[1]).toBeInstanceOf(DeleteObjectCommand);
   expect(sent[1].input).toEqual({ Bucket: 'bkt', Key: 'u/a.png' });
-  const real = new S3Storage('bkt', 'ap-northeast-2');
-  const url = await real.signedUrl('u/a.png', 60).catch(() => 'no-creds');
-  if (url !== 'no-creds') expect(url).toContain('X-Amz-Expires=60');
-  expect(GetObjectCommand).toBeDefined();
+  const local = new S3Client({ region: 'ap-northeast-2', credentials: { accessKeyId: 'test', secretAccessKey: 'test' } });
+  const url = new URL(await new S3Storage('bkt', 'ap-northeast-2', local).signedUrl('0123/photo', 60));
+  expect(url.searchParams.get('X-Amz-Expires')).toBe('60');
+  expect(url.host + url.pathname).toContain('bkt');
+  expect(url.pathname).toContain('0123/photo');
 });
