@@ -30,8 +30,13 @@ beforeEach(async () => {
   await ctx.adminPool.query('truncate auth.rate_events');
 });
 
-const post = (url: string, payload: unknown, headers: Record<string, string> = {}) =>
-  app.inject({ method: 'POST', url, payload: payload as object, headers: { 'x-bara-service-key': KEY, ...headers } });
+const flushMail = () => new Promise<void>((r) => setImmediate(r));
+
+const post = async (url: string, payload: unknown, headers: Record<string, string> = {}) => {
+  const res = await app.inject({ method: 'POST', url, payload: payload as object, headers: { 'x-bara-service-key': KEY, ...headers } });
+  await flushMail();
+  return res;
+};
 
 const signup = (over: Record<string, unknown> = {}, headers: Record<string, string> = {}) =>
   post('/v1/auth/signup', { email: `new${++n}@bara-edu.kr`, password: 'password1', name: '홍길동', phone: '010-1234-5678', origin: ORIGIN, ...over }, headers);
@@ -205,9 +210,8 @@ test('signup: IP당 1시간 10회, 11번째는 429 (x-bara-client-ip 기준)', a
   expect((await signup({}, { 'x-bara-client-ip': '203.0.113.8' })).statusCode).toBe(200);
 });
 
-test('signup: client-ip 헤더가 없으면 request.ip 사용', async () => {
-  for (let i = 0; i < 10; i++) await signup();
-  expect((await signup()).statusCode).toBe(429);
+test('signup: client-ip 헤더가 없으면 IP 제한을 걸지 않는다', async () => {
+  for (let i = 0; i < 12; i++) expect((await signup()).statusCode).toBe(200);
 });
 
 test('resend: 없는 이메일도 200 동일 응답, 메일 0통', async () => {

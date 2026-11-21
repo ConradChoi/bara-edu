@@ -1,18 +1,21 @@
 import { buildApp } from './app.js';
 import { loadConfig } from './config.js';
 import { createPool } from './db/pool.js';
+import { SESv2Client } from '@aws-sdk/client-sesv2';
 import type { Mailer } from './mail/mailer.js';
+import { SesMailer } from './mail/ses.js';
 import type { Storage } from './storage/storage.js';
 import { S3Storage } from './storage/s3.js';
 
 const config = loadConfig(process.env);
 const pool = createPool(config.databaseUrl);
-// SES mailer lands in the next plan; fail loudly instead of dropping mail silently
-const mailer: Mailer = {
-  async send() {
-    throw new Error('mailer not configured');
-  },
-};
+const mailer: Mailer = process.env.MAIL_FROM
+  ? new SesMailer(new SESv2Client({ region: config.awsRegion }), process.env.MAIL_FROM)
+  : {
+      async send() {
+        throw new Error('mailer not configured');
+      },
+    };
 const storage: Storage = config.s3Bucket
   ? new S3Storage(config.s3Bucket, config.awsRegion)
   : {

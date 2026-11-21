@@ -15,6 +15,13 @@ npm run db:down    # 컨테이너와 볼륨 삭제
 DATABASE_URL=... BARA_SERVICE_KEY=... npm start   # 서버 실행 (기본 포트 3100)
 ```
 
+스키마 적용(관리자 계정 `DATABASE_ADMIN_URL`로 실행, 빌드 포함):
+
+```
+DATABASE_ADMIN_URL=... BARA_APP_DB_PASSWORD=... npm run db:bootstrap   # 역할(00-roles.sql)만, 최초 1회. BARA_APP_DB_PASSWORD가 있을 때만 bara_edu_app 비밀번호를 설정
+DATABASE_ADMIN_URL=... npm run db:migrate                              # 01~03, 매번 실행 가능, 역할 비밀번호는 건드리지 않음
+```
+
 테스트는 실행마다 임시 데이터베이스를 만들어 스키마(`db/`)를 적용하고 끝나면 지운다.
 
 ## 환경변수
@@ -26,12 +33,15 @@ DATABASE_URL=... BARA_SERVICE_KEY=... npm start   # 서버 실행 (기본 포트
 | `PORT` | | `3100` | 수신 포트(1~65535 정수) |
 | `SESSION_TTL_DAYS` | | `30` | 세션 유효 일수(1~3650 정수) |
 | `SITE_ORIGINS` | | `https://bara-edu.kr` | 메일 링크에 허용하는 사이트 주소(쉼표 구분) |
+| `MAIL_FROM` | | - | 있으면 SES(서울 등 `AWS_REGION`)로 메일 발송, 발신 예: `바라평생교육원 <no-reply@bara-edu.kr>`. 없으면 메일 발송은 실패로 로그만 남는다 |
 | `LOG_LEVEL` | | `info` | 로그 수준(`fatal`/`error`/`warn`/`info`/`debug`/`trace`/`silent`). 오류 로그에는 pg `detail`·쿼리 값, `x-bara-service-key`·`x-bara-session` 헤더가 남지 않는다 |
 
 ## 공통 규칙
 
 - `/healthz`를 뺀 모든 경로는 `x-bara-service-key`가 맞아야 한다(아니면 401 `unauthorized_service`).
 - 로그인 세션은 `x-bara-session` 헤더로 보낸다.
+- 앱은 사용자 IP를 `x-bara-client-ip`로 전달한다. 이 헤더 기준으로 `signup` IP당 1시간 10회, `resend`·`request-reset` 각각 IP당 1시간 20회, `login` IP당 15분 50회(초과 429 `rate_limited`). 헤더가 없거나 비어 있으면 IP 제한은 걸지 않는다(이메일 기준 제한은 그대로).
+- `signup`·`resend`·`request-reset`·관리자 `send-reset`의 메일은 응답 뒤에 발송한다. 발송 실패는 로그(오류 이름만)에만 남고 응답에는 드러나지 않는다(관리자 `send-reset`의 `mailSent`는 발송 접수 의미로 항상 `true`).
 - 오류 응답은 항상 `{ "error": { "code", "message" } }`. 코드: `unauthorized_service`(401), `unauthenticated`(401), `forbidden`(403), `validation`(400), `rate_limited`(429), `not_found`(404), `internal`(500, 내부 오류 문구는 노출하지 않음).
 
 ## 경로

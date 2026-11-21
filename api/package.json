@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "db:up": "docker compose -f docker-compose.test.yml up -d --wait",
+    "db:bootstrap": "npm run build && node dist/db/cli.js bootstrap",
+    "db:migrate": "npm run build && node dist/db/cli.js migrate",
     "db:down": "docker compose -f docker-compose.test.yml down -v",
     "test": "vitest run",
     "build": "tsc",
@@ -12,6 +14,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1173.0",
+    "@aws-sdk/client-sesv2": "^3.1175.0",
     "@aws-sdk/s3-request-presigner": "^3.1173.0",
     "bcryptjs": "^3.0.3",
     "fastify": "^5.0.0",

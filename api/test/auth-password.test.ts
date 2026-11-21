@@ -31,8 +31,13 @@ beforeEach(async () => {
   await ctx.adminPool.query('truncate auth.rate_events');
 });
 
-const post = (url: string, payload: unknown, headers: Record<string, string> = {}) =>
-  app.inject({ method: 'POST', url, payload: payload as object, headers: { 'x-bara-service-key': KEY, ...headers } });
+const flushMail = () => new Promise<void>((r) => setImmediate(r));
+
+const post = async (url: string, payload: unknown, headers: Record<string, string> = {}) => {
+  const res = await app.inject({ method: 'POST', url, payload: payload as object, headers: { 'x-bara-service-key': KEY, ...headers } });
+  await flushMail();
+  return res;
+};
 
 async function addUser(confirmed = true) {
   const email = `pw${++n}@bara-edu.kr`;

@@ -56,3 +56,12 @@ test('500 로그의 err에는 pg detail·파라미터가 없고, 서비스 키·
   expect(all).not.toContain(KEY);
   expect(all).not.toContain(s.token);
 });
+
+test('pg 오류 로그에는 message·stack이 없고 code·constraint·table만 남는다', () => {
+  const errEntry = lines.map((l) => JSON.parse(l)).find((e) => e.err);
+  expect(errEntry.err).not.toHaveProperty('message');
+  expect(errEntry.err).not.toHaveProperty('stack');
+  expect(errEntry.err.code).toBe('23505');
+  expect(errEntry.err.constraint).toEqual(expect.any(String));
+  expect(errEntry.err.table).toBe('users');
+});

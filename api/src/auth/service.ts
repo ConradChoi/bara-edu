@@ -1,9 +1,9 @@
 import type pg from 'pg';
 import { withService } from '../db/context.js';
-import type { Mailer } from '../mail/mailer.js';
+import type { MailMessage } from '../mail/mailer.js';
 import { randomBytes } from 'node:crypto';
 import { hashPassword, verifyPassword } from './passwords.js';
-import { release, reserve } from './rate-limit.js';
+import { hit, release, reserve } from './rate-limit.js';
 import { consumeEmailTokenIn, invalidateEmailTokensIn, issueEmailToken } from './tokens.js';
 import { createSession, revokeOtherSessionsIn } from './sessions.js';
 
@@ -11,9 +11,10 @@ type SignupInput = { email: string; password: string; name: string; phone?: stri
 
 const confirmLink = (origin: string, token: string) => `${origin}/auth/confirm?token=${token}`;
 
-export type MailErrorLogger = (err: unknown) => void;
+// queues the message for sending after the HTTP response; must not throw or await the send
+export type MailDeliver = (msg: MailMessage) => void;
 
-export async function signup(pool: pg.Pool, mailer: Mailer, input: SignupInput, onMailError: MailErrorLogger): Promise<'pending_confirmation' | 'already_registered'> {
+export async function signup(pool: pg.Pool, deliver: MailDeliver, input: SignupInput): Promise<'pending_confirmation' | 'already_registered'> {
   const passwordHash = await hashPassword(input.password);
   const meta = { name: input.name, ...(input.phone ? { phone: input.phone } : {}) };
   const r = await withService(pool, (tx) =>
@@ -25,17 +26,20 @@ export async function signup(pool: pg.Pool, mailer: Mailer, input: SignupInput, 
   );
   if (r.rowCount === 0) return 'already_registered';
   const token = await issueEmailToken(pool, r.rows[0].id, 'confirm');
-  await mailer.send({ to: input.email, template: 'confirm', link: confirmLink(input.origin, token) }).catch(onMailError);
+  deliver({ to: input.email, template: 'confirm', link: confirmLink(input.origin, token) });
   return 'pending_confirmation';
 }
 
-export async function resendConfirmation(pool: pg.Pool, mailer: Mailer, email: string, origin: string, onMailError: MailErrorLogger): Promise<void> {
+export async function resendConfirmation(pool: pg.Pool, deliver: MailDeliver, email: string, origin: string): Promise<void> {
   const r = await withService(pool, (tx) =>
     tx.query<{ id: string }>('select id from auth.users where lower(email) = $1 and email_confirmed_at is null', [email]),
   );
-  if (r.rowCount === 0) return;
+  if (r.rowCount === 0) {
+    await hit(pool, 'resend-miss', email, 1, 60);
+    return;
+  }
   const token = await issueEmailToken(pool, r.rows[0].id, 'confirm');
-  await mailer.send({ to: email, template: 'confirm', link: confirmLink(origin, token) }).catch(onMailError);
+  deliver({ to: email, template: 'confirm', link: confirmLink(origin, token) });
 }
 
 export async function verifyEmail(pool: pg.Pool, ttlDays: number, token: string): Promise<{ sessionToken: string; expiresAt: Date } | null> {
@@ -95,11 +99,14 @@ export async function changePassword(pool: pg.Pool, userId: string, currentToken
   return true;
 }
 
-export async function requestReset(pool: pg.Pool, mailer: Mailer, email: string, origin: string, onMailError: MailErrorLogger): Promise<void> {
+export async function requestReset(pool: pg.Pool, deliver: MailDeliver, email: string, origin: string): Promise<void> {
   const r = await withService(pool, (tx) => tx.query<{ id: string }>('select id from auth.users where lower(email) = $1', [email]));
-  if (r.rowCount === 0) return;
+  if (r.rowCount === 0) {
+    await hit(pool, 'reset-miss', email, 1, 60);
+    return;
+  }
   const token = await issueEmailToken(pool, r.rows[0].id, 'recovery');
-  await mailer.send({ to: email, template: 'recovery', link: `${origin}/reset-password?token=${token}` }).catch(onMailError);
+  deliver({ to: email, template: 'recovery', link: `${origin}/reset-password?token=${token}` });
 }
 
 export async function resetPassword(pool: pg.Pool, token: string, newPassword: string): Promise<boolean> {
@@ -124,16 +131,12 @@ export async function confirmEmailAsAdmin(pool: pg.Pool, userId: string): Promis
   return r.rowCount > 0;
 }
 
-export async function sendResetAsAdmin(pool: pg.Pool, mailer: Mailer, userId: string, origin: string, onMailError: MailErrorLogger): Promise<'not_found' | 'sent' | 'mail_failed'> {
+export async function sendResetAsAdmin(pool: pg.Pool, deliver: MailDeliver, userId: string, origin: string): Promise<'not_found' | 'queued'> {
   const r = await withService(pool, (tx) => tx.query<{ email: string }>('select email from auth.users where id = $1', [userId]));
   if (r.rowCount === 0) return 'not_found';
   const token = await issueEmailToken(pool, userId, 'recovery');
-  let failed = false;
-  await mailer.send({ to: r.rows[0].email, template: 'recovery', link: `${origin}/reset-password?token=${token}` }).catch((err) => {
-    failed = true;
-    onMailError(err);
-  });
-  return failed ? 'mail_failed' : 'sent';
+  deliver({ to: r.rows[0].email, template: 'recovery', link: `${origin}/reset-password?token=${token}` });
+  return 'queued';
 }
 
 export async function listConfirmations(pool: pg.Pool): Promise<Array<{ id: string; emailConfirmedAt: string | null }>> {
