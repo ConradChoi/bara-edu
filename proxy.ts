@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { apiFetch } from '@/lib/db/api';
-import { getSession } from '@/lib/db/auth';
+import { getSession, isDeadSession } from '@/lib/db/auth';
 
 const SESSION_COOKIE = 'bara_session';
 const USER_ROUTE_PREFIXES = ['/my', '/learn'];
@@ -39,7 +39,7 @@ export async function proxy(request: NextRequest) {
   const clientIp = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || null;
   const r = await getSession(token, clientIp);
 
-  if (!r.ok && r.status === 401) {
+  if (isDeadSession(r)) {
     return withoutSessionCookie(request, isProtected ? toSignIn(request, true) : null);
   }
   if (!r.ok) {

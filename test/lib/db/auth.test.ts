@@ -64,6 +64,8 @@ test('login 실패 사유: 401 메시지별, 429, 그 외', async () => {
   expect(await auth.login('a@b.kr', 'pw')).toEqual({ ok: false, reason: 'rate_limited' });
   fetchMock.mockRejectedValueOnce(new Error('down'));
   expect(await auth.login('a@b.kr', 'pw')).toEqual({ ok: false, reason: 'failed' });
+  fetchMock.mockResolvedValueOnce(apiError(401, 'unauthorized_service', '서비스 키가 올바르지 않습니다.'));
+  expect(await auth.login('a@b.kr', 'pw')).toEqual({ ok: false, reason: 'failed' });
   expect(store.set).not.toHaveBeenCalled();
 });
 
@@ -88,6 +90,13 @@ test('login 액션 문구: 잘못된 비밀번호·재설정 필요·429', async
   expect(await actions.login(undefined, form({ email: 'a@b.kr', password: 'pw' }))).toEqual({
     error: '잠시 후 다시 시도해주세요',
   });
+});
+
+test('login 액션: 서비스 키 오류(401 unauthorized_service)·503은 비밀번호 오류 문구가 아니다', async () => {
+  fetchMock.mockResolvedValueOnce(apiError(401, 'unauthorized_service', '서비스 키가 올바르지 않습니다.'));
+  expect(await actions.login(undefined, form({ email: 'a@b.kr', password: 'pw' }))).toEqual({ error: '잠시 후 다시 시도해주세요' });
+  fetchMock.mockRejectedValueOnce(new Error('down'));
+  expect(await actions.login(undefined, form({ email: 'a@b.kr', password: 'pw' }))).toEqual({ error: '잠시 후 다시 시도해주세요' });
 });
 
 test('login 액션 성공 → 안전한 redirect만 따른다', async () => {
@@ -186,4 +195,9 @@ test('마이페이지 비밀번호 변경: change-password 1회, 403 → current
   await expect(changePasswordAction(form(fields))).rejects.toThrow('REDIRECT:/my?settingsError=current-password-wrong');
   fetchMock.mockResolvedValueOnce(apiError(500, 'internal', '...'));
   await expect(changePasswordAction(form(fields))).rejects.toThrow('REDIRECT:/my?settingsError=failed');
+  fetchMock.mockResolvedValueOnce(apiError(401, 'unauthorized_service', '서비스 키가 올바르지 않습니다.'));
+  await expect(changePasswordAction(form(fields))).rejects.toThrow('REDIRECT:/my?settingsError=failed');
+  fetchMock.mockResolvedValueOnce(apiError(401, 'unauthenticated', '로그인이 필요합니다.'));
+  await expect(changePasswordAction(form(fields))).rejects.toThrow('REDIRECT:/sign-in');
+  expect(store.delete).not.toHaveBeenCalled();
 });

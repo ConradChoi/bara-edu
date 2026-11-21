@@ -16,6 +16,11 @@ export type LoginResult =
   | { ok: false; reason: 'invalid_credentials' | 'email_not_confirmed' | 'rate_limited' | 'failed' };
 export type ChangePasswordResult = { ok: true } | { ok: false; reason: 'wrong_current' | 'unauthenticated' | 'failed' };
 
+// a 401 can also be `unauthorized_service` (bad service key) — that is not the user's session
+export function isDeadSession(r: ApiResult<unknown>): boolean {
+  return !r.ok && r.status === 401 && r.error.code === 'unauthenticated';
+}
+
 export async function signUp(input: SignUpInput, origin: string): Promise<SignUpResult> {
   const r = await apiFetch<{ status: 'pending_confirmation' | 'already_registered' }>('/v1/auth/signup', {
     method: 'POST',
@@ -41,7 +46,7 @@ export async function login(email: string, password: string): Promise<LoginResul
     await writeSession(r.data.sessionToken, r.data.expiresAt);
     return { ok: true };
   }
-  if (r.status === 401) {
+  if (r.status === 401 && r.error.code === 'unauthenticated') {
     return { ok: false, reason: r.error.message === 'email_not_confirmed' ? 'email_not_confirmed' : 'invalid_credentials' };
   }
   return { ok: false, reason: r.status === 429 ? 'rate_limited' : 'failed' };
@@ -60,7 +65,7 @@ export async function changePassword(currentPassword: string, newPassword: strin
   const r = await apiFetch('/v1/auth/change-password', { method: 'POST', session, body: { currentPassword, newPassword } });
   if (r.ok) return { ok: true };
   if (r.status === 403) return { ok: false, reason: 'wrong_current' };
-  return { ok: false, reason: r.status === 401 ? 'unauthenticated' : 'failed' };
+  return { ok: false, reason: isDeadSession(r) ? 'unauthenticated' : 'failed' };
 }
 
 export async function requestReset(email: string, origin: string): Promise<boolean> {

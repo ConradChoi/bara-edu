@@ -106,3 +106,14 @@ test('proxy: API 503 → 보호 경로는 /sign-in으로 보내지 않고 쿠키
   expect(passedThrough(pub)).toBe(true);
   expect(cookieDeleted(pub)).toBe(false);
 });
+
+test('proxy: 서비스 키 오류(401 unauthorized_service)는 세션 만료가 아니다 — 쿠키 유지, 보호 경로 503, 공개 경로 통과', async () => {
+  fetchMock.mockImplementation(async () => json(401, { error: { code: 'unauthorized_service', message: 'x' } }));
+  const res = await proxy(request('/my', 'tok'));
+  expect(res.status).toBe(503);
+  expect(location(res)).toBeNull();
+  expect(cookieDeleted(res)).toBe(false);
+  const pub = await proxy(request('/', 'tok'));
+  expect(passedThrough(pub)).toBe(true);
+  expect(cookieDeleted(pub)).toBe(false);
+});

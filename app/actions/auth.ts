@@ -89,8 +89,8 @@ export async function login(
   const r = await auth.login(email, password);
   if (!r.ok) {
     if (r.reason === 'email_not_confirmed') return { pendingConfirmation: true, email };
-    if (r.reason === 'rate_limited') return { error: '잠시 후 다시 시도해주세요' };
-    return { error: '이메일 또는 비밀번호가 올바르지 않아요' };
+    if (r.reason === 'invalid_credentials') return { error: '이메일 또는 비밀번호가 올바르지 않아요' };
+    return { error: '잠시 후 다시 시도해주세요' };
   }
 
   redirect(redirectTo);
