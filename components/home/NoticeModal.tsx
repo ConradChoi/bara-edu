@@ -166,8 +166,6 @@ function shouldShowNotice(id: string, endsAt?: string): boolean {
     const end = Date.parse(endsAt);
     if (Number.isNaN(end) || Date.now() >= end) return false;
   }
-  // RecoveryRedirect가 다른 페이지로 보내는 해시와 같은 조건 — 곧 이동하므로 띄우지 않는다.
-  if (/type=recovery|type=signup|error=/.test(window.location.hash)) return false;
   try {
     const dismissedUntil = localStorage.getItem(dismissKey(id));
     if (dismissedUntil && Date.now() < Number(dismissedUntil)) return false;

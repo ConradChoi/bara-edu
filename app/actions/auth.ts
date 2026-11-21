@@ -2,19 +2,14 @@
 
 import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
-import { createClient } from '@/lib/db/server';
+import * as auth from '@/lib/db/auth';
 
 export type AuthFormState = { error: string } | { pendingConfirmation: true; email: string } | undefined;
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-// signUp()/resend()에 emailRedirectTo를 안 넘기면 Supabase 대시보드에 설정된 Site URL
-// 기본값으로 인증 메일 링크가 만들어진다 — 이 프로젝트는 로컬 개발 중 Site URL이
-// http://localhost:3000으로 설정된 채 그대로 운영에 배포되어, 실제 가입자가 인증
-// 메일을 눌러도 localhost로 이동하는 문제가 있었다(2026-08-28 사용자 리포트).
-// 요청이 실제로 들어온 호스트를 기준으로 매번 절대 URL을 계산해 명시적으로 넘기면
-// 로컬/스테이징/운영 어디서나 항상 올바른 도메인으로 돌아온다 — 다만 Supabase 대시보드의
-// "Redirect URLs" 허용 목록에 해당 도메인이 등록돼 있어야 실제로 반영된다(별도 확인 필요).
+// 인증·재설정 메일 링크의 도메인 — 요청이 실제로 들어온 호스트 기준(로컬/운영 모두 맞게).
+// API가 허용 목록(siteOrigins)에 없는 origin은 거부한다.
 async function getSiteOrigin(): Promise<string> {
   const headersList = await headers();
   const host = headersList.get('x-forwarded-host') ?? headersList.get('host') ?? 'localhost:3000';
@@ -56,36 +51,15 @@ export async function signup(
     return { error: '이용약관과 개인정보 수집·이용에 모두 동의해야 가입할 수 있어요' };
   }
 
-  const supabase = await createClient();
-  const { data, error } = await supabase.auth.signUp({
-    email,
-    password,
-    options: { data: { name, phone }, emailRedirectTo: await getSiteOrigin() },
-  });
-
-  if (error) {
-    return { error: '가입 중 문제가 발생했어요. 잠시 후 다시 시도해주세요' };
-  }
-
-  // 이미 가입된 이메일로 다시 가입 시도하면 에러 없이 성공한 것처럼 응답하되
-  // identities가 빈 배열로 온다 (Supabase anti-enumeration, Confirm email 설정과 무관).
-  if (data.user && data.user.identities && data.user.identities.length === 0) {
-    return { error: '이미 가입된 이메일이에요. 로그인해 주세요' };
-  }
-
-  // Confirm email이 켜진 프로젝트에서는 signUp() 직후 session이 없다 — 이메일의 인증
-  // 링크를 눌러야 세션이 생긴다(RecoveryRedirect가 그 링크의 #access_token 해시를
-  // 처리한다). 꺼져 있으면(과거 기본값) 이 시점에 이미 세션이 있으므로 바로 이동한다
-  // (Confirm email을 켠 2026-08-17 이후에도 두 설정 모두 안전하게 동작하도록 분기).
-  if (!data.session) {
-    return { pendingConfirmation: true, email };
-  }
-
-  redirect('/my');
+  const r = await auth.signUp({ email, password, name, phone }, await getSiteOrigin());
+  if (!r.ok) return { error: '가입 중 문제가 발생했어요. 잠시 후 다시 시도해주세요' };
+  if (r.status === 'already_registered') return { error: '이미 가입된 이메일이에요. 로그인해 주세요' };
+  // 가입 직후에는 세션이 없다 — 메일의 /auth/confirm 링크를 눌러야 세션이 생긴다.
+  return { pendingConfirmation: true, email };
 }
 
-// 인증 메일 링크가 만료됐거나(기본 24시간) 이미 사용된 경우를 위한 재전송. 존재하지
-// 않는/이미 인증된 이메일이어도 Supabase가 반환하는 에러를 그대로 노출하지 않고 같은
+// 인증 메일 링크가 만료됐거나 이미 사용된 경우를 위한 재전송. 존재하지
+// 않는/이미 인증된 이메일이어도 API는 같은 응답을 주고, 실패도 원인을 그대로 노출하지 않고 같은
 // 문구로 응답한다 — signup()의 "이미 가입된 이메일이에요"처럼 계정 존재 여부를 이
 // 화면에서까지 세밀하게 구분해 알려주지 않는다(이메일 열거 방지, security-officer 관점).
 export async function resendConfirmation(
@@ -95,14 +69,7 @@ export async function resendConfirmation(
   const email = (formData.get('email') as string | null)?.trim() ?? '';
   if (!EMAIL_RE.test(email)) return { error: '올바른 이메일 형식이 아니에요' };
 
-  const supabase = await createClient();
-  const { error } = await supabase.auth.resend({
-    type: 'signup',
-    email,
-    options: { emailRedirectTo: await getSiteOrigin() },
-  });
-
-  if (error) {
+  if (!(await auth.resend(email, await getSiteOrigin()))) {
     return { error: '인증 메일을 다시 보내지 못했어요. 잠시 후 다시 시도해주세요' };
   }
 
@@ -119,10 +86,10 @@ export async function login(
 
   if (!email || !password) return { error: '이메일과 비밀번호를 입력해주세요' };
 
-  const supabase = await createClient();
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
-
-  if (error) {
+  const r = await auth.login(email, password);
+  if (!r.ok) {
+    if (r.reason === 'email_not_confirmed') return { pendingConfirmation: true, email };
+    if (r.reason === 'rate_limited') return { error: '잠시 후 다시 시도해주세요' };
     return { error: '이메일 또는 비밀번호가 올바르지 않아요' };
   }
 
@@ -130,7 +97,25 @@ export async function login(
 }
 
 export async function logout() {
-  const supabase = await createClient();
-  await supabase.auth.signOut();
+  await auth.logout();
   redirect('/');
+}
+
+// 재설정 메일 링크(/reset-password?token=)의 토큰은 폼의 hidden input으로 넘어온다.
+export async function resetPassword(
+  _prevState: AuthFormState,
+  formData: FormData
+): Promise<AuthFormState> {
+  const token = (formData.get('token') as string | null) ?? '';
+  const password = (formData.get('password') as string | null) ?? '';
+  const confirm = (formData.get('confirm') as string | null) ?? '';
+
+  if (password.length < 8) return { error: '비밀번호는 8자 이상이어야 해요' };
+  if (password !== confirm) return { error: '비밀번호가 일치하지 않아요' };
+
+  if (!token || !(await auth.resetPassword(token, password))) {
+    return { error: '비밀번호 변경에 실패했어요. 링크가 만료됐을 수 있어요. 다시 요청해주세요.' };
+  }
+
+  redirect('/sign-in?reset=1');
 }

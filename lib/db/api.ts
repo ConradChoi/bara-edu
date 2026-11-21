@@ -26,14 +26,15 @@ function parseError(body: unknown): ApiError | null {
 
 export async function apiFetch<T>(
   path: string,
-  init: { method?: 'GET' | 'POST'; body?: unknown; session?: string | null },
+  init: { method?: 'GET' | 'POST'; body?: unknown; session?: string | null; clientIp?: string | null },
 ): Promise<ApiResult<T>> {
   const base = process.env.BARA_API_URL;
   if (!base) throw new Error('BARA_API_URL is not set');
 
   const reqHeaders: Record<string, string> = { 'x-bara-service-key': await getServiceKey() };
   if (init.session) reqHeaders['x-bara-session'] = init.session;
-  const ip = await clientIp();
+  // proxy passes the IP itself: next/headers isn't available there
+  const ip = init.clientIp !== undefined ? init.clientIp : await clientIp();
   if (ip) reqHeaders['x-bara-client-ip'] = ip;
   if (init.body !== undefined) reqHeaders['content-type'] = 'application/json';
 

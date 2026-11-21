@@ -7,7 +7,6 @@ import CourseSection from '@/components/home/CourseSection';
 import DiagnosisBanner from '@/components/home/DiagnosisBanner';
 import HeroBanner from '@/components/home/HeroBanner';
 import NoticeModal from '@/components/home/NoticeModal';
-import RecoveryRedirect from '@/components/auth/RecoveryRedirect';
 import { createClient } from '@/lib/db/server';
 
 // app/page.tsx에서 이 (public) 그룹으로 옮겨왔다 — 홈도 (public)/layout.tsx의 AppHeader
@@ -20,7 +19,6 @@ export default async function RootPage() {
   if (!isOpen) {
     return (
       <>
-        <RecoveryRedirect />
         <NoticeModal />
         <ComingSoon />
       </>
@@ -34,7 +32,6 @@ export default async function RootPage() {
 
   return (
     <>
-      <RecoveryRedirect />
       <NoticeModal />
       <HeroBanner isLoggedIn={Boolean(user)} />
       <DiagnosisBanner />

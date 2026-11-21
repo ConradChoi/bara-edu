@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { redirect } from 'next/navigation';
 import { detectImageMimeType } from '@/lib/image-validation';
 import { createClient } from '@/lib/db/server';
+import { changePassword as changeLoginPassword } from '@/lib/db/auth';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { hasIncompleteApprovedEnrollment } from '@/lib/supabase/classroom-queries';
 import { WITHDRAWAL_REASONS } from '@/data/account-settings';
@@ -132,30 +133,23 @@ export async function withdraw(formData: FormData) {
 }
 
 // 로그인 비밀번호 변경 (마이페이지 "계정", 대표 요청 2026-09-16 — 이름/휴대전화는 지원하지
-// 않되 비밀번호 변경은 필요). 이미 로그인된 세션이라 supabase.auth.updateUser()만으로도
-// 비밀번호를 바꿀 수 있지만, 그렇게 하면 자리를 비운 사이 남의 손에 들어간 브라우저에서
-// 곧바로 계정을 탈취(비밀번호를 바꿔 원 소유자를 로그아웃 상태로 만드는 것)당할 수 있다 —
-// 현재 비밀번호를 다시 확인해야만 바꿀 수 있게 한다(signInWithPassword로 재검증).
+// 않되 비밀번호 변경은 필요). 자리를 비운 사이 남의 손에 들어간 브라우저에서 곧바로 계정을
+// 탈취당하지 않도록 현재 비밀번호를 다시 확인해야만 바꿀 수 있다 — API의 change-password가
+// 현재 비밀번호를 검증하고, 다른 기기의 세션을 끊는다(지금 쓰는 쿠키는 그대로 유효).
 export async function changePassword(formData: FormData) {
   const currentPassword = (formData.get('currentPassword') as string | null) ?? '';
   const newPassword = (formData.get('newPassword') as string | null) ?? '';
   const confirmPassword = (formData.get('confirmPassword') as string | null) ?? '';
 
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user || !user.email) redirect('/sign-in');
-
   if (!currentPassword || newPassword.length < 8 || newPassword !== confirmPassword) {
     redirect('/my?settingsError=password-validation');
   }
 
-  const { error: reauthError } = await supabase.auth.signInWithPassword({ email: user.email, password: currentPassword });
-  if (reauthError) redirect('/my?settingsError=current-password-wrong');
-
-  const { error: updateError } = await supabase.auth.updateUser({ password: newPassword });
-  if (updateError) redirect('/my?settingsError=failed');
+  const r = await changeLoginPassword(currentPassword, newPassword);
+  if (!r.ok) {
+    if (r.reason === 'unauthenticated') redirect('/sign-in');
+    redirect(r.reason === 'wrong_current' ? '/my?settingsError=current-password-wrong' : '/my?settingsError=failed');
+  }
 
   redirect('/my?settingsSuccess=password');
 }

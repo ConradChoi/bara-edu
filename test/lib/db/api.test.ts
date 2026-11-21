@@ -53,6 +53,17 @@ test('세션·IP가 없으면 해당 헤더를 보내지 않는다 (headers() �
   expect(fetchMock.mock.calls[1][1].headers['x-bara-client-ip']).toBeUndefined();
 });
 
+test('clientIp를 넘기면 headers()를 쓰지 않고 그 값을 보낸다 (null이면 생략)', async () => {
+  headersThrows = true;
+  fetchMock.mockResolvedValue(json(200, {}));
+  await apiFetch('/v1/x', { clientIp: '198.51.100.2' });
+  expect(fetchMock.mock.calls[0][1].headers['x-bara-client-ip']).toBe('198.51.100.2');
+  headersThrows = false;
+  headerValues['x-forwarded-for'] = '203.0.113.7';
+  await apiFetch('/v1/x', { clientIp: null });
+  expect(fetchMock.mock.calls[1][1].headers['x-bara-client-ip']).toBeUndefined();
+});
+
 test('API 오류 응답 → ok:false + error 그대로', async () => {
   const error = { code: 'db_error', message: 'dup', sqlstate: '23505' };
   fetchMock.mockResolvedValue(json(400, { error }));

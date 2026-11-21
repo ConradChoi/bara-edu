@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { changePassword, updateContactInfo, withdraw } from '@/app/actions/account';
 import WithdrawForm from '@/components/mypage/WithdrawForm';
+import PendingClaimRedirect from '@/components/auth/PendingClaimRedirect';
 import {
   getCompletedEnrollmentsForUser,
   getMyCertificatesWithCourse,
@@ -101,6 +102,7 @@ export default async function MyPage({
     <div className="mx-auto max-w-[800px] px-6 py-10">
       <h1 className="text-[24px] font-semibold text-n-9">마이페이지</h1>
 
+      {welcome === '1' && <PendingClaimRedirect />}
       {welcome === '1' && (
         <div className="mt-4 rounded-md border border-success bg-success/10 px-3.5 py-3">
           <p className="text-[13px] font-semibold text-success">이메일 인증이 완료됐어요. 가입을 환영해요!</p>
