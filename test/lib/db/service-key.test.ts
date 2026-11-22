@@ -68,8 +68,8 @@ test('값이 비어 있으면 키를 노출하지 않는 오류로 throw', async
 });
 
 test('PII 열람 시크릿: 환경변수가 있으면 SSM을 부르지 않는다', async () => {
-  process.env.BARA_PII_REVEAL_SECRET = 'env-pii';
-  expect(await getPiiRevealSecret()).toBe('env-pii');
+  process.env.BARA_PII_REVEAL_SECRET = 'env-pii-'.padEnd(32, 'x');
+  expect(await getPiiRevealSecret()).toBe('env-pii-'.padEnd(32, 'x'));
   expect(send).not.toHaveBeenCalled();
 });
 
@@ -85,8 +85,23 @@ test('PII 열람 시크릿: 전용 파라미터를 읽고 서비스 키와 캐�
 
 test('PII 열람 시크릿: 실패는 고정 문구로 throw하고 캐시하지 않는다', async () => {
   process.env.BARA_PII_REVEAL_SECRET_PARAM = '/x/pii';
-  send.mockRejectedValueOnce(new Error('AccessDenied arn:...')).mockResolvedValueOnce({ Parameter: { Value: 'p2' } });
+  send.mockRejectedValueOnce(new Error('AccessDenied arn:...')).mockResolvedValueOnce({ Parameter: { Value: 'p2'.repeat(16) } });
   await expect(getPiiRevealSecret()).rejects.toThrow(/^pii reveal secret unavailable$/);
-  expect(await getPiiRevealSecret()).toBe('p2');
+  expect(await getPiiRevealSecret()).toBe('p2'.repeat(16));
   expect(commands.at(-1)).toEqual({ Name: '/x/pii', WithDecryption: true });
+});
+
+test('PII 열람 시크릿: 32바이트 미만은 값 없음과 같은 고정 오류로 거부하고 캐시하지 않는다', async () => {
+  process.env.BARA_PII_REVEAL_SECRET = 'short-env-secret';
+  await expect(getPiiRevealSecret()).rejects.toThrow(/^pii reveal secret unavailable$/);
+  delete process.env.BARA_PII_REVEAL_SECRET;
+
+  const long = 'x'.repeat(32);
+  send.mockResolvedValueOnce({ Parameter: { Value: 'x'.repeat(31) } }).mockResolvedValueOnce({ Parameter: { Value: long } });
+  await expect(getPiiRevealSecret()).rejects.toThrow(/^pii reveal secret unavailable$/);
+  expect(await getPiiRevealSecret()).toBe(long);
+
+  // 바이트 기준: 한글 11자 = 33바이트
+  process.env.BARA_PII_REVEAL_SECRET = '가'.repeat(11);
+  expect(await getPiiRevealSecret()).toBe('가'.repeat(11));
 });

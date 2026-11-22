@@ -52,9 +52,9 @@ const form = (fields: Record<string, string | File>) => {
 };
 const run = (p: Promise<unknown>) => p.then(() => 'no redirect', (e: Error) => e.message);
 const WITHDRAW_STEPS = [
+  '/v1/op/account.withdrawCleanup',
   '/v1/auth/withdraw-anonymize',
   'update:profiles',
-  '/v1/op/account.withdrawCleanup',
   '/v1/storage/member-photos/remove',
   '/v1/auth/logout-all',
 ];
@@ -74,7 +74,7 @@ beforeEach(() => {
   store.delete.mockClear();
 });
 
-test('withdraw: 경로 호출 순서가 anonymize → profiles update → withdrawCleanup → remove → logout-all', async () => {
+test('withdraw: 경로 호출 순서가 withdrawCleanup → anonymize → profiles update → remove → logout-all', async () => {
   expect(await run(withdraw(form({ reason: 'no_longer_needed' })))).toBe('REDIRECT:/?withdrawn=1');
   expect(steps()).toEqual(WITHDRAW_STEPS);
   expect(callTo('/v1/auth/withdraw-anonymize').init).toMatchObject({
@@ -95,24 +95,25 @@ test('withdraw: 경로 호출 순서가 anonymize → profiles update → withdr
   expect(store.delete).toHaveBeenCalledWith('bara_session');
 });
 
-test('withdraw: withdrawCleanup 실패 → /my?withdrawError=failed, logout-all 호출 안 함', async () => {
+test('withdraw: withdrawCleanup 실패 → /my?withdrawError=failed, anonymize·profiles update·logout-all 호출 안 함', async () => {
   failAt = '/v1/op/account.withdrawCleanup';
   expect(await run(withdraw(form({ reason: 'no_longer_needed' })))).toBe('REDIRECT:/my?withdrawError=failed');
-  expect(steps()).toEqual(WITHDRAW_STEPS.slice(0, 3));
+  expect(steps()).toEqual(WITHDRAW_STEPS.slice(0, 1));
   expect(store.delete).not.toHaveBeenCalled();
 });
 
 test('withdraw: anonymize 실패 → /my?withdrawError=failed, 이후 단계 없음', async () => {
   failAt = '/v1/auth/withdraw-anonymize';
   expect(await run(withdraw(form({ reason: 'no_longer_needed' })))).toBe('REDIRECT:/my?withdrawError=failed');
-  expect(steps()).toEqual(WITHDRAW_STEPS.slice(0, 1));
+  expect(steps()).toEqual(WITHDRAW_STEPS.slice(0, 2));
   expect(store.delete).not.toHaveBeenCalled();
 });
 
-test('withdraw: profiles update 실패 → /my?withdrawError=failed, cleanup 호출 안 함', async () => {
+test('withdraw: profiles update 실패 → /my?withdrawError=failed, 사진 삭제·logout-all 호출 안 함', async () => {
   failAt = 'update:profiles';
   expect(await run(withdraw(form({ reason: 'no_longer_needed' })))).toBe('REDIRECT:/my?withdrawError=failed');
-  expect(steps()).toEqual(WITHDRAW_STEPS.slice(0, 2));
+  expect(steps()).toEqual(WITHDRAW_STEPS.slice(0, 3));
+  expect(store.delete).not.toHaveBeenCalled();
 });
 
 test('withdraw: 사진 삭제·logout-all 실패는 무시하고 쿠키를 지운 뒤 성공 처리', async () => {
@@ -122,10 +123,10 @@ test('withdraw: 사진 삭제·logout-all 실패는 무시하고 쿠키를 지�
   expect(store.delete).toHaveBeenCalledWith('bara_session');
 });
 
-test('withdraw: 사진이 없으면 삭제 경로를 부르지 않는다', async () => {
+test('withdraw: photo_path가 null이어도 고정 키 <uid>/photo를 지운다', async () => {
   photoPath = null;
   expect(await run(withdraw(form({ reason: 'no_longer_needed' })))).toBe('REDIRECT:/?withdrawn=1');
-  expect(steps()).not.toContain('/v1/storage/member-photos/remove');
+  expect(callTo('/v1/storage/member-photos/remove').init.body).toEqual({ path: `${UID}/photo` });
 });
 
 test('사진 업로드 6MB → 기존 오류 문구', async () => {

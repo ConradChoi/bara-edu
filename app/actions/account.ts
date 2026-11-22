@@ -18,8 +18,8 @@ const PHOTO_ERROR = { 'too-large': 'photo-too-large', invalid: 'photo-invalid', 
 // API의 전용 경로(withdraw-anonymize, account.withdrawCleanup)가 본인 세션으로만 수행한다.
 //
 // 단계마다 결과를 확인하고 실패 시 즉시 중단한다(qa-reviewer 점검, 2026-08-06 — 조용한 부분
-// 실패로 "학습기록은 사라졌는데 계정은 살아있는" 상태가 되는 것을 방지). 가장 되돌리기 어려운
-// PII 조치(이메일 익명화)를 먼저 수행하고, 학습 이력 파기는 그 뒤에 한다. API 연결 실패로
+// 실패 방지). 순서는 학습 이력 파기 → 계정 익명화 → profiles 익명화 → 사진 삭제 → 전역
+// 로그아웃(R17) — 파기가 실패하면 계정이 그대로라 회원이 다시 시도할 수 있다. API 연결 실패로
 // 예외가 나도 액션 전체가 죽지 않고 기존 ?withdrawError=failed 배너로 끝나야 한다
 // (대표 리포트, 2026-09-16).
 //
@@ -43,11 +43,9 @@ export async function withdraw(formData: FormData) {
     redirect('/my?withdrawError=active-enrollment');
   }
 
-  // 탈퇴 후 profiles.photo_path를 null로 비우면 이 값을 잃어버리므로, 스토리지에서
-  // 실제 파일을 지우기 전에 미리 읽어둔다(주소/사진도 이름·이메일과 동일하게 즉시
-  // 파기 대상이다 — 2026-08-28, 자격증 발급용 사진/주소 수집 추가에 따른 확장).
-  const { data: contactRow } = await supabase.from('profiles').select('photo_path').eq('id', user.id).maybeSingle();
-  const photoPathToDelete = contactRow?.photo_path ?? null;
+  // 학습 이력 파기·역량진단 결과 익명화·문의 삭제(privacy-security-officer C-2, 2026-09-14).
+  // 계정 익명화보다 먼저 해야 실패해도 재시도할 수 있다(account.withdrawCleanup은 멱등).
+  if (!(await attempt(withdrawCleanup()))) redirect('/my?withdrawError=failed');
 
   const anonymizedEmail = `withdrawn+${user.id}@deleted.invalid`;
   if (!(await attempt(withdrawAnonymize(anonymizedEmail)))) redirect('/my?withdrawError=failed');
@@ -73,15 +71,10 @@ export async function withdraw(formData: FormData) {
   );
   if (!profileUpdated) redirect('/my?withdrawError=failed');
 
-  // 진도·퀴즈·과제·자격시험 기록 파기와 역량진단 결과 익명화·문의 삭제(privacy-security-officer
-  // C-2, 2026-09-14)는 API의 account.withdrawCleanup 한 번에 처리된다.
-  if (!(await attempt(withdrawCleanup()))) redirect('/my?withdrawError=failed');
-
-  if (photoPathToDelete) {
-    // 실패해도 탈퇴 자체를 막지는 않는다 — profiles.photo_path는 이미 null로 비워졌으니
-    // 개인정보 조회 경로는 차단됐고, 스토리지에 파일이 남는 것은 별도 정리(운영) 대상이다.
-    await removeMemberPhoto(photoPathToDelete);
-  }
+  // 사진(주소와 함께 즉시 파기 대상, 2026-08-28)은 DB 트리거·API가 키를 `<uid>/photo`로
+  // 고정하므로 photo_path 값과 무관하게 항상 지운다 — 앞선 부분 실패 후 재시도에서도 남지 않는다.
+  // 실패해도 탈퇴는 막지 않는다(photo_path는 이미 비워져 조회 경로가 없고, 남은 파일은 운영 정리 대상).
+  await removeMemberPhoto(`${user.id}/photo`);
 
   // 전역 로그아웃: 다른 기기/탭에 남아있던 세션까지 끊는다(security-officer 점검, 2026-08-08).
   // 계정은 이미 익명화됐으니 실패해도 탈퇴는 성공으로 끝낸다.
