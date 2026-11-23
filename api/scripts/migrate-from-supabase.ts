@@ -27,7 +27,12 @@ const AUTH_USER_COLUMNS = ['id', 'email', 'encrypted_password', 'email_confirmed
 const CHECKSUM_TABLES = ['profiles', 'enrollments', 'certificates', 'course_exam_submissions', 'diagnosis_results'];
 // rows the migrations seed into a fresh target; replaced by the source rows
 const SEEDED_TABLES = new Set(['diagnosis_course_links']);
+// same rule as the API storage routes (api/src/storage/routes.ts) plus no dot-only segment
 const API_PHOTO_PATH = /^[0-9a-f-]{36}\/[A-Za-z0-9._-]{1,100}$/;
+
+export function isSafePhotoKey(key: string): boolean {
+  return API_PHOTO_PATH.test(key) && key.split('/').every((seg) => seg !== '' && !/^\.+$/.test(seg));
+}
 
 const q = (ident: string) => `"${ident.replace(/"/g, '""')}"`;
 const LOCAL = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
@@ -159,16 +164,26 @@ export async function migrate(opts: MigrateOptions): Promise<number> {
   }
   const src = new pg.Client({ connectionString: opts.sourceUrl });
   const dst = new pg.Client({ connectionString: opts.targetUrl });
+  // an idle connection drop is emitted as 'error'; without a listener Node crashes. The next query then fails normally.
+  const lost: string[] = [];
+  src.on('error', () => lost.push('source'));
+  dst.on('error', () => lost.push('target'));
   let step = 'connect';
-  let targetOpen = false;
+  let target: 'none' | 'open' | 'committing' | 'committed' = 'none';
   try {
     await src.connect();
     await dst.connect();
     step = 'begin';
     await src.query('begin isolation level repeatable read read only');
+    // a policy that would hide source rows becomes an error instead of an undercount
+    await src.query('set local row_security = off');
     await dst.query('begin');
-    targetOpen = true;
+    target = 'open';
+    // must be set before the role switch: bara_edu_service cannot set it, and it stays in effect after set role
     await dst.query('set local session_replication_role = replica');
+    // the owner role sees every row (RLS does not apply to owners), so the empty check below cannot be fooled
+    await dst.query('set local role bara_edu_service');
+    await dst.query('set local row_security = off');
     await dst.query('set local statement_timeout = 0');
 
     step = 'catalog';
@@ -214,6 +229,26 @@ export async function migrate(opts: MigrateOptions): Promise<number> {
     const hs = h.rows[0]!;
     log(`password hashes: $2a$=${hs.a} $2b$=${hs.b} other=${hs.other} (password_reset_required on login: ${hs.reset})`);
     log(`unconfirmed email: ${hs.unconfirmed}`);
+
+    // for the operator to judge in rehearsal; these rows are copied like any other
+    step = 'source user flags';
+    const ucols = new Set(
+      (await src.query<{ c: string }>(`select column_name::text as c from information_schema.columns where table_schema = 'auth' and table_name = 'users'`)).rows.map(
+        (r) => r.c,
+      ),
+    );
+    const flags: [string, string, string][] = [
+      ['deleted_at', 'deleted_at', 'deleted_at is not null'],
+      ['banned_until', 'banned_until', 'banned_until is not null'],
+      ['null_email', 'email', 'email is null'],
+      ['is_anonymous', 'is_anonymous', 'is_anonymous is true'],
+    ];
+    const flagOut: string[] = [];
+    for (const [label, col, cond] of flags) {
+      const n = ucols.has(col) ? (await src.query<{ n: number }>(`select count(*)::int as n from auth.users where ${cond}`)).rows[0]!.n : 'n/a';
+      flagOut.push(`${label}=${n}`);
+    }
+    log(`source auth.users: ${flagOut.join(' ')}`);
 
     step = 'copy auth.users';
     const counts: { label: string; schema: string; table: string }[] = [{ label: 'auth.users', schema: 'auth', table: 'users' }];
@@ -280,14 +315,18 @@ export async function migrate(opts: MigrateOptions): Promise<number> {
     }
     if (mismatches) throw new MigrationFailure(`verification failed: ${mismatches} mismatches`);
 
+    step = 'photo paths';
+    const p = await src.query<{ id: string; photo_path: string }>(
+      `select id::text, photo_path from public.profiles where photo_path is not null and photo_path <> '' order by id`,
+    );
+    const nonStandard = p.rows.filter((r) => r.photo_path !== `${r.id}/photo`).length;
+    const rejected = p.rows.filter((r) => !isSafePhotoKey(r.photo_path)).length;
+    log(`photo paths: ${p.rowCount}, not <uid>/photo: ${nonStandard}, rejected (not an API photo key): ${rejected}`);
+
     if (opts.photos) {
       step = 'photos';
-      const p = await src.query<{ id: string; photo_path: string }>(
-        `select id::text, photo_path from public.profiles where photo_path is not null and photo_path <> '' order by id`,
-      );
-      const nonStandard = p.rows.filter((r) => r.photo_path !== `${r.id}/photo`).length;
-      const apiUnsigned = p.rows.filter((r) => !API_PHOTO_PATH.test(r.photo_path)).length;
-      log(`photos: ${p.rowCount} paths, not <uid>/photo: ${nonStandard}, not signable by API: ${apiUnsigned}`);
+      // keys go into a URL that carries the service key, so nothing is fetched unless every key is safe
+      if (rejected) throw new MigrationFailure(`photos refused: ${rejected} photo paths are not valid keys`);
       let uploaded = 0;
       let missing = 0;
       for (const r of p.rows) {
@@ -303,14 +342,17 @@ export async function migrate(opts: MigrateOptions): Promise<number> {
       if (uploaded !== p.rowCount) throw new MigrationFailure('photo count mismatch');
     }
 
-    step = 'commit';
-    await dst.query('commit');
-    targetOpen = false;
+    // the source is ended before the target commit so that nothing fallible runs after the commit
+    step = 'end source';
     await src.query('rollback');
+    step = 'commit';
+    if (lost.length) throw new MigrationFailure('connection lost before commit');
+    target = 'committing';
+    await dst.query('commit');
+    target = 'committed';
     log('migration done');
     return 0;
   } catch (err) {
-    if (targetOpen) await dst.query('rollback').catch(() => {});
     if (err instanceof MigrationFailure) {
       log(err.message);
     } else {
@@ -319,7 +361,19 @@ export async function migrate(opts: MigrateOptions): Promise<number> {
       const where = [e.table, e.column, e.constraint].filter(Boolean).join(' ');
       log(`failed at ${step}: ${e.code ?? e.name ?? 'error'}${where ? ` (${where})` : ''}`);
     }
-    log('target rolled back');
+    if (lost.length) log(`connection lost: ${[...new Set(lost)].join(', ')}`);
+    if (target === 'open') {
+      const rolledBack = await dst.query('rollback').then(
+        () => true,
+        () => false,
+      );
+      log(rolledBack ? 'target rolled back' : 'target not committed (connection lost; the server discards the open transaction)');
+    } else if (target === 'committing') {
+      // a server-side commit error (SQLSTATE present) means the transaction was rolled back; a dropped connection leaves it unknown
+      log((err as { code?: string }).code ? 'target rolled back (commit rejected)' : 'target commit status unknown: check whether the target is empty before re-running');
+    } else if (target === 'committed') {
+      log('target committed');
+    }
     return 1;
   } finally {
     await src.end().catch(() => {});
@@ -335,11 +389,14 @@ export class SupabaseStorageDownloader implements PhotoDownloader {
   ) {}
 
   async download(path: string): Promise<{ body: Buffer; contentType: string } | null> {
-    const key = path.split('/').map(encodeURIComponent).join('/');
+    if (!isSafePhotoKey(path)) throw new MigrationFailure('photo path rejected');
+    const [owner, file] = path.split('/') as [string, string];
+    const url = new URL(`/storage/v1/object/${this.bucket}/${encodeURIComponent(owner)}/${encodeURIComponent(file)}`, this.baseUrl);
+    if (url.pathname !== `/storage/v1/object/${this.bucket}/${owner}/${file}`) throw new MigrationFailure('photo path rejected');
     const headers: Record<string, string> = { apikey: this.serviceKey };
     // legacy service_role keys are JWTs and go in Authorization too; new sb_secret_ keys only in apikey
     if (this.serviceKey.startsWith('eyJ')) headers.authorization = `Bearer ${this.serviceKey}`;
-    const res = await fetch(`${this.baseUrl.replace(/\/+$/, '')}/storage/v1/object/${this.bucket}/${key}`, { headers });
+    const res = await fetch(url, { headers, redirect: 'error' });
     if (res.status === 400 || res.status === 404) return null;
     if (!res.ok) throw new MigrationFailure(`photo download failed: HTTP ${res.status}`);
     return { body: Buffer.from(await res.arrayBuffer()), contentType: res.headers.get('content-type') ?? 'application/octet-stream' };

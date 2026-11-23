@@ -1,10 +1,12 @@
+import { randomBytes } from 'node:crypto';
 import { afterAll, beforeAll, expect, test } from 'vitest';
+import pg from 'pg';
 import bcrypt from 'bcryptjs';
 import { buildApp } from '../src/app.js';
 import { loadConfig } from '../src/config.js';
 import { MemoryMailer } from '../src/mail/mailer.js';
 import { MemoryStorage } from '../src/storage/storage.js';
-import { isSameDatabase, migrate, type PhotoDownloader } from '../scripts/migrate-from-supabase.js';
+import { isSafePhotoKey, isSameDatabase, migrate, type PhotoDownloader } from '../scripts/migrate-from-supabase.js';
 import { setupTestDb } from './helpers/db.js';
 
 type Db = Awaited<ReturnType<typeof setupTestDb>>;
@@ -50,6 +52,7 @@ async function makeSupabaseLike(db: Db): Promise<void> {
       add column last_sign_in_at timestamptz,
       add column phone text,
       add column is_anonymous boolean not null default false,
+      add column banned_until timestamptz,
       alter column email drop not null;
     drop index auth.users_email_lower_key;`);
 }
@@ -74,6 +77,7 @@ async function seedSource(db: Db): Promise<void> {
     update profiles set role = 'admin', name = '대표 관리자' where id = '${ids.admin}';
     update profiles set photo_path = id::text || '/photo', address = '서울' where id = '${ids.learner}';
     update profiles set photo_path = id::text || '/avatar.png' where id = '${ids.unconfirmed}';
+    update auth.users set banned_until = '2099-01-01' where id = '${ids.noHash}';
     insert into categories (id, name, parent_id, depth) values ('${ids.root}', '도형심리', null, 1), ('${ids.child}', '1급', '${ids.root}', 2);
     insert into courses (id, slug, title, category_id, fee, status) values ('${ids.course}', 'shape-test-analysis-1', '1급 과정', '${ids.child}', 300000, 'active');
     insert into lessons (id, course_id, title) values ('${ids.lesson}', '${ids.course}', '1강');
@@ -104,10 +108,44 @@ beforeAll(async () => {
   await seedSource(source);
 }, 60_000);
 
+const masterRoles: string[] = [];
+
 afterAll(async () => {
   for (const t of targets) await t.close();
   await source?.close();
+  if (masterRoles.length) {
+    const root = new pg.Client({ connectionString: process.env.TEST_ADMIN_URL ?? 'postgres://postgres:postgres@localhost:54329/postgres' });
+    await root.connect();
+    for (const r of masterRoles) {
+      await root.query(`revoke set on parameter session_replication_role from ${r}`);
+      await root.query(`drop role ${r}`);
+    }
+    await root.end();
+  }
 });
+
+// RDS-like master: not a superuser; bootstrap grants it bara_edu_service with inherit false, set true,
+// and RDS lets rds_superuser set session_replication_role (here: grant set on parameter)
+async function masterUrl(target: Db): Promise<string> {
+  const role = `bara_mig_master_${randomBytes(4).toString('hex')}`;
+  const db = new URL(target.adminUrl).pathname.slice(1);
+  await target.adminPool.query(`create role ${role} login password 'master-pw' nosuperuser nobypassrls`);
+  masterRoles.push(role);
+  await target.adminPool.query(`grant bara_edu_service to ${role} with inherit false, set true`);
+  await target.adminPool.query(`grant set on parameter session_replication_role to ${role}`);
+  await target.adminPool.query(`grant connect on database ${db} to ${role}`);
+  const u = new URL(target.adminUrl);
+  u.username = role;
+  u.password = 'master-pw';
+  return u.toString();
+}
+
+const terminateIdleTx = (db: Db) =>
+  db.adminPool.query(
+    `select pg_terminate_backend(pid) from pg_stat_activity
+      where datname = current_database() and state = 'idle in transaction' and pid <> pg_backend_pid()`,
+  );
+const tick = () => new Promise((r) => setTimeout(r, 200));
 
 test('이관 후 테이블별 건수·체크섬 일치, exit 0', async () => {
   const target = await newTarget();
@@ -116,6 +154,7 @@ test('이관 후 테이블별 건수·체크섬 일치, exit 0', async () => {
   expect(lines).toContain('migration done');
   expect(lines).toContain('password hashes: $2a$=3 $2b$=0 other=1 (password_reset_required on login: 1)');
   expect(lines.some((l) => l.includes('MISMATCH'))).toBe(false);
+  expect(lines).toContain('source auth.users: deleted_at=n/a banned_until=1 null_email=0 is_anonymous=0');
   for (const t of ['profiles', 'enrollments', 'certificates', 'course_exam_submissions', 'diagnosis_results']) {
     expect(lines).toContain(`checksum ${t}: match`);
   }
@@ -231,7 +270,7 @@ test('--photos: 원본 photo_path 그대로 S3 키로 업로드, 건수 대조',
   const target = await newTarget();
   const { code, lines } = await run(target, { photos: { downloader, uploader } });
   expect(code, lines.join('\n')).toBe(0);
-  expect(lines).toContain('photos: 2 paths, not <uid>/photo: 1, not signable by API: 0');
+  expect(lines).toContain('photo paths: 2, not <uid>/photo: 1, rejected (not an API photo key): 0');
   expect(lines).toContain('photos: source=2 uploaded=2 missing=0');
   expect([...uploader.objects.keys()].sort()).toEqual([...objects.keys()].sort());
   expect(uploader.objects.get(`${ids.unconfirmed}/avatar.png`)).toEqual(objects.get(`${ids.unconfirmed}/avatar.png`));
@@ -256,4 +295,117 @@ test('원본에 대상에 없는 열이 있으면 시작하지 않음', async ()
   } finally {
     await source.adminPool.query('alter table public.categories drop column legacy_flag');
   }
+});
+
+test('RDS 마스터처럼 superuser가 아닌 역할로도 이관 성공, 비어 있지 않으면 거부', async () => {
+  const target = await newTarget();
+  const url = await masterUrl(target);
+  const { code, lines } = await run(target, { targetUrl: url });
+  expect(code, lines.join('\n')).toBe(0);
+  expect(lines.some((l) => l.includes('MISMATCH'))).toBe(false);
+  expect((await target.adminPool.query('select count(*)::int as n from profiles')).rows[0].n).toBe(4);
+
+  // diagnosis_leads has RLS and no policy for the master; the owner role still sees the row
+  const other = await newTarget();
+  const otherUrl = await masterUrl(other);
+  await other.adminPool.query(`insert into diagnosis_leads (name, contact, consent_contact) values ('x', 'y', true)`);
+  const refused = await run(other, { targetUrl: otherUrl });
+  expect(refused.code).toBe(1);
+  expect(refused.lines).toContain('refused: target is not empty (diagnosis_leads)');
+});
+
+test('session_replication_role은 역할 전환 전에만 설정 가능하고 전환 후에도 유지', async () => {
+  const target = await newTarget();
+  const c = new pg.Client({ connectionString: await masterUrl(target) });
+  await c.connect();
+  try {
+    await c.query('begin');
+    await c.query('set local session_replication_role = replica');
+    await c.query('set local role bara_edu_service');
+    expect((await c.query('show session_replication_role')).rows[0].session_replication_role).toBe('replica');
+    expect((await c.query('select current_user as u')).rows[0].u).toBe('bara_edu_service');
+    await c.query('rollback');
+
+    await c.query('begin');
+    await c.query('set local role bara_edu_service');
+    await expect(c.query('set local session_replication_role = replica')).rejects.toMatchObject({ code: '42501' });
+    await c.query('rollback');
+  } finally {
+    await c.end();
+  }
+});
+
+test('사진 키 검증: ../ 경로가 있으면 다운로드 없이 실패', async () => {
+  expect(isSafePhotoKey(`${ids.learner}/photo`)).toBe(true);
+  expect(isSafePhotoKey(`${ids.learner}/..`)).toBe(false);
+  expect(isSafePhotoKey(`${ids.learner}/.`)).toBe(false);
+  expect(isSafePhotoKey(`/${ids.learner}/photo`)).toBe(false);
+  expect(isSafePhotoKey('../../../auth/v1/admin/users')).toBe(false);
+  expect(isSafePhotoKey(`${ids.learner}/../../auth/v1/admin/users`)).toBe(false);
+
+  await source.adminPool.query(`begin; set local session_replication_role = replica;
+    update profiles set photo_path = '../../../auth/v1/admin/users' where id = '${ids.admin}'; commit;`);
+  try {
+    let calls = 0;
+    const downloader: PhotoDownloader = {
+      download: async () => {
+        calls++;
+        return null;
+      },
+    };
+    const uploader = new MemoryStorage();
+    const target = await newTarget();
+    const { code, lines } = await run(target, { photos: { downloader, uploader } });
+    expect(code).toBe(1);
+    expect(lines).toContain('photo paths: 3, not <uid>/photo: 2, rejected (not an API photo key): 1');
+    expect(lines).toContain('photos refused: 1 photo paths are not valid keys');
+    expect(lines).toContain('target rolled back');
+    expect(calls).toBe(0);
+    expect(uploader.objects.size).toBe(0);
+    expect(lines.join('\n')).not.toContain('auth/v1');
+
+    // without --photos only the count is reported and the value is copied as-is
+    const plain = await newTarget();
+    const r = await run(plain);
+    expect(r.code).toBe(0);
+    expect(r.lines).toContain('photo paths: 3, not <uid>/photo: 2, rejected (not an API photo key): 1');
+  } finally {
+    await source.adminPool.query(`begin; set local session_replication_role = replica;
+      update profiles set photo_path = null where id = '${ids.admin}'; commit;`);
+  }
+});
+
+test('원본 연결이 끊기면 프로세스가 죽지 않고 exit 1, 대상 롤백', async () => {
+  const target = await newTarget();
+  const uploader = {
+    put: async () => {
+      await terminateIdleTx(source);
+      await tick();
+    },
+  };
+  const downloader: PhotoDownloader = { download: async () => ({ body: Buffer.from('x'), contentType: 'image/jpeg' }) };
+  const { code, lines } = await run(target, { photos: { downloader, uploader } });
+  expect(code).toBe(1);
+  expect(lines).toContain('connection lost: source');
+  expect(lines).toContain('target rolled back');
+  expect(lines).not.toContain('migration done');
+  expect((await target.adminPool.query('select count(*)::int as n from auth.users')).rows[0].n).toBe(0);
+});
+
+test('대상 연결이 커밋 전에 끊기면 커밋하지 않고 "롤백됨"이라고 하지 않음', async () => {
+  const target = await newTarget();
+  const uploader = {
+    put: async () => {
+      await terminateIdleTx(target);
+      await tick();
+    },
+  };
+  const downloader: PhotoDownloader = { download: async () => ({ body: Buffer.from('x'), contentType: 'image/jpeg' }) };
+  const { code, lines } = await run(target, { photos: { downloader, uploader } });
+  expect(code).toBe(1);
+  expect(lines).toContain('connection lost: target');
+  expect(lines).toContain('connection lost before commit');
+  expect(lines).toContain('target not committed (connection lost; the server discards the open transaction)');
+  expect(lines).not.toContain('target rolled back');
+  expect((await target.adminPool.query('select count(*)::int as n from auth.users')).rows[0].n).toBe(0);
 });

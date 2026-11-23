@@ -34,6 +34,8 @@ DATABASE_ADMIN_URL=... npm run db:seed-dev   # 여러 번 실행해도 같은 �
 
 `scripts/migrate-from-supabase.ts`. 접속 주소는 값이 아니라 **환경변수 이름**으로 넘긴다(명령 기록에 주소가 남지 않게).
 
+**WAS의 운영 API 배포 디렉터리 안에서 실행하지 않는다.** `npm ci`와 빌드(`dist/` 덮어쓰기)를 하므로, 별도 체크아웃·디렉터리(예: 같은 커밋을 다른 경로에 clone)에서 `npm ci` 후 실행한다.
+
 ```
 # 대상: 새 DB에 db:bootstrap → db:migrate까지 끝낸 상태(회원·데이터 0건). 대상 URL은 마스터(관리자) 계정이어야 한다
 export SUPABASE_DB_URL=...     # 원본(운영 Supabase, 읽기 전용 트랜잭션으로만 읽음)
@@ -49,9 +51,12 @@ npm run migrate:supabase -- --source SUPABASE_DB_URL --target TARGET_DB_ADMIN_UR
 - 원본·대상이 같은 호스트·포트·DB이거나 대상에 회원·데이터가 한 건이라도 있으면 시작하지 않는다(마이그레이션이 넣는 `diagnosis_course_links` 기본 4행은 예외 — 원본 값으로 바꾼다). `--force` 없음, 리허설은 새 DB에서.
 - 복사 범위: `auth.users`의 `id, email, encrypted_password, email_confirmed_at, created_at, updated_at, raw_user_meta_data`와 `public`의 모든 테이블(FK 순서). 세션·메일 토큰은 옮기지 않는다(전환 후 다시 로그인).
 - 대상에서 `session_replication_role = replica`로 트리거(profiles 자동 생성, 권한 열 보호 등)와 FK 트리거를 끄고 적재한다. 그래서 적재 후 모든 FK를 직접 검사해 끊긴 행이 있으면 실패한다.
+- 대상 접속 계정은 RDS 마스터(`session_replication_role` 설정 권한 + bootstrap이 준 `bara_edu_service` SET 권한)여야 한다. 스크립트는 `session_replication_role`을 먼저 설정한 뒤 `set local role bara_edu_service`(테이블 소유자라 RLS 미적용)와 `row_security = off`로 바꿔 빈 대상 확인·적재를 한다. 원본도 `row_security = off`라 정책이 행을 숨기면 건수 누락 대신 오류로 멈춘다.
+- 사진 키(`photo_path`)는 API 규칙(`<uuid>/<[A-Za-z0-9._-]{1,100}>`, 점만 있는 부분 금지)에 맞아야 한다. `--photos`일 때 하나라도 어긋나면 다운로드 전에 실패한다(키가 서비스 키를 담은 URL에 들어가므로). `--photos` 없이도 건수는 출력한다.
+- 실패 시 마지막 줄이 대상 상태다: `target rolled back` / `target not committed (...)` / `target commit status unknown: ...`(커밋 중 연결 끊김 — 재실행 전 대상이 비었는지 확인) / 성공 시 `migration done`.
 - 원본에 대상에 없는 테이블·열이 있으면 시작하지 않는다(데이터 유실 방지). 대상에만 있는 열은 기본값으로 둔다(목록 출력).
 - TLS: pg는 `sslmode=require`를 `verify-full`로 다룬다. Supabase pooler는 Supabase 자체 CA라 원본 URL에 `sslmode=verify-full&sslrootcert=<Supabase CA 인증서 경로>`(대시보드 Database Settings에서 내려받음)를, RDS 대상에는 `sslrootcert=<RDS global-bundle.pem 경로>`를 붙인다.
-- 출력은 건수·테이블 이름만: 비밀번호 해시 접두어별 건수(`$2a$`/`$2b$`/기타, 기타는 로그인 때 `password_reset_required`), 미인증 건수, 테이블별 원본·대상 건수, 주요 테이블 `id` 체크섬 일치 여부, 시퀀스 재설정 수, 사진 건수. 하나라도 다르면 exit 1.
+- 출력은 건수·테이블 이름만: 비밀번호 해시 접두어별 건수(`$2a$`/`$2b$`/기타, 기타는 로그인 때 `password_reset_required`), 미인증 건수, 원본 `auth.users`의 `deleted_at`·`banned_until`·이메일 없음·`is_anonymous` 건수(열이 없으면 `n/a`, 복사 방식은 같음), 사진 키 건수, 테이블별 원본·대상 건수, 주요 테이블 `id` 체크섬 일치 여부, 시퀀스 재설정 수, 사진 건수. 하나라도 다르면 exit 1.
 
 ## 환경변수
 
