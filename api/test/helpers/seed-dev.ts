@@ -2,6 +2,7 @@
 // 실행: DATABASE_ADMIN_URL=... npm run db:seed-dev  (여러 번 실행해도 같은 결과)
 import bcrypt from 'bcryptjs';
 import pg from 'pg';
+import { parse as parsePgUrl } from 'pg-connection-string';
 
 export const DEV_ADMIN = { email: 'admin@dev.local', password: 'dev-admin-pass-1', name: '개발관리자' };
 export const DEV_LEARNER = { email: 'learner@dev.local', password: 'dev-learner-pass-1', name: '개발학습자' };
@@ -38,10 +39,17 @@ async function upsertUser(db: pg.Client, u: { email: string; password: string; n
 export class SeedRefused extends Error {}
 
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
+const LOCAL_ADDRS = new Set(['127.0.0.1', '::1']);
 
+// pg lets ?host=/?hostaddr= override the URL host and ?service= pull a host from a file,
+// so the check runs on the same parse pg uses, plus the plain URL host
 export function isLocalDbUrl(url: string): boolean {
   try {
-    return LOCAL_HOSTS.has(new URL(url).hostname);
+    if (!LOCAL_HOSTS.has(new URL(url).hostname)) return false;
+    const cfg = parsePgUrl(url) as { host?: string | null; hostaddr?: string; service?: string };
+    if (cfg.service !== undefined) return false;
+    if (!cfg.host || !LOCAL_HOSTS.has(cfg.host)) return false;
+    return cfg.hostaddr === undefined || LOCAL_ADDRS.has(cfg.hostaddr);
   } catch {
     return false;
   }
@@ -53,7 +61,7 @@ export async function seedDev(adminUrl: string): Promise<void> {
   await db.connect();
   try {
     // a database holding real members is never a dev database, even on localhost
-    const foreign = await db.query("select 1 from auth.users where email not like '%@dev.local' limit 1");
+    const foreign = await db.query("select 1 from auth.users where email is null or email not like '%@dev.local' limit 1");
     if (foreign.rowCount) throw new SeedRefused('db:seed-dev refused: database has non-dev members');
     const adminId = await upsertUser(db, DEV_ADMIN);
     await upsertUser(db, DEV_LEARNER);
