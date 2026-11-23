@@ -831,11 +831,12 @@ begin
   insert into certificates (user_id, course_id)
   values (v_user_id, p_course_id)
   on conflict (user_id, course_id) do nothing
-  returning id, issued_at into v_cert_id, v_issued_at;
+  -- 테이블 이름으로 한정: issued_at은 OUT 파라미터 이름과 겹쳐 42702(ambiguous)가 난다(원본 schema.sql도 같은 결함).
+  returning certificates.id, certificates.issued_at into v_cert_id, v_issued_at;
 
   if v_cert_id is null then
-    select id, issued_at into v_cert_id, v_issued_at
-    from certificates where user_id = v_user_id and course_id = p_course_id;
+    select c.id, c.issued_at into v_cert_id, v_issued_at
+    from certificates c where c.user_id = v_user_id and c.course_id = p_course_id;
   end if;
 
   return query select v_cert_id, v_issued_at;
@@ -1519,7 +1520,8 @@ begin
   end if;
 
   select exists(
-    select 1 from course_exam_submissions where user_id = v_user_id and course_id = p_course_id and passed = true
+    -- 별칭 필수: passed는 OUT 파라미터 이름과 겹쳐 42702(ambiguous)가 난다(원본 schema.sql도 같은 결함).
+    select 1 from course_exam_submissions s where s.user_id = v_user_id and s.course_id = p_course_id and s.passed = true
   ) into v_already_passed;
   if v_already_passed then
     raise exception 'already passed';
@@ -1650,11 +1652,12 @@ begin
   insert into certificates (user_id, course_id)
   values (v_user_id, p_course_id)
   on conflict (user_id, course_id) do nothing
-  returning id, issued_at into v_cert_id, v_issued_at;
+  -- 테이블 이름으로 한정: issued_at은 OUT 파라미터 이름과 겹쳐 42702(ambiguous)가 난다(원본 schema.sql도 같은 결함).
+  returning certificates.id, certificates.issued_at into v_cert_id, v_issued_at;
 
   if v_cert_id is null then
-    select id, issued_at into v_cert_id, v_issued_at
-    from certificates where user_id = v_user_id and course_id = p_course_id;
+    select c.id, c.issued_at into v_cert_id, v_issued_at
+    from certificates c where c.user_id = v_user_id and c.course_id = p_course_id;
   end if;
 
   return query select v_cert_id, v_issued_at;

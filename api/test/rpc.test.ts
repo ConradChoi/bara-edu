@@ -118,3 +118,40 @@ test('RPC 본문의 P0001 오류는 메시지 그대로 400 (비동의)', async 
   expect(r.statusCode).toBe(400);
   expect(r.json().error.message).toBe('privacy consent required');
 });
+
+test('submit_course_exam 정상 제출 → [{score, passed, attempt_no}], 합격 후 재제출은 already passed', async () => {
+  const CAT = '33333333-3333-4333-8333-333333333333';
+  const C2 = '44444444-4444-4444-8444-444444444444';
+  const L = '55555555-5555-4555-8555-555555555555';
+  const Q = '66666666-6666-4666-8666-666666666666';
+  const OK = '77777777-7777-4777-8777-777777777777';
+  await ctx.adminPool.query(`
+    insert into categories (id, name, depth, is_certification) values ('${CAT}', '자격', 1, true);
+    insert into courses (id, title, slug, fee, status, category_id, requires_exam, exam_pass_score, exam_max_attempts)
+      values ('${C2}', '시험 강좌', 'exam-course', 0, 'active', '${CAT}', true, 60, 3);
+    insert into lessons (id, course_id, title) values ('${L}', '${C2}', '1강');
+    insert into enrollments (user_id, course_id, status) values ('${A}', '${C2}', 'approved');
+    insert into progress (user_id, lesson_id, completed_at) values ('${A}', '${L}', now());
+    insert into exam_question_bank (id, category_id, question) values ('${Q}', '${CAT}', '문항');
+    insert into exam_bank_options (id, bank_question_id, label, is_correct) values ('${OK}', '${Q}', '정답', true);
+    insert into course_exam_question_links (course_id, bank_question_id) values ('${C2}', '${Q}');
+  `);
+  const answers = [{ question_id: Q, option_id: OK }];
+  const r = await rpc('submit_course_exam', { p_course_id: C2, p_answers: answers }, tokenA);
+  expect(r.statusCode, r.body).toBe(200);
+  expect(r.json()).toEqual({ data: [{ score: 100, passed: true, attempt_no: 1 }] });
+  const again = await rpc('submit_course_exam', { p_course_id: C2, p_answers: answers }, tokenA);
+  expect(again.statusCode).toBe(400);
+  expect(again.json().error.message).toBe('already passed');
+});
+
+test('issue_certificate_self 조건 충족(진도·시험 합격) → [{certificate_id, issued_at}], 재호출도 같은 수료증', async () => {
+  const C2 = '44444444-4444-4444-8444-444444444444';
+  const r = await rpc('issue_certificate_self', { p_course_id: C2 }, tokenA);
+  expect(r.statusCode, r.body).toBe(200);
+  const [cert] = r.json().data;
+  expect(cert.certificate_id).toMatch(/^[0-9a-f-]{36}$/);
+  expect(cert.issued_at).toMatch(/\+00:00$/);
+  const again = await rpc('issue_certificate_self', { p_course_id: C2 }, tokenA);
+  expect(again.json()).toEqual({ data: [cert] });
+});
