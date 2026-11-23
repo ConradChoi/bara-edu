@@ -484,7 +484,7 @@ test('이메일 미인증 계정도 그대로 이관(email_confirmed_at null)', 
 코드가 아니라 공용 인프라 작업이라 이 계획의 태스크로 자동 실행하지 않는다. 항목별로 명령·영향·되돌리기를 보여 드리고 확인받은 뒤 실행한다.
 
 1. **ylia-pg-01**: `bara_edu`·`bara_edu_staging` DB 생성, `db:bootstrap`(역할 4개) → `db:migrate`. 파라미터 그룹·재부팅 없음.
-2. **SSM**: 두 값 모두 SecureString, **32바이트 이상 난수**(예: `openssl rand -base64 48`을 화면에 띄우지 않고 바로 `aws ssm put-parameter --value file://...`로 넣고 임시 파일 삭제).
+2. **SSM**: 두 값 모두 SecureString, **32바이트 이상 난수**(예: `umask 077; openssl rand -base64 48 | tr -d '\n' > <임시 파일>` → `aws ssm put-parameter --type SecureString --value file://<임시 파일>` → 임시 파일 삭제. 화면에 띄우지 않는다. **끝 줄바꿈이 들어가면 안 된다** — 키는 바이트 그대로 비교되고 HTTP 헤더 값에 줄바꿈을 넣을 수 없다).
    - `/bara-edu/api/service-key` — API(WAS)와 앱(Amplify)이 같은 값을 읽는다. **WAS 역할(`ylia-was-role`)은 이 파라미터를 읽는다**(API가 시작 때 `BARA_SERVICE_KEY_PARAM`으로 GetParameter, R22).
    - `/bara-edu/app/pii-reveal-secret` — 앱만 읽는다. **서비스 키와 다른 값**이어야 한다(같은 값 재사용 금지).
 3. **IAM**: `ylia-was-role`에 S3(사진 버킷 **이 버킷 하나로 한정**: `arn:aws:s3:::<bucket>/*`의 Get/Put/DeleteObject)·SES 발신(`bara-edu.kr`)·SSM 파라미터 `/bara-edu/api/service-key` 읽기(+`kms:Decrypt`) 권한 추가. Amplify 컴퓨트 역할 생성(SSM 파라미터 2개 `/bara-edu/api/service-key`·`/bara-edu/app/pii-reveal-secret` 읽기만) 후 앱에 연결.
