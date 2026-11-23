@@ -33,4 +33,8 @@ revoke all on schema public from public;
 grant usage, create on schema public to bara_edu_service;
 grant usage on schema public to bara_edu_anon, bara_edu_authenticated;
 -- per-schema default privileges cannot remove the built-in PUBLIC EXECUTE, so this must be global
-alter default privileges for role bara_edu_service revoke execute on functions from public;
+-- RDS master is a member of bara_edu_service with inherit false, so `for role` is refused (42501);
+-- switch to the role itself instead (same effect, works for non-superuser masters)
+set role bara_edu_service;
+alter default privileges revoke execute on functions from public;
+reset role;
