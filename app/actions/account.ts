@@ -43,7 +43,7 @@ export async function withdraw(formData: FormData) {
     redirect('/my?withdrawError=active-enrollment');
   }
 
-  // 학습 이력 파기·역량진단 결과 익명화·문의 삭제(privacy-security-officer C-2, 2026-09-14).
+  // 학습 이력 파기·역량진단 결과 익명화·자가진단 강사과정 관심 문의(diagnosis_leads) 삭제(privacy-security-officer C-2, 2026-09-14).
   // 계정 익명화보다 먼저 해야 실패해도 재시도할 수 있다(account.withdrawCleanup은 멱등).
   if (!(await attempt(withdrawCleanup()))) redirect('/my?withdrawError=failed');
 

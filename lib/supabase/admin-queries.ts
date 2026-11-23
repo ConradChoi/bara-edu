@@ -11,7 +11,7 @@ import { requireAdminClient } from '@/lib/supabase/require-admin';
 import { createClient } from '@/lib/db/server';
 import { listEmailConfirmations } from '@/lib/db/auth';
 import { memberPhotoSignedUrl } from '@/lib/db/storage';
-import { groupBy, selectIn } from '@/lib/db/embed';
+import { groupBy, queryInChunks, selectIn } from '@/lib/db/embed';
 import {
   deriveStatus,
   collectDescendantIds,
@@ -377,44 +377,47 @@ async function getApprovedEnrollmentProgressStats(): Promise<ApprovedEnrollmentP
 
   const userIds = [...new Set(candidates.map((r) => r.user_id))];
 
-  const [certRes, progressRes, assignmentRes, examSubmissionRes, examResetRes] = await Promise.all([
+  // userIds는 API의 in 목록 한도(1000개)를 넘을 수 있어 나눠서 조회한다.
+  const [certRes, progressRows, assignmentRows, examSubmissionRows, examResetRows] = await Promise.all([
     supabase.from('certificates').select('user_id, course_id'),
-    supabase.from('progress').select('user_id, lesson_id').in('user_id', userIds).not('completed_at', 'is', null),
-    supabase.from('assignment_submissions').select('user_id, lesson_id').in('user_id', userIds).eq('status', 'approved'),
-    supabase.from('course_exam_submissions').select('user_id, course_id, score, passed, submitted_at').in('user_id', userIds),
-    supabase.from('course_exam_attempt_resets').select('user_id, course_id, reset_at').in('user_id', userIds),
+    queryInChunks<{ user_id: string; lesson_id: string }>(userIds, (ids) =>
+      supabase.from('progress').select('user_id, lesson_id').in('user_id', ids).not('completed_at', 'is', null)
+    ),
+    queryInChunks<{ user_id: string; lesson_id: string }>(userIds, (ids) =>
+      supabase.from('assignment_submissions').select('user_id, lesson_id').in('user_id', ids).eq('status', 'approved')
+    ),
+    queryInChunks(userIds, (ids) =>
+      supabase.from('course_exam_submissions').select('user_id, course_id, score, passed, submitted_at').in('user_id', ids)
+    ),
+    queryInChunks(userIds, (ids) => supabase.from('course_exam_attempt_resets').select('user_id, course_id, reset_at').in('user_id', ids)),
   ]);
   if (certRes.error) throw new Error(certRes.error.message);
-  if (progressRes.error) throw new Error(progressRes.error.message);
-  if (assignmentRes.error) throw new Error(assignmentRes.error.message);
-  if (examSubmissionRes.error) throw new Error(examSubmissionRes.error.message);
-  if (examResetRes.error) throw new Error(examResetRes.error.message);
 
   const certifiedSet = new Set(
     (certRes.data as { user_id: string; course_id: string }[]).map((c) => `${c.user_id}:${c.course_id}`)
   );
 
   const completedLessonsByUser = new Map<string, Set<string>>();
-  for (const p of progressRes.data as { user_id: string; lesson_id: string }[]) {
+  for (const p of progressRows) {
     if (!completedLessonsByUser.has(p.user_id)) completedLessonsByUser.set(p.user_id, new Set());
     completedLessonsByUser.get(p.user_id)!.add(p.lesson_id);
   }
 
   const approvedAssignmentsByUser = new Map<string, Set<string>>();
-  for (const a of assignmentRes.data as { user_id: string; lesson_id: string }[]) {
+  for (const a of assignmentRows) {
     if (!approvedAssignmentsByUser.has(a.user_id)) approvedAssignmentsByUser.set(a.user_id, new Set());
     approvedAssignmentsByUser.get(a.user_id)!.add(a.lesson_id);
   }
 
   const lastResetAtByPair = new Map<string, number>();
-  for (const r of examResetRes.data as { user_id: string; course_id: string; reset_at: string }[]) {
+  for (const r of examResetRows as { user_id: string; course_id: string; reset_at: string }[]) {
     const key = `${r.user_id}:${r.course_id}`;
     const ms = new Date(r.reset_at).getTime();
     if (!lastResetAtByPair.has(key) || ms > lastResetAtByPair.get(key)!) lastResetAtByPair.set(key, ms);
   }
 
   const examSubmissionsByPair = new Map<string, { score: number; passed: boolean; submitted_at: string }[]>();
-  for (const s of examSubmissionRes.data as { user_id: string; course_id: string; score: number; passed: boolean; submitted_at: string }[]) {
+  for (const s of examSubmissionRows as { user_id: string; course_id: string; score: number; passed: boolean; submitted_at: string }[]) {
     const key = `${s.user_id}:${s.course_id}`;
     if (!examSubmissionsByPair.has(key)) examSubmissionsByPair.set(key, []);
     examSubmissionsByPair.get(key)!.push(s);

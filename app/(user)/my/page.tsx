@@ -23,7 +23,7 @@ const SETTINGS_ERROR_MESSAGE: Record<string, string> = {
   'password-validation': '새 비밀번호는 8자 이상이어야 하고, 확인란과 일치해야 해요.',
   'current-password-wrong': '현재 비밀번호가 일치하지 않아요.',
   'photo-too-large': '사진 용량은 5MB 이하여야 해요.',
-  'photo-invalid': '지원하지 않는 이미지 형식이에요 (JPEG/PNG/GIF/WebP만 가능).',
+  'photo-invalid': '지원하지 않는 이미지 형식이에요 (JPEG/PNG/WebP만 가능).',
   failed: '처리 중 문제가 발생했어요. 잠시 후 다시 시도해주세요.',
 };
 

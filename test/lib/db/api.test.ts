@@ -9,7 +9,13 @@ vi.mock('next/headers', () => ({
   },
   cookies: async () => ({}),
 }));
-vi.mock('@/lib/db/service-key', () => ({ getServiceKey: async () => 'secret-key' }));
+let keyThrows = false;
+vi.mock('@/lib/db/service-key', () => ({
+  getServiceKey: async () => {
+    if (keyThrows) throw new Error('service key unavailable');
+    return 'secret-key';
+  },
+}));
 
 import { apiFetch } from '@/lib/db/api';
 
@@ -21,6 +27,7 @@ beforeEach(() => {
   process.env.BARA_API_URL = 'http://api.local:3001';
   for (const k of Object.keys(headerValues)) delete headerValues[k];
   headersThrows = false;
+  keyThrows = false;
 });
 
 const json = (status: number, body: unknown) =>
@@ -91,4 +98,11 @@ test('fetch 예외 → 503 unavailable (키가 메시지에 없다)', async () =
 test('BARA_API_URL이 없으면 설정 오류로 throw', async () => {
   delete process.env.BARA_API_URL;
   await expect(apiFetch('/v1/x', {})).rejects.toThrow('BARA_API_URL');
+});
+
+test('서비스 키를 못 읽으면 throw 대신 503 unavailable, API는 부르지 않는다', async () => {
+  keyThrows = true;
+  const r = await apiFetch('/v1/x', { method: 'POST', body: {} });
+  expect(r).toEqual({ ok: false, status: 503, error: { code: 'unavailable', message: '서비스에 일시적으로 연결할 수 없어요.' } });
+  expect(fetchMock).not.toHaveBeenCalled();
 });

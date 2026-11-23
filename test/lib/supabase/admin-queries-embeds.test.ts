@@ -115,3 +115,19 @@ test('과제 제출이 없으면 강좌 조회를 건너뛴다', async () => {
   expect(await getAdminAssignmentSubmissions()).toEqual([]);
   expect(queried('courses')).toEqual([]);
 });
+
+test('승인 신청 진도 통계: 학습자 id가 1000개를 넘으면 user_id in 조회를 1000개씩 나눈다', async () => {
+  const users = Array.from({ length: 1500 }, (_, i) => `u${i}`);
+  tables.enrollments = users.map((u) => ({
+    user_id: u, course_id: 'c1', profiles: { name: u }, courses: { title: 'A', requires_exam: false, exam_max_attempts: null },
+  }));
+  tables.lessons = [{ id: 'l1', course_id: 'c1', has_assignment: false }];
+  const rows = await getCertificatePendingLearners();
+  expect(rows).toHaveLength(1500);
+  for (const t of ['progress', 'assignment_submissions', 'course_exam_submissions', 'course_exam_attempt_resets']) {
+    const lists = queried(t).map((b) => b.filters!.find((f) => f.col === 'user_id' && f.op === 'in')!.value as string[]);
+    expect(lists.map((l) => l.length)).toEqual([1000, 500]);
+    expect(new Set(lists.flat()).size).toBe(1500);
+  }
+  expect(queried('progress')[0].filters).toContainEqual({ col: 'completed_at', op: 'is', value: null, not: true });
+});

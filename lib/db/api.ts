@@ -31,7 +31,7 @@ export async function apiFetch<T>(
   const base = process.env.BARA_API_URL;
   if (!base) throw new Error('BARA_API_URL is not set');
 
-  const reqHeaders: Record<string, string> = { 'x-bara-service-key': await getServiceKey() };
+  const reqHeaders: Record<string, string> = {};
   if (init.session) reqHeaders['x-bara-session'] = init.session;
   // proxy passes the IP itself: next/headers isn't available there
   const ip = init.clientIp !== undefined ? init.clientIp : await clientIp();
@@ -40,6 +40,8 @@ export async function apiFetch<T>(
 
   let res: Response;
   try {
+    // an unreadable service key (SSM down, missing parameter) is an outage like an unreachable API, not a crash
+    reqHeaders['x-bara-service-key'] = await getServiceKey();
     res = await fetch(`${base}${path}`, {
       method: init.method ?? 'GET',
       headers: reqHeaders,
