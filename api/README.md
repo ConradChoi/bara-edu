@@ -30,6 +30,29 @@ DATABASE_ADMIN_URL=... npm run db:seed-dev   # 여러 번 실행해도 같은 �
 
 테스트는 실행마다 임시 데이터베이스를 만들어 스키마(`db/`)를 적용하고 끝나면 지운다.
 
+## 운영 데이터 이관(Supabase → 새 DB, 1회)
+
+`scripts/migrate-from-supabase.ts`. 접속 주소는 값이 아니라 **환경변수 이름**으로 넘긴다(명령 기록에 주소가 남지 않게).
+
+```
+# 대상: 새 DB에 db:bootstrap → db:migrate까지 끝낸 상태(회원·데이터 0건). 대상 URL은 마스터(관리자) 계정이어야 한다
+export SUPABASE_DB_URL=...     # 원본(운영 Supabase, 읽기 전용 트랜잭션으로만 읽음)
+export TARGET_DB_ADMIN_URL=... # 대상
+npm run migrate:supabase -- --source SUPABASE_DB_URL --target TARGET_DB_ADMIN_URL
+
+# 사진까지(member-photos → S3, 같은 키)
+export SUPABASE_URL=https://<project>.supabase.co SUPABASE_SERVICE_ROLE_KEY=... S3_BUCKET=... AWS_REGION=ap-northeast-2
+npm run migrate:supabase -- --source SUPABASE_DB_URL --target TARGET_DB_ADMIN_URL --photos
+```
+
+- 원본은 `repeatable read read only` 한 트랜잭션(한 시점 스냅샷)으로 읽는다. 대상은 한 트랜잭션으로 적재하고, 검증까지 통과해야 커밋한다. 실패하면 대상은 롤백돼 빈 상태로 남는다(사진은 S3에 일부 올라갔을 수 있으나 같은 키로 덮어쓰므로 재실행해도 된다).
+- 원본·대상이 같은 호스트·포트·DB이거나 대상에 회원·데이터가 한 건이라도 있으면 시작하지 않는다(마이그레이션이 넣는 `diagnosis_course_links` 기본 4행은 예외 — 원본 값으로 바꾼다). `--force` 없음, 리허설은 새 DB에서.
+- 복사 범위: `auth.users`의 `id, email, encrypted_password, email_confirmed_at, created_at, updated_at, raw_user_meta_data`와 `public`의 모든 테이블(FK 순서). 세션·메일 토큰은 옮기지 않는다(전환 후 다시 로그인).
+- 대상에서 `session_replication_role = replica`로 트리거(profiles 자동 생성, 권한 열 보호 등)와 FK 트리거를 끄고 적재한다. 그래서 적재 후 모든 FK를 직접 검사해 끊긴 행이 있으면 실패한다.
+- 원본에 대상에 없는 테이블·열이 있으면 시작하지 않는다(데이터 유실 방지). 대상에만 있는 열은 기본값으로 둔다(목록 출력).
+- TLS: pg는 `sslmode=require`를 `verify-full`로 다룬다. Supabase pooler는 Supabase 자체 CA라 원본 URL에 `sslmode=verify-full&sslrootcert=<Supabase CA 인증서 경로>`(대시보드 Database Settings에서 내려받음)를, RDS 대상에는 `sslrootcert=<RDS global-bundle.pem 경로>`를 붙인다.
+- 출력은 건수·테이블 이름만: 비밀번호 해시 접두어별 건수(`$2a$`/`$2b$`/기타, 기타는 로그인 때 `password_reset_required`), 미인증 건수, 테이블별 원본·대상 건수, 주요 테이블 `id` 체크섬 일치 여부, 시퀀스 재설정 수, 사진 건수. 하나라도 다르면 exit 1.
+
 ## 환경변수
 
 | 이름 | 필수 | 기본값 | 설명 |

@@ -10,8 +10,9 @@
     "db:seed-dev": "node --experimental-strip-types test/helpers/seed-dev.ts",
     "db:down": "docker compose -f docker-compose.test.yml down -v",
     "test": "vitest run",
-    "build": "tsc",
-    "start": "node dist/server.js"
+    "build": "tsc && tsc -p tsconfig.scripts.json",
+    "start": "node dist/server.js",
+    "migrate:supabase": "npm run build && node dist/scripts/migrate-from-supabase.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1173.0",
@@ -20,12 +21,12 @@
     "bcryptjs": "^3.0.3",
     "fastify": "^5.0.0",
     "pg": "^8.13.0",
+    "pg-connection-string": "^2.14.1",
     "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
     "@types/pg": "^8.11.0",
-    "pg-connection-string": "^2.14.1",
     "typescript": "^5.6.0",
     "vitest": "^3.0.0"
   }
