@@ -7,9 +7,9 @@ export const metadata: Metadata = { title: '로그인 | 바라 평생교육원' 
 export default async function SignInPage({
   searchParams,
 }: {
-  searchParams: Promise<{ redirect?: string; reset?: string; resetError?: string; confirmError?: string }>;
+  searchParams: Promise<{ redirect?: string; reset?: string; confirmError?: string }>;
 }) {
-  const { redirect, reset, resetError, confirmError } = await searchParams;
+  const { redirect, reset, confirmError } = await searchParams;
 
   return (
     <div className="flex flex-col gap-6">
@@ -23,12 +23,6 @@ export default async function SignInPage({
         <div className="rounded-md border border-success bg-success/10 px-3.5 py-3">
           <p className="text-[13px] font-semibold text-success">비밀번호가 변경됐어요</p>
           <p className="text-[12px] text-n-7">새 비밀번호로 로그인해주세요.</p>
-        </div>
-      )}
-      {resetError && (
-        <div className="rounded-md border border-danger bg-danger/10 px-3.5 py-3">
-          <p className="text-[13px] font-semibold text-danger">비밀번호 재설정 링크가 만료됐어요</p>
-          <p className="text-[12px] text-n-7">재설정 이메일을 다시 요청해주세요. 링크는 한 번만, 짧은 시간 안에 사용해야 해요.</p>
         </div>
       )}
       {confirmError && (

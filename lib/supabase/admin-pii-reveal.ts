@@ -12,7 +12,7 @@ import { getPiiRevealSecret } from '@/lib/db/service-key';
 // 검증에 성공한 바로 그 순간에만 logAdminAccess()를 호출한다 — "해제됨"과 "기록됨"이
 // 항상 같은 조건에서 함께 일어나도록 만들어 로그 우회 자체를 구조적으로 막는다.
 // HMAC 키는 다른 용도와 섞지 않는 전용 시크릿이다(보안 점검 잔여 권고 — 이전에는
-// SUPABASE_SERVICE_ROLE_KEY를 재사용했다). 운영은 SSM, 로컬은 BARA_PII_REVEAL_SECRET.
+// 서버 마스터 키를 재사용했다). 운영은 SSM, 로컬은 BARA_PII_REVEAL_SECRET.
 // 키를 못 읽으면 throw하고, 호출부가 기존처럼 실패 배너·마스킹 유지로 처리한다.
 const REVEAL_TTL_MS = 5 * 60 * 1000;
 

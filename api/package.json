@@ -7,6 +7,7 @@
     "db:up": "docker compose -f docker-compose.test.yml up -d --wait",
     "db:bootstrap": "npm run build && node dist/db/cli.js bootstrap",
     "db:migrate": "npm run build && node dist/db/cli.js migrate",
+    "db:seed-dev": "node --experimental-strip-types test/helpers/seed-dev.ts",
     "db:down": "docker compose -f docker-compose.test.yml down -v",
     "test": "vitest run",
     "build": "tsc",

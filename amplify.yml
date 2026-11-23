@@ -6,8 +6,9 @@ frontend:
         - npm ci
     build:
       commands:
-        # Amplify 콘솔 환경변수는 SSR 런타임에 전달되지 않는다(AWS 문서) — 서버 전용 키만 .env.production으로 넘긴다.
-        - printf 'SUPABASE_SERVICE_ROLE_KEY=%s\n' "$SUPABASE_SERVICE_ROLE_KEY" >> .env.production
+        # Amplify 콘솔 환경변수는 SSR 런타임에 전달되지 않는다(AWS 문서) — 서버가 읽는 비밀이 아닌 값만 .env.production으로 넘긴다.
+        # 서비스 키·PII 서명 키는 런타임에 SSM에서 읽으므로 여기에 쓰지 않는다.
+        - printf 'BARA_API_URL=%s\n' "$BARA_API_URL" >> .env.production
         - npm run build
   artifacts:
     baseDirectory: .next
