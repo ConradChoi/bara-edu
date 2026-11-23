@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, expect, test } from 'vitest';
-import { DEV_ADMIN, DEV_COURSE_SLUG, DEV_LEARNER, seedDev } from './helpers/seed-dev.js';
+import { DEV_ADMIN, DEV_COURSE_SLUG, DEV_LEARNER, isLocalDbUrl, SeedRefused, seedDev } from './helpers/seed-dev.js';
 import { setupTestDb } from './helpers/db.js';
 
 let ctx: Awaited<ReturnType<typeof setupTestDb>>;
@@ -25,4 +25,30 @@ test('개발 시드: 관리자·학습자·강좌·레슨·퀴즈·시험 문항
            (select count(*)::int from course_exam_question_links) as exam_links,
            (select count(*)::int from bank_accounts) as bank_accounts`);
   expect(counts.rows[0]).toEqual({ courses: 1, lessons: 1, quiz_options: 2, exam_links: 1, bank_accounts: 1 });
+});
+
+test('로컬이 아닌 DB 주소면 접속 전에 거절', async () => {
+  for (const url of ['postgres://u:p@db.example.com:5432/x', 'postgres://u:p@localhost.example.com/x', 'postgres://u:p@10.0.0.5/x', 'not a url']) {
+    expect(isLocalDbUrl(url)).toBe(false);
+  }
+  for (const url of ['postgres://u:p@localhost:54329/x', 'postgres://u:p@127.0.0.1/x', 'postgres://u:p@[::1]:5432/x']) {
+    expect(isLocalDbUrl(url)).toBe(true);
+  }
+  const err = await seedDev('postgres://u:secret@db.example.com:5432/x').catch((e) => e);
+  expect(err).toBeInstanceOf(SeedRefused);
+  expect(err.message).not.toMatch(/secret|example/);
+});
+
+test('@dev.local이 아닌 회원이 있는 DB면 거절하고 아무것도 쓰지 않는다', async () => {
+  const other = await setupTestDb();
+  try {
+    await other.adminPool.query("insert into auth.users (email) values ('real@example.com')");
+    const err = await seedDev(other.adminUrl).catch((e) => e);
+    expect(err).toBeInstanceOf(SeedRefused);
+    expect(err.message).not.toMatch(/real@example/);
+    const r = await other.adminPool.query('select count(*)::int as n from courses');
+    expect(r.rows[0].n).toBe(0);
+  } finally {
+    await other.close();
+  }
 });

@@ -14,8 +14,8 @@ docker exec api-db-1 psql -U postgres -c "create database bara_edu_smoke"
 export DATABASE_ADMIN_URL=postgres://postgres:postgres@localhost:54329/bara_edu_smoke
 BARA_APP_DB_PASSWORD=<로컬 비밀번호> npm run db:bootstrap
 npm run db:migrate
-npm run db:seed-dev          # 관리자 admin@dev.local, 학습자 learner@dev.local, 강좌 dev-shape-course(레슨·퀴즈·시험 문항·계좌 각 1)
-# api/.env: DATABASE_URL(bara_edu_app), BARA_SERVICE_KEY, SITE_ORIGINS=http://localhost:3000, BARA_DEV_FAKES=1
+npm run db:seed-dev          # localhost DB이고 @dev.local 외 회원이 없을 때만 실행됨. 관리자 admin@dev.local, 학습자 learner@dev.local, 강좌 dev-shape-course(레슨·퀴즈·시험 문항·계좌 각 1)
+# api/.env: DATABASE_URL(bara_edu_app), BARA_SERVICE_KEY, SITE_ORIGINS=http://localhost:3000(BARA_DEV_FAKES는 로컬 주소만 허용), BARA_DEV_FAKES=1
 node --env-file=.env dist/server.js
 
 # 루트 .env.local: BARA_API_URL=http://localhost:3100, BARA_API_SERVICE_KEY(api와 같은 값), BARA_PII_REVEAL_SECRET(32바이트 이상), NEXT_PUBLIC_IS_OPEN=true

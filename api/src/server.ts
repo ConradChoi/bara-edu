@@ -11,7 +11,7 @@ import { devFakes } from './dev-fakes.js';
 
 const config = loadConfig(process.env);
 const pool = createPool(config.databaseUrl);
-const fakes = devFakes(process.env);
+const fakes = devFakes(process.env, config.siteOrigins);
 const mailer: Mailer = fakes
   ? fakes.mailer
   : process.env.MAIL_FROM

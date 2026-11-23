@@ -119,7 +119,7 @@ test('RPC 본문의 P0001 오류는 메시지 그대로 400 (비동의)', async 
   expect(r.json().error.message).toBe('privacy consent required');
 });
 
-test('submit_course_exam 정상 제출 → [{score, passed, attempt_no}], 합격 후 재제출은 already passed', async () => {
+test('submit_course_exam 정상 제출·재제출 거절, 이어서 issue_certificate_self 발급·재호출 동일', async () => {
   const CAT = '33333333-3333-4333-8333-333333333333';
   const C2 = '44444444-4444-4444-8444-444444444444';
   const L = '55555555-5555-4555-8555-555555555555';
@@ -143,15 +143,12 @@ test('submit_course_exam 정상 제출 → [{score, passed, attempt_no}], 합격
   const again = await rpc('submit_course_exam', { p_course_id: C2, p_answers: answers }, tokenA);
   expect(again.statusCode).toBe(400);
   expect(again.json().error.message).toBe('already passed');
-});
 
-test('issue_certificate_self 조건 충족(진도·시험 합격) → [{certificate_id, issued_at}], 재호출도 같은 수료증', async () => {
-  const C2 = '44444444-4444-4444-8444-444444444444';
-  const r = await rpc('issue_certificate_self', { p_course_id: C2 }, tokenA);
-  expect(r.statusCode, r.body).toBe(200);
-  const [cert] = r.json().data;
-  expect(cert.certificate_id).toMatch(/^[0-9a-f-]{36}$/);
-  expect(cert.issued_at).toMatch(/\+00:00$/);
-  const again = await rpc('issue_certificate_self', { p_course_id: C2 }, tokenA);
-  expect(again.json()).toEqual({ data: [cert] });
+  const cert = await rpc('issue_certificate_self', { p_course_id: C2 }, tokenA);
+  expect(cert.statusCode, cert.body).toBe(200);
+  const [issued] = cert.json().data;
+  expect(issued.certificate_id).toMatch(/^[0-9a-f-]{36}$/);
+  expect(issued.issued_at).toMatch(/\+00:00$/);
+  const reissue = await rpc('issue_certificate_self', { p_course_id: C2 }, tokenA);
+  expect(reissue.json()).toEqual({ data: [issued] });
 });

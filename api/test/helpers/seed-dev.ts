@@ -35,10 +35,26 @@ async function upsertUser(db: pg.Client, u: { email: string; password: string; n
   return r.rows[0].id;
 }
 
+export class SeedRefused extends Error {}
+
+const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
+
+export function isLocalDbUrl(url: string): boolean {
+  try {
+    return LOCAL_HOSTS.has(new URL(url).hostname);
+  } catch {
+    return false;
+  }
+}
+
 export async function seedDev(adminUrl: string): Promise<void> {
+  if (!isLocalDbUrl(adminUrl)) throw new SeedRefused('db:seed-dev refused: DATABASE_ADMIN_URL must point to localhost');
   const db = new pg.Client({ connectionString: adminUrl });
   await db.connect();
   try {
+    // a database holding real members is never a dev database, even on localhost
+    const foreign = await db.query("select 1 from auth.users where email not like '%@dev.local' limit 1");
+    if (foreign.rowCount) throw new SeedRefused('db:seed-dev refused: database has non-dev members');
     const adminId = await upsertUser(db, DEV_ADMIN);
     await upsertUser(db, DEV_LEARNER);
     // protect_profile_privileged_columns가 관리자 아닌 세션의 role 변경을 되돌리므로 트리거를 끄고 바꾼다.
@@ -108,8 +124,9 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   }
   seedDev(adminUrl).then(
     () => console.log('db:seed-dev done'),
-    (err: { code?: string; message?: string }) => {
-      console.error('db:seed-dev failed', err?.code ?? '', err?.message ?? '');
+    (err: { code?: string }) => {
+      // pg errors can carry the host, so only the fixed refusal text or the error code is printed
+      console.error(err instanceof SeedRefused ? err.message : `db:seed-dev failed ${err?.code ?? ''}`);
       process.exit(1);
     },
   );

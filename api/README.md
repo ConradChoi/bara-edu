@@ -25,7 +25,7 @@ DATABASE_ADMIN_URL=... npm run db:migrate                              # 01~03, 
 로컬 통합 확인용 데이터(개발용 관리자·학습자·강좌·레슨·퀴즈·시험 문항, 운영·리허설 DB에는 쓰지 않는다):
 
 ```
-DATABASE_ADMIN_URL=... npm run db:seed-dev   # 여러 번 실행해도 같은 결과
+DATABASE_ADMIN_URL=... npm run db:seed-dev   # 여러 번 실행해도 같은 결과. 접속 주소가 localhost가 아니거나 @dev.local 외 회원이 있으면 거절
 ```
 
 테스트는 실행마다 임시 데이터베이스를 만들어 스키마(`db/`)를 적용하고 끝나면 지운다.
@@ -40,7 +40,7 @@ DATABASE_ADMIN_URL=... npm run db:seed-dev   # 여러 번 실행해도 같은 �
 | `SESSION_TTL_DAYS` | | `30` | 세션 유효 일수(1~3650 정수) |
 | `SITE_ORIGINS` | | `https://bara-edu.kr` | 메일 링크에 허용하는 사이트 주소(쉼표 구분) |
 | `MAIL_FROM` | | - | 있으면 SES(서울 등 `AWS_REGION`)로 메일 발송, 발신 예: `바라평생교육원 <no-reply@bara-edu.kr>`. 없으면 메일 발송은 실패로 로그만 남는다 |
-| `BARA_DEV_FAKES` | | - | 로컬 확인 전용. `1`이면 SES·S3 대신 메모리 구현을 쓰고 메일 링크(토큰 포함)를 로그에 남긴다. `NODE_ENV=production`이거나 `MAIL_FROM`·`S3_BUCKET`이 있으면 시작을 거절한다 |
+| `BARA_DEV_FAKES` | | - | 로컬 확인 전용. `1`이면 SES·S3 대신 메모리 구현을 쓰고 메일 링크(토큰 포함)를 로그에 남긴다. `SITE_ORIGINS`가 전부 `localhost`·`127.0.0.1`이어야 하고, `NODE_ENV=production`이거나 `MAIL_FROM`·`S3_BUCKET`이 있으면 시작을 거절한다 |
 | `LOG_LEVEL` | | `info` | 로그 수준(`fatal`/`error`/`warn`/`info`/`debug`/`trace`/`silent`). 오류 로그에는 pg `detail`·쿼리 값, `x-bara-service-key`·`x-bara-session` 헤더가 남지 않는다 |
 
 ## 공통 규칙
