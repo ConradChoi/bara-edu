@@ -19,6 +19,8 @@ export type MigrateOptions = {
   photos?: { downloader: PhotoDownloader; uploader: PhotoUploader };
   log?: (line: string) => void;
   batchSize?: number;
+  // called when a connection drop is recorded (tests wait on this instead of a fixed delay)
+  onConnectionLost?: (which: 'source' | 'target') => void;
 };
 
 export class MigrationFailure extends Error {}
@@ -166,8 +168,12 @@ export async function migrate(opts: MigrateOptions): Promise<number> {
   const dst = new pg.Client({ connectionString: opts.targetUrl });
   // an idle connection drop is emitted as 'error'; without a listener Node crashes. The next query then fails normally.
   const lost: string[] = [];
-  src.on('error', () => lost.push('source'));
-  dst.on('error', () => lost.push('target'));
+  const record = (which: 'source' | 'target') => {
+    lost.push(which);
+    opts.onConnectionLost?.(which);
+  };
+  src.on('error', () => record('source'));
+  dst.on('error', () => record('target'));
   let step = 'connect';
   let target: 'none' | 'open' | 'committing' | 'committed' = 'none';
   try {

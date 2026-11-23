@@ -145,7 +145,14 @@ const terminateIdleTx = (db: Db) =>
     `select pg_terminate_backend(pid) from pg_stat_activity
       where datname = current_database() and state = 'idle in transaction' and pid <> pg_backend_pid()`,
   );
-const tick = () => new Promise((r) => setTimeout(r, 200));
+// polls until the migration has recorded the dropped connection (no fixed delay: R21)
+async function waitForLost(seen: string[], which: 'source' | 'target', ms = 10_000): Promise<void> {
+  const until = Date.now() + ms;
+  while (!seen.includes(which)) {
+    if (Date.now() > until) throw new Error(`timed out waiting for lost ${which} connection`);
+    await new Promise((r) => setTimeout(r, 10));
+  }
+}
 
 test('이관 후 테이블별 건수·체크섬 일치, exit 0', async () => {
   const target = await newTarget();
@@ -377,14 +384,16 @@ test('사진 키 검증: ../ 경로가 있으면 다운로드 없이 실패', as
 
 test('원본 연결이 끊기면 프로세스가 죽지 않고 exit 1, 대상 롤백', async () => {
   const target = await newTarget();
+  const seen: string[] = [];
   const uploader = {
     put: async () => {
+      if (seen.includes('source')) return;
       await terminateIdleTx(source);
-      await tick();
+      await waitForLost(seen, 'source');
     },
   };
   const downloader: PhotoDownloader = { download: async () => ({ body: Buffer.from('x'), contentType: 'image/jpeg' }) };
-  const { code, lines } = await run(target, { photos: { downloader, uploader } });
+  const { code, lines } = await run(target, { photos: { downloader, uploader }, onConnectionLost: (w) => seen.push(w) });
   expect(code).toBe(1);
   expect(lines).toContain('connection lost: source');
   expect(lines).toContain('target rolled back');
@@ -394,14 +403,16 @@ test('원본 연결이 끊기면 프로세스가 죽지 않고 exit 1, 대상 �
 
 test('대상 연결이 커밋 전에 끊기면 커밋하지 않고 "롤백됨"이라고 하지 않음', async () => {
   const target = await newTarget();
+  const seen: string[] = [];
   const uploader = {
     put: async () => {
+      if (seen.includes('target')) return;
       await terminateIdleTx(target);
-      await tick();
+      await waitForLost(seen, 'target');
     },
   };
   const downloader: PhotoDownloader = { download: async () => ({ body: Buffer.from('x'), contentType: 'image/jpeg' }) };
-  const { code, lines } = await run(target, { photos: { downloader, uploader } });
+  const { code, lines } = await run(target, { photos: { downloader, uploader }, onConnectionLost: (w) => seen.push(w) });
   expect(code).toBe(1);
   expect(lines).toContain('connection lost: target');
   expect(lines).toContain('connection lost before commit');

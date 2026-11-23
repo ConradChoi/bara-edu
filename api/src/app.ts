@@ -16,18 +16,21 @@ import { registerOpRoutes } from './ops/routes.js';
 import { lazyCatalog } from './query/catalog.js';
 import { registerQueryRoutes } from './query/routes.js';
 import { lazyRpcCatalog, registerRpcRoutes } from './query/rpc.js';
+import type { HttpsOptions } from './tls.js';
 
-export type AppDeps = { config: Config; pool: pg.Pool; mailer: Mailer; storage: Storage; logger?: LogOptions };
+export type AppDeps = { config: Config; pool: pg.Pool; mailer: Mailer; storage: Storage; logger?: LogOptions; https?: HttpsOptions };
 
 export function buildApp(deps: AppDeps, extraOps: Op[] = []): FastifyInstance {
+  // with `https` the instance serves TLS only; the route/hook API is the same, so it is typed as the plain instance
   const app = Fastify({
+    ...(deps.https ? { https: deps.https } : {}),
     logger: loggerOptions(deps.logger),
     bodyLimit: 1_048_576,
     frameworkErrors: (_err, req, reply) =>
       keyMatches(req.headers['x-bara-service-key'], deps.config.serviceKey)
         ? sendError(reply, 'validation', '요청 형식이 올바르지 않습니다.')
         : sendError(reply, 'unauthorized_service', '서비스 키가 올바르지 않습니다.'),
-  });
+  }) as unknown as FastifyInstance;
   app.decorate('deps', deps);
   registerErrorHandlers(app);
   registerGuard(app);
