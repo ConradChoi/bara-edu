@@ -16,7 +16,8 @@ export default function AuthForm({ mode, redirectTo }: AuthFormProps) {
   const action = mode === 'signup' ? signup : login;
   const [state, formAction, pending] = useActionState(action, initialState);
 
-  if (mode === 'signup' && state && 'pendingConfirmation' in state) {
+  // 가입 직후와, 인증 전 계정으로 로그인한 경우 모두 같은 인증 안내를 보여준다.
+  if (state && 'pendingConfirmation' in state) {
     return (
       <div className="flex flex-col gap-5">
         <p className="text-[14px] leading-relaxed text-n-7">

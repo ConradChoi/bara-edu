@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { changePassword, updateContactInfo, withdraw } from '@/app/actions/account';
 import WithdrawForm from '@/components/mypage/WithdrawForm';
+import PendingClaimRedirect from '@/components/auth/PendingClaimRedirect';
 import {
   getCompletedEnrollmentsForUser,
   getMyCertificatesWithCourse,
@@ -9,7 +10,7 @@ import {
 } from '@/lib/supabase/classroom-queries';
 import { getMyDiagnosisResults } from '@/lib/supabase/diagnosis-queries';
 import { getMyEnrollments, type MyEnrollment } from '@/lib/supabase/queries';
-import { createClient } from '@/lib/supabase/server';
+import { createClient } from '@/lib/db/server';
 import type { EnrollmentStatus } from '@/lib/types';
 import { DIAGNOSIS_TIER_LABELS, type DiagnosisTier } from '@/data/diagnosis/config';
 
@@ -22,7 +23,7 @@ const SETTINGS_ERROR_MESSAGE: Record<string, string> = {
   'password-validation': '새 비밀번호는 8자 이상이어야 하고, 확인란과 일치해야 해요.',
   'current-password-wrong': '현재 비밀번호가 일치하지 않아요.',
   'photo-too-large': '사진 용량은 5MB 이하여야 해요.',
-  'photo-invalid': '지원하지 않는 이미지 형식이에요 (JPEG/PNG/GIF/WebP만 가능).',
+  'photo-invalid': '지원하지 않는 이미지 형식이에요 (JPEG/PNG/WebP만 가능).',
   failed: '처리 중 문제가 발생했어요. 잠시 후 다시 시도해주세요.',
 };
 
@@ -101,6 +102,7 @@ export default async function MyPage({
     <div className="mx-auto max-w-[800px] px-6 py-10">
       <h1 className="text-[24px] font-semibold text-n-9">마이페이지</h1>
 
+      {welcome === '1' && <PendingClaimRedirect />}
       {welcome === '1' && (
         <div className="mt-4 rounded-md border border-success bg-success/10 px-3.5 py-3">
           <p className="text-[13px] font-semibold text-success">이메일 인증이 완료됐어요. 가입을 환영해요!</p>

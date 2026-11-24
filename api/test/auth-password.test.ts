@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, expect, test } from 'vitest';
 import bcrypt from 'bcryptjs';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/app.js';
+import { MemoryStorage } from '../src/storage/storage.js';
 import { loadConfig } from '../src/config.js';
 import { MemoryMailer } from '../src/mail/mailer.js';
 import { issueEmailToken } from '../src/auth/tokens.js';
@@ -18,7 +19,7 @@ beforeAll(async () => {
   ctx = await setupTestDb();
   mailer = new MemoryMailer();
   const config = loadConfig({ DATABASE_URL: 'postgresql://x/x', BARA_SERVICE_KEY: KEY });
-  app = buildApp({ config, pool: ctx.pool, mailer });
+  app = buildApp({ config, pool: ctx.pool, mailer, storage: new MemoryStorage() });
   await app.ready();
 });
 afterAll(async () => {
@@ -30,8 +31,13 @@ beforeEach(async () => {
   await ctx.adminPool.query('truncate auth.rate_events');
 });
 
-const post = (url: string, payload: unknown, headers: Record<string, string> = {}) =>
-  app.inject({ method: 'POST', url, payload: payload as object, headers: { 'x-bara-service-key': KEY, ...headers } });
+const flushMail = () => new Promise<void>((r) => setImmediate(r));
+
+const post = async (url: string, payload: unknown, headers: Record<string, string> = {}) => {
+  const res = await app.inject({ method: 'POST', url, payload: payload as object, headers: { 'x-bara-service-key': KEY, ...headers } });
+  await flushMail();
+  return res;
+};
 
 async function addUser(confirmed = true) {
   const email = `pw${++n}@bara-edu.kr`;

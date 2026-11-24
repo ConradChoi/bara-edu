@@ -5,15 +5,24 @@
   "type": "module",
   "scripts": {
     "db:up": "docker compose -f docker-compose.test.yml up -d --wait",
+    "db:bootstrap": "npm run build && node dist/db/cli.js bootstrap",
+    "db:migrate": "npm run build && node dist/db/cli.js migrate",
+    "db:seed-dev": "node --experimental-strip-types test/helpers/seed-dev.ts",
     "db:down": "docker compose -f docker-compose.test.yml down -v",
     "test": "vitest run",
-    "build": "tsc",
-    "start": "node dist/server.js"
+    "build": "tsc && tsc -p tsconfig.scripts.json",
+    "start": "node dist/server.js",
+    "migrate:supabase": "npm run build && node dist/scripts/migrate-from-supabase.js"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1173.0",
+    "@aws-sdk/client-sesv2": "^3.1175.0",
+    "@aws-sdk/client-ssm": "^3.1175.0",
+    "@aws-sdk/s3-request-presigner": "^3.1173.0",
     "bcryptjs": "^3.0.3",
     "fastify": "^5.0.0",
     "pg": "^8.13.0",
+    "pg-connection-string": "^2.14.1",
     "zod": "^3.25.76"
   },
   "devDependencies": {

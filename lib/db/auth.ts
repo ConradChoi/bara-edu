@@ -1,0 +1,120 @@
+import 'server-only';
+import { apiFetch, type ApiResult } from './api';
+import { clearSession, readSession, writeSession } from './session-cookie';
+
+type Issued = { sessionToken: string; expiresAt: string };
+
+export type SessionInfo = {
+  user: { id: string; email: string; emailConfirmedAt: string | null };
+  profile: { role: string; status: string } | null;
+};
+
+export type SignUpInput = { email: string; password: string; name: string; phone: string | null };
+export type SignUpResult = { ok: true; status: 'pending_confirmation' | 'already_registered' } | { ok: false };
+export type LoginResult =
+  | { ok: true }
+  | { ok: false; reason: 'invalid_credentials' | 'email_not_confirmed' | 'rate_limited' | 'failed' };
+export type ChangePasswordResult = { ok: true } | { ok: false; reason: 'wrong_current' | 'unauthenticated' | 'failed' };
+
+// a 401 can also be `unauthorized_service` (bad service key) — that is not the user's session
+export function isDeadSession(r: ApiResult<unknown>): boolean {
+  return !r.ok && r.status === 401 && r.error.code === 'unauthenticated';
+}
+
+export async function signUp(input: SignUpInput, origin: string): Promise<SignUpResult> {
+  const r = await apiFetch<{ status: 'pending_confirmation' | 'already_registered' }>('/v1/auth/signup', {
+    method: 'POST',
+    body: { ...input, origin },
+  });
+  return r.ok ? { ok: true, status: r.data.status } : { ok: false };
+}
+
+export async function resend(email: string, origin: string): Promise<boolean> {
+  return (await apiFetch('/v1/auth/resend', { method: 'POST', body: { email, origin } })).ok;
+}
+
+export async function verifyEmail(token: string): Promise<boolean> {
+  const r = await apiFetch<Issued>('/v1/auth/verify-email', { method: 'POST', body: { token } });
+  if (!r.ok) return false;
+  await writeSession(r.data.sessionToken, r.data.expiresAt);
+  return true;
+}
+
+export async function login(email: string, password: string): Promise<LoginResult> {
+  const r = await apiFetch<Issued & { userId: string }>('/v1/auth/login', { method: 'POST', body: { email, password } });
+  if (r.ok) {
+    await writeSession(r.data.sessionToken, r.data.expiresAt);
+    return { ok: true };
+  }
+  if (r.status === 401 && r.error.code === 'unauthenticated') {
+    return { ok: false, reason: r.error.message === 'email_not_confirmed' ? 'email_not_confirmed' : 'invalid_credentials' };
+  }
+  return { ok: false, reason: r.status === 429 ? 'rate_limited' : 'failed' };
+}
+
+export async function logout(): Promise<void> {
+  const session = await readSession();
+  if (session) await apiFetch('/v1/auth/logout', { method: 'POST', session });
+  await clearSession();
+}
+
+// the API revokes the user's other sessions; the current cookie stays valid
+export async function changePassword(currentPassword: string, newPassword: string): Promise<ChangePasswordResult> {
+  const session = await readSession();
+  if (!session) return { ok: false, reason: 'unauthenticated' };
+  const r = await apiFetch('/v1/auth/change-password', { method: 'POST', session, body: { currentPassword, newPassword } });
+  if (r.ok) return { ok: true };
+  if (r.status === 403) return { ok: false, reason: 'wrong_current' };
+  return { ok: false, reason: isDeadSession(r) ? 'unauthenticated' : 'failed' };
+}
+
+export async function requestReset(email: string, origin: string): Promise<boolean> {
+  return (await apiFetch('/v1/auth/request-reset', { method: 'POST', body: { email, origin } })).ok;
+}
+
+export async function resetPassword(token: string, newPassword: string): Promise<boolean> {
+  const r = await apiFetch('/v1/auth/reset-password', { method: 'POST', body: { token, newPassword } });
+  if (r.ok) await clearSession();
+  return r.ok;
+}
+
+// token and IP are explicit so proxy.ts can call this without next/headers
+export async function getSession(token: string, clientIp: string | null): Promise<ApiResult<SessionInfo>> {
+  return apiFetch<SessionInfo>('/v1/auth/session', { method: 'GET', session: token, clientIp });
+}
+
+export async function withdrawAnonymize(anonymizedEmail: string): Promise<boolean> {
+  const r = await apiFetch('/v1/auth/withdraw-anonymize', { method: 'POST', session: await readSession(), body: { anonymizedEmail } });
+  return r.ok;
+}
+
+export async function withdrawCleanup(): Promise<boolean> {
+  const r = await apiFetch('/v1/op/account.withdrawCleanup', { method: 'POST', session: await readSession(), body: { params: {} } });
+  return r.ok;
+}
+
+export async function logoutAll(): Promise<boolean> {
+  return (await apiFetch('/v1/auth/logout-all', { method: 'POST', session: await readSession() })).ok;
+}
+
+export async function adminConfirmEmail(userId: string): Promise<boolean> {
+  const r = await apiFetch(`/v1/admin/users/${encodeURIComponent(userId)}/confirm-email`, { method: 'POST', session: await readSession() });
+  return r.ok;
+}
+
+export async function adminSendReset(userId: string, origin: string): Promise<boolean> {
+  const r = await apiFetch<{ mailSent: boolean }>(`/v1/admin/users/${encodeURIComponent(userId)}/send-reset`, {
+    method: 'POST',
+    session: await readSession(),
+    body: { origin },
+  });
+  return r.ok && r.data.mailSent === true;
+}
+
+export async function listEmailConfirmations(): Promise<Array<{ id: string; emailConfirmedAt: string | null }> | null> {
+  const r = await apiFetch<{ items: Array<{ id: string; emailConfirmedAt: string | null }> }>('/v1/admin/users/confirmations', {
+    method: 'GET',
+    session: await readSession(),
+  });
+  return r.ok ? r.data.items : null;
+}

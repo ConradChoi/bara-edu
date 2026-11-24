@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, expect, test } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/app.js';
+import { MemoryStorage } from '../src/storage/storage.js';
 import { loadConfig } from '../src/config.js';
 import { MemoryMailer } from '../src/mail/mailer.js';
 import { issueEmailToken } from '../src/auth/tokens.js';
@@ -17,7 +18,7 @@ beforeAll(async () => {
   ctx = await setupTestDb();
   mailer = new MemoryMailer();
   const config = loadConfig({ DATABASE_URL: 'postgresql://x/x', BARA_SERVICE_KEY: KEY });
-  app = buildApp({ config, pool: ctx.pool, mailer });
+  app = buildApp({ config, pool: ctx.pool, mailer, storage: new MemoryStorage() });
   await app.ready();
 });
 afterAll(async () => {
@@ -29,8 +30,13 @@ beforeEach(async () => {
   await ctx.adminPool.query('truncate auth.rate_events');
 });
 
-const post = (url: string, payload: unknown, headers: Record<string, string> = {}) =>
-  app.inject({ method: 'POST', url, payload: payload as object, headers: { 'x-bara-service-key': KEY, ...headers } });
+const flushMail = () => new Promise<void>((r) => setImmediate(r));
+
+const post = async (url: string, payload: unknown, headers: Record<string, string> = {}) => {
+  const res = await app.inject({ method: 'POST', url, payload: payload as object, headers: { 'x-bara-service-key': KEY, ...headers } });
+  await flushMail();
+  return res;
+};
 
 const signup = (over: Record<string, unknown> = {}, headers: Record<string, string> = {}) =>
   post('/v1/auth/signup', { email: `new${++n}@bara-edu.kr`, password: 'password1', name: '홍길동', phone: '010-1234-5678', origin: ORIGIN, ...over }, headers);
@@ -169,7 +175,7 @@ test('verify-email: 토큰 누락·과대·이상한 값 → 모두 400 invalid_
 const failingMailer = { async send() { throw new Error('smtp down'); } };
 
 test('signup: 메일 발송 실패여도 200 pending_confirmation, 계정은 생성됨', async () => {
-  const failApp = buildApp({ config: app.deps.config, pool: ctx.pool, mailer: failingMailer });
+  const failApp = buildApp({ config: app.deps.config, pool: ctx.pool, mailer: failingMailer, storage: new MemoryStorage() });
   const email = 'mailfail1@bara-edu.kr';
   const r = await failApp.inject({
     method: 'POST', url: '/v1/auth/signup', headers: { 'x-bara-service-key': KEY },
@@ -184,7 +190,7 @@ test('signup: 메일 발송 실패여도 200 pending_confirmation, 계정은 생
 
 test('resend: 메일 발송 실패여도 없는 이메일과 동일한 200 응답', async () => {
   await signup({ email: 'mailfail2@bara-edu.kr' });
-  const failApp = buildApp({ config: app.deps.config, pool: ctx.pool, mailer: failingMailer });
+  const failApp = buildApp({ config: app.deps.config, pool: ctx.pool, mailer: failingMailer, storage: new MemoryStorage() });
   const call = (email: string) =>
     failApp.inject({ method: 'POST', url: '/v1/auth/resend', headers: { 'x-bara-service-key': KEY }, payload: { email, origin: ORIGIN } });
   const existing = await call('mailfail2@bara-edu.kr');
@@ -204,9 +210,8 @@ test('signup: IP당 1시간 10회, 11번째는 429 (x-bara-client-ip 기준)', a
   expect((await signup({}, { 'x-bara-client-ip': '203.0.113.8' })).statusCode).toBe(200);
 });
 
-test('signup: client-ip 헤더가 없으면 request.ip 사용', async () => {
-  for (let i = 0; i < 10; i++) await signup();
-  expect((await signup()).statusCode).toBe(429);
+test('signup: client-ip 헤더가 없으면 IP 제한을 걸지 않는다', async () => {
+  for (let i = 0; i < 12; i++) expect((await signup()).statusCode).toBe(200);
 });
 
 test('resend: 없는 이메일도 200 동일 응답, 메일 0통', async () => {

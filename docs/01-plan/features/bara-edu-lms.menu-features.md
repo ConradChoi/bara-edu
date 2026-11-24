@@ -89,7 +89,7 @@ graph TD
 | F-PUB-4 | 강좌 상세 | 강좌 정보 노출 | 썸네일/배지/강사/일정/수강료/정원 | Must | `courses` |
 | F-PUB-4b | 강좌 상세 | 교재 노출 | 주교재(강좌당 최대 1개)/보조교재(여러 개, 유인물·PPT 등 포함) 목록 — 교재명·출판사·구매 URL. 둘 다 선택 항목, 없으면 섹션 자체 미노출(2026-08-30 추가) | Should | `course_materials` |
 | F-PUB-5 | 강좌 상세 | 수강 신청 진입 | 비로그인 시 로그인 유도, 로그인 시 신청 확인 화면 | Must | `enrollments` |
-| F-PUB-5b | 신청 확인 화면 | 자격증 발급 정보 입력 | 강좌별 `requiresCertificateInfo`가 true일 때만 노출·필수(주소·사진 1매), 회원당 1회 입력 후 재사용. false인 강좌(보수교육 등)는 아예 노출 안 함(2026-08-28 도입, 2026-08-29 강좌별 on/off로 확장) | Must | `profiles`, `courses.requires_certificate_info`, storage `member-photos` |
+| F-PUB-5b | 신청 확인 화면 | 자격증 발급 정보 입력 | 강좌별 `requiresCertificateInfo`가 true일 때만 노출·필수(주소·사진 1매), 회원당 1회 입력 후 재사용. false인 강좌(보수교육 등)는 아예 노출 안 함(2026-08-28 도입, 2026-08-29 강좌별 on/off로 확장). 사진은 **JPEG/PNG/WebP만, 5MB 이하**(GIF는 거절) (2026-11-23 서버 이전 반영) | Must | `profiles`, `courses.requires_certificate_info`, S3 사진 버킷 |
 | F-PUB-6 | 강좌 상세·신청 확인 | 무통장입금 안내 | Admin이 등록한 계좌(최대 3개) 목록 + 입금자명 안내 + 기한(3일) 노출 + 복사. 신청 확인 화면에도 동일하게 노출(2026-08-28부터) | Must | `bank_accounts` |
 | F-PUB-7 | 약관·정책 페이지 | 공개 문서 조회 | 이용약관/개인정보처리방침/환불정책 등 CMS에서 관리하는 published 최신본 표시 | Must | `legal_documents` |
 
@@ -97,9 +97,10 @@ graph TD
 
 | ID | 메뉴/화면 | 기능명 | 설명 | 우선순위 | 관련 데이터 |
 |---|---|---|---|:---:|---|
-| F-AUTH-1 | 회원가입 | 이메일/비밀번호 가입 | 이메일 인증 필수(2026-08-17부터, Q1 변경). 인증 전에는 세션 없음 → "이메일을 확인해주세요" 안내, 인증 메일 링크 클릭 시 `/my?welcome=1`로 이동 | Must | Supabase Auth, `profiles` |
-| F-AUTH-2 | 로그인 | 이메일/비밀번호 로그인 | 세션 발급, 원래 목적지로 복귀 | Must | Supabase Auth |
-| F-AUTH-3 | 공통 | 세션 만료 처리 | 보호 페이지 접근 시 로그인으로 리다이렉트 후 복귀 | Must | Supabase Auth |
+| F-AUTH-1 | 회원가입 | 이메일/비밀번호 가입 | 이메일 인증 필수(2026-08-17부터, Q1 변경). 인증 전에는 세션 없음 → "이메일을 확인해주세요" 안내, 인증 메일 링크(`/auth/confirm?token=`) 클릭 시 세션 발급 후 `/my?welcome=1`로 이동(링크가 무효·만료면 `/sign-in?confirmError=1`). 메일은 Amazon SES 발송 (2026-11-23 서버 이전 반영) | Must | bara-edu API(`/v1/auth/signup`·`verify-email`), `profiles` |
+| F-AUTH-2 | 로그인 | 이메일/비밀번호 로그인 | 세션 발급, 원래 목적지로 복귀. 인증 전 계정으로 로그인하면 인증 안내와 **인증 메일 재발송 폼**을 보여준다 (2026-11-23 서버 이전 반영) | Must | bara-edu API(`/v1/auth/login`·`resend`) |
+| F-AUTH-3 | 공통 | 세션 만료 처리 | 보호 페이지 접근 시 로그인으로 리다이렉트 후 복귀. 세션은 httpOnly 쿠키(`bara_session`, 발급 후 30일) (2026-11-23 서버 이전 반영) | Must | bara-edu API(`/v1/auth/session`) |
+| F-AUTH-4 | 비밀번호 재설정 | 메일 링크로 새 비밀번호 설정 | 관리자가 보낸 재설정 메일(F-ADMM-6)의 링크 `/reset-password?token=`에서 새 비밀번호 입력. 링크는 1시간 유효·1회용 (2026-11-23 서버 이전 반영) | Must | bara-edu API(`/v1/auth/reset-password`) |
 
 ### 2.3 (user) 마이페이지 `/my`
 
@@ -110,7 +111,7 @@ graph TD
 | F-MY-3 | 완료 탭 | 완료한 강좌 목록 | 진도 100% 강좌 | Should | `progress` |
 | F-MY-4 | 수료증 탭 | 수료증 목록/다운로드 | 발급된 PDF/이미지 | Must | `certificates` |
 | F-MY-5 | 공통 | 계정 정보 수정 | 이름/연락처 수정 | Should | `profiles` |
-| F-MY-6 | 설정 | 회원 탈퇴 | 진행 중(입금대기/수강중) 강좌 있으면 차단 안내. 승인 시 소프트 삭제(status='withdrawn') + 이름/연락처 즉시 익명화, 거래·결제 관련 기록은 법정기간 보관 후 파기(security-officer 검토 필요). 같은 이메일 재가입 허용 | Must | `profiles`, `enrollments` |
+| F-MY-6 | 설정 | 회원 탈퇴 | 진행 중(입금대기/수강중) 강좌 있으면 차단 안내. 승인 시 소프트 삭제(status='withdrawn') + 이름/연락처 즉시 익명화, 거래·결제 관련 기록은 법정기간 보관 후 파기(security-officer 검토 필요). 같은 이메일 재가입 허용. 처리 순서 (2026-11-23 서버 이전 반영): 학습 이력·진단 PII 정리 → 계정 익명화 → profiles 갱신 → 사진 삭제 → 모든 기기 로그아웃 → 쿠키 삭제(앞 3단계 중 하나라도 실패하면 중단·재시도 가능, 뒤 단계 실패는 탈퇴를 막지 않음) | Must | `profiles`, `enrollments` |
 
 ### 2.4 (user) 강의실 `/learn/[courseId]`
 
@@ -136,7 +137,7 @@ graph TD
 | F-ADM-1 | 대시보드 | 요약 카드(신청·수료) | 신규신청/입금대기/오늘승인/수료임박 | Should | 집계 쿼리 |
 | F-ADM-2 | 대시보드 | 요약 카드(신규 가입) | 기존 카드 그리드에 `오늘 신규가입`/`이번주 신규가입` 2개 추가. **가입 시점 사실 기준** — 탈퇴(status='withdrawn') 회원도 포함, `role='admin'` 계정은 제외. "이번주"는 월요일 00:00(KST)~현재, 카드 하단에 기간(예: 9/8~9/14) 병기. 클릭 시 `/admin/members`(2026-09-09 추가) | Must | `profiles.created_at`, `profiles.role`, `profiles.status` |
 | F-ADM-3 | 대시보드 | 최근 가입자 목록 | 최신 가입 **10명**, 표시 항목: 이름 · 마스킹 이메일(`ab***@gmail.com`) · 가입일시 · 인증상태 배지. 행 클릭 시 `/admin/members/[id]`. `role='admin'`, `status='withdrawn'` 제외(익명화된 이름이라 목록 노출 무의미). 0건이면 빈 상태 문구(2026-09-09 추가) | Must | `profiles` |
-| F-ADM-4 | 대시보드 | 이메일 미인증 회원 수 | `auth.users.email_confirmed_at is null` 카운트 + 그중 **가입 7일 초과 방치** 건수 보조 표기. 이 프로젝트는 Confirm email ON이라 미인증 = 로그인 불가 = 실질 미가입, 즉 F-ADM-2/5 수치의 **보정값**이라 함께 노출해야 의미가 성립. `lib/supabase/admin.ts`의 `createAdminClient()` + `auth.admin.listUsers()` 서버 전용 호출, 실시간성 불필요하므로 **60초 캐시** 필수(매 대시보드 로드마다 전체 페이지네이션 순회 금지)(2026-09-09 추가) | Should | `auth.users` (service_role) |
+| F-ADM-4 | 대시보드 | 이메일 미인증 회원 수 | `auth.users.email_confirmed_at is null` 카운트 + 그중 **가입 7일 초과 방치** 건수 보조 표기. 이 프로젝트는 Confirm email ON이라 미인증 = 로그인 불가 = 실질 미가입, 즉 F-ADM-2/5 수치의 **보정값**이라 함께 노출해야 의미가 성립. `lib/supabase/admin.ts`의 `createAdminClient()` + `auth.admin.listUsers()` 서버 전용 호출, 실시간성 불필요하므로 **60초 캐시** 필수(매 대시보드 로드마다 전체 페이지네이션 순회 금지)(2026-09-09 추가). (2026-11-23 서버 이전 반영) 관리자 전용 API `/v1/admin/users/confirmations`로 조회 | Should | `auth.users`(bara-edu API) |
 | F-ADM-5 | 대시보드 | 가입 추이 그래프 | 최근 **30일 일별** 가입자 수 막대 차트, 기간 토글 없음. 집계 기준은 F-ADM-2와 동일(탈퇴 포함/관리자 제외). 차트 라이브러리 신규 도입 금지 — CSS/인라인 SVG 막대로 구현(현재 `package.json`에 차트 의존성 없음)(2026-09-09 추가) | Should | `profiles.created_at` |
 | F-ADM-6 | 대시보드 | 미인증 회원 목록 + 인증메일 재전송 | 미인증자 개별 목록과 재전송 액션. 메일 발송 남용 방지(rate limit)와 privacy-security-officer 점검이 선행 필요해 이번 범위에서 제외 | **Won't (Later)** | `auth.users` |
 
@@ -189,7 +190,9 @@ graph TD
 |---|---|---|---|:---:|---|
 | F-ADMM-1 | 목록 | 회원 검색/조회 | 이름/이메일 검색 | Should | `profiles` |
 | F-ADMM-2 | 상세 패널 | 신청내역·진도·수료 이력 | 회원 단위로 통합 조회 | Should | `enrollments`, `progress`, `certificates` |
-| F-ADMM-4 | 상세 패널 | 주소·자격증 사진 조회 | 사진은 매 조회마다 60초 만료 서명 URL로 열람(공개 URL 아님, 2026-08-28 추가) | Must | `profiles`, storage `member-photos` |
+| F-ADMM-4 | 상세 패널 | 주소·자격증 사진 조회 | 사진은 매 조회마다 60초 만료 서명 URL로 열람(공개 URL 아님, 2026-08-28 추가). 저장소는 비공개 S3 버킷 (2026-11-23 서버 이전 반영) | Must | `profiles`, S3 사진 버킷 |
+| F-ADMM-5 | 상세 패널 | 이메일 인증 상태·인증완료 처리 | 회원 상세에 이메일 인증 상태 배지(인증완료/미인증). 미인증이면 확인 다이얼로그 후 "이메일 인증완료 처리"(인증 메일을 못 받은 회원 대신 처리) (2026-11-23 서버 이전 반영) | Should | bara-edu API(`/v1/admin/users/:id/confirm-email`·`confirmations`) |
+| F-ADMM-6 | 상세 패널 | 비밀번호 재설정 메일 발송 | 관리자가 회원에게 재설정 메일 발송 → 회원은 F-AUTH-4 링크로 새 비밀번호 설정 (2026-11-23 서버 이전 반영) | Should | bara-edu API(`/v1/admin/users/:id/send-reset`) |
 | F-ADMM-3 | 목록 | 탈퇴 회원 조회 | status='withdrawn' 필터, 개인식별정보는 이미 익명화된 상태로 표시 | Should | `profiles` |
 
 ### 2.8 (admin) 신청·입금 관리 `/admin/enrollments`

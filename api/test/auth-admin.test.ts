@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, expect, test } from 'vitest';
 import bcrypt from 'bcryptjs';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/app.js';
+import { MemoryStorage } from '../src/storage/storage.js';
 import { loadConfig } from '../src/config.js';
 import { MemoryMailer, type Mailer } from '../src/mail/mailer.js';
 import { issueEmailToken } from '../src/auth/tokens.js';
@@ -25,7 +26,7 @@ beforeAll(async () => {
     },
   };
   const config = loadConfig({ DATABASE_URL: 'postgresql://x/x', BARA_SERVICE_KEY: KEY });
-  app = buildApp({ config, pool: ctx.pool, mailer: flaky });
+  app = buildApp({ config, pool: ctx.pool, mailer: flaky, storage: new MemoryStorage() });
   await app.ready();
 });
 afterAll(async () => {
@@ -38,13 +39,18 @@ beforeEach(async () => {
   await ctx.adminPool.query('truncate auth.rate_events');
 });
 
-const call = (method: 'GET' | 'POST', url: string, payload?: unknown, session?: string) =>
-  app.inject({
+const flushMail = () => new Promise<void>((r) => setImmediate(r));
+
+const call = async (method: 'GET' | 'POST', url: string, payload?: unknown, session?: string) => {
+  const res = await app.inject({
     method,
     url,
     payload: payload as object | undefined,
     headers: { 'x-bara-service-key': KEY, ...(session ? { 'x-bara-session': session } : {}) },
   });
+  await flushMail();
+  return res;
+};
 const login = (email: string, password = 'password1') => call('POST', '/v1/auth/login', { email, password });
 
 async function addUser(opts: { confirmed?: boolean; admin?: boolean } = {}) {
@@ -122,13 +128,13 @@ test('send-reset: 메일 발송, 링크로 비밀번호 재설정 가능', async
   expect((await login(target.email, 'newpassword1')).statusCode).toBe(200);
 });
 
-test('send-reset: 메일 실패 시 200 + mailSent:false', async () => {
+test('send-reset: 메일은 응답 뒤 발송되므로 발송 실패여도 200 + mailSent:true', async () => {
   const target = await addUser();
   const admin = await adminSession();
   failing = true;
   const r = await call('POST', `/v1/admin/users/${target.id}/send-reset`, { origin: ORIGIN }, admin);
   expect(r.statusCode).toBe(200);
-  expect(r.json()).toEqual({ ok: true, mailSent: false });
+  expect(r.json()).toEqual({ ok: true, mailSent: true });
 });
 
 test('send-reset: 허용되지 않은 origin → 400, 없는 회원 → 404', async () => {

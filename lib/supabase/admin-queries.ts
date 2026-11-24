@@ -6,10 +6,12 @@
 
 import { headers } from 'next/headers';
 import { getKstStartOfDaysAgoIso, getKstStartOfTodayIso, getKstStartOfWeekIso, formatKstWeekRangeLabel, toKstDateKey } from '@/lib/kst';
-import { createAdminClient } from '@/lib/supabase/admin';
 import { verifyRevealToken } from '@/lib/supabase/admin-pii-reveal';
 import { requireAdminClient } from '@/lib/supabase/require-admin';
-import { createClient } from '@/lib/supabase/server';
+import { createClient } from '@/lib/db/server';
+import { listEmailConfirmations } from '@/lib/db/auth';
+import { memberPhotoSignedUrl } from '@/lib/db/storage';
+import { groupBy, queryInChunks, selectIn } from '@/lib/db/embed';
 import {
   deriveStatus,
   collectDescendantIds,
@@ -112,8 +114,8 @@ export async function getAdminDashboardStats(): Promise<AdminDashboardStats> {
 // 위해 집계(카드/차트)에는 포함하되 개인식별 목록(최근 가입자)에서는 제외한다(익명화된 이름만
 // 남아 노출해도 의미가 없음).
 
-// auth.users.email_confirmed_at은 일반 RLS 클라이언트로 조회할 수 없어 service_role 기반
-// admin.auth.admin.listUsers()로만 가져올 수 있다. 대시보드 로드마다 전체 회원을 순회하는
+// auth.users.email_confirmed_at은 일반 RLS 클라이언트로 조회할 수 없어 API의 관리자 전용
+// 경로(admin/users/confirmations)로만 가져올 수 있다. 대시보드 로드마다 전체 회원을 조회하는
 // 비용을 줄이기 위해 60초 메모리 캐시를 둔다(product-manager 결정) — Amplify SSR의 웜
 // 컨테이너 수명 동안만 유효한 프로세스 내 캐시이며, 콜드스타트 시 자연히 초기화된다.
 let authConfirmationCache: { map: Map<string, string | null>; expiresAt: number } | null = null;
@@ -121,8 +123,7 @@ let authConfirmationCache: { map: Map<string, string | null>; expiresAt: number 
 // 캐시 채움 직후 60초 이내 가입한 회원은 이 맵에 없어 "미인증"으로 잘못 표시될 수 있다
 // (60초 뒤 캐시가 갱신되면 자연히 해소되는 트레이드오프, qa-reviewer 지적, 2026-09-09).
 async function getAuthConfirmationMap(): Promise<Map<string, string | null>> {
-  // service_role로 RLS를 완전히 우회하는 이 프로젝트의 유일한 조회 경로다. 지금은 이
-  // 함수를 호출하는 곳이 admin 대시보드뿐이라 당장 뚫리진 않지만, RLS 하나에만 기대지
+  // 전 회원 인증상태를 한 번에 돌려주는 조회라 API도 관리자만 허용하지만, 그 하나에만 기대지
   // 않고 require-admin.ts와 동일하게 앱 레벨에서도 재확인한다 — 나중에 이 함수가 다른
   // 화면에서 재사용되는 순간 전 회원 인증상태가 즉시 노출되는 구조이기 때문
   // (privacy-security-officer 점검, 2026-09-09).
@@ -133,33 +134,15 @@ async function getAuthConfirmationMap(): Promise<Map<string, string | null>> {
     return authConfirmationCache.map;
   }
 
+  // 조회가 실패해도 대시보드 전체가 죽는 대신 인증상태를 "알 수 없음"으로 두고 나머지는
+  // 정상 표시한다(2026-09-16과 같은 원칙). 실패 결과는 캐시하지 않는다.
+  const items = await listEmailConfirmations().catch(() => null);
   const map = new Map<string, string | null>();
-
-  // createAdminClient()는 SUPABASE_SERVICE_ROLE_KEY가 없으면 예외를 던진다 — 이 값이 배포
-  // 환경에 빠져 있으면 대시보드 전체가 죽는 대신, 인증상태를 "알 수 없음"으로 두고
-  // 나머지 대시보드는 정상 표시되도록 한다(withdraw()에서 겪은 동일 문제, 2026-09-16).
-  let admin: ReturnType<typeof createAdminClient>;
-  try {
-    admin = createAdminClient();
-  } catch (err) {
-    console.error('[getAuthConfirmationMap] admin client unavailable (SUPABASE_SERVICE_ROLE_KEY?):', err);
+  if (!items) {
+    console.error('[getAuthConfirmationMap] confirmations unavailable');
     return map;
   }
-
-  const perPage = 1000;
-  let page = 1;
-  // GoTrue 응답의 nextPage(다음 페이지 없으면 null)로 종료 판단 — data.users.length<perPage
-  // 방식은 회원 수가 perPage의 정확한 배수일 때 불필요한 페이지를 한 번 더 요청한다
-  // (qa-reviewer 지적, 2026-09-09). page 상한은 응답 스펙이 예상과 다를 때의 안전장치.
-  while (page <= 200) {
-    const { data, error } = await admin.auth.admin.listUsers({ page, perPage });
-    if (error) throw new Error(error.message);
-    for (const u of data.users) {
-      map.set(u.id, u.email_confirmed_at ?? null);
-    }
-    if (!data.nextPage) break;
-    page = data.nextPage;
-  }
+  for (const u of items) map.set(u.id, u.emailConfirmedAt);
 
   authConfirmationCache = { map, expiresAt: now + 60_000 };
   return map;
@@ -211,8 +194,8 @@ export type RecentSignup = {
   name: string;
   maskedEmail: string;
   createdAt: string;
-  // null = auth.users에서 이 회원을 찾지 못한 경우("확인 불가") — listUsers 페이지네이션이
-  // 예상과 다르게 잘렸을 때 인증완료 회원을 "미인증"으로 잘못 표시하지 않기 위해 구분한다
+  // null = auth.users에서 이 회원을 찾지 못한 경우("확인 불가") — 인증상태 조회가 실패했거나
+  // 결과가 예상과 다르게 잘렸을 때 인증완료 회원을 "미인증"으로 잘못 표시하지 않기 위해 구분한다
   // (privacy-security-officer 지적, 2026-09-09).
   confirmed: boolean | null;
 };
@@ -267,7 +250,7 @@ export async function getSignupTrend(days = 30): Promise<SignupTrendPoint[]> {
 
 // role='learner' 전체를 select하는데 limit이 없으면 Supabase 기본 max-rows(1000)를 넘는
 // 순간부터 조용히 잘려 집계가 틀어진다 — range()로 직접 페이지네이션한다
-// (privacy-security-officer 지적, 2026-09-09). listUsers 루프와 동일하게 상한을 둔다.
+// (privacy-security-officer 지적, 2026-09-09). 무한 루프 방지용 상한을 둔다.
 async function getAllActiveLearnerSignupDates(): Promise<{ id: string; created_at: string }[]> {
   const supabase = await createClient();
   const pageSize = 1000;
@@ -352,13 +335,32 @@ async function getApprovedEnrollmentProgressStats(): Promise<ApprovedEnrollmentP
 
   const { data: enrollmentRows, error: enrollmentError } = await supabase
     .from('enrollments')
-    .select(
-      'user_id, course_id, profiles(name), courses(title, requires_exam, exam_max_attempts, lessons(id, has_assignment), course_exam_question_links(id))'
-    )
+    .select('user_id, course_id, profiles(name), courses(title, requires_exam, exam_max_attempts)')
     .eq('status', 'approved');
   if (enrollmentError) throw new Error(enrollmentError.message);
 
-  const rows = enrollmentRows as unknown as {
+  // 새 API는 관계 안의 관계를 지원하지 않아 강의·시험문항은 강좌 id로 따로 조회해 붙인다.
+  const baseRows = enrollmentRows as {
+    user_id: string;
+    course_id: string;
+    profiles: { name: string };
+    courses: { title: string; requires_exam: boolean; exam_max_attempts: number | null } | null;
+  }[];
+  const courseIds = baseRows.map((r) => r.course_id);
+  const [lessonRows, linkRows] = await Promise.all([
+    selectIn<{ id: string; course_id: string; has_assignment: boolean }>(supabase, 'lessons', 'id, course_id, has_assignment', 'course_id', courseIds),
+    selectIn<{ id: string; course_id: string }>(supabase, 'course_exam_question_links', 'id, course_id', 'course_id', courseIds),
+  ]);
+  const lessonsByCourse = groupBy(lessonRows, (l) => l.course_id);
+  const linksByCourse = groupBy(linkRows, (l) => l.course_id);
+  const rows = baseRows.map((r) => ({
+    ...r,
+    courses: r.courses && {
+      ...r.courses,
+      lessons: (lessonsByCourse.get(r.course_id) ?? []).map((l) => ({ id: l.id, has_assignment: l.has_assignment })),
+      course_exam_question_links: (linksByCourse.get(r.course_id) ?? []).map((l) => ({ id: l.id })),
+    },
+  })) as {
     user_id: string;
     course_id: string;
     profiles: { name: string };
@@ -375,44 +377,47 @@ async function getApprovedEnrollmentProgressStats(): Promise<ApprovedEnrollmentP
 
   const userIds = [...new Set(candidates.map((r) => r.user_id))];
 
-  const [certRes, progressRes, assignmentRes, examSubmissionRes, examResetRes] = await Promise.all([
+  // userIds는 API의 in 목록 한도(1000개)를 넘을 수 있어 나눠서 조회한다.
+  const [certRes, progressRows, assignmentRows, examSubmissionRows, examResetRows] = await Promise.all([
     supabase.from('certificates').select('user_id, course_id'),
-    supabase.from('progress').select('user_id, lesson_id').in('user_id', userIds).not('completed_at', 'is', null),
-    supabase.from('assignment_submissions').select('user_id, lesson_id').in('user_id', userIds).eq('status', 'approved'),
-    supabase.from('course_exam_submissions').select('user_id, course_id, score, passed, submitted_at').in('user_id', userIds),
-    supabase.from('course_exam_attempt_resets').select('user_id, course_id, reset_at').in('user_id', userIds),
+    queryInChunks<{ user_id: string; lesson_id: string }>(userIds, (ids) =>
+      supabase.from('progress').select('user_id, lesson_id').in('user_id', ids).not('completed_at', 'is', null)
+    ),
+    queryInChunks<{ user_id: string; lesson_id: string }>(userIds, (ids) =>
+      supabase.from('assignment_submissions').select('user_id, lesson_id').in('user_id', ids).eq('status', 'approved')
+    ),
+    queryInChunks(userIds, (ids) =>
+      supabase.from('course_exam_submissions').select('user_id, course_id, score, passed, submitted_at').in('user_id', ids)
+    ),
+    queryInChunks(userIds, (ids) => supabase.from('course_exam_attempt_resets').select('user_id, course_id, reset_at').in('user_id', ids)),
   ]);
   if (certRes.error) throw new Error(certRes.error.message);
-  if (progressRes.error) throw new Error(progressRes.error.message);
-  if (assignmentRes.error) throw new Error(assignmentRes.error.message);
-  if (examSubmissionRes.error) throw new Error(examSubmissionRes.error.message);
-  if (examResetRes.error) throw new Error(examResetRes.error.message);
 
   const certifiedSet = new Set(
     (certRes.data as { user_id: string; course_id: string }[]).map((c) => `${c.user_id}:${c.course_id}`)
   );
 
   const completedLessonsByUser = new Map<string, Set<string>>();
-  for (const p of progressRes.data as { user_id: string; lesson_id: string }[]) {
+  for (const p of progressRows) {
     if (!completedLessonsByUser.has(p.user_id)) completedLessonsByUser.set(p.user_id, new Set());
     completedLessonsByUser.get(p.user_id)!.add(p.lesson_id);
   }
 
   const approvedAssignmentsByUser = new Map<string, Set<string>>();
-  for (const a of assignmentRes.data as { user_id: string; lesson_id: string }[]) {
+  for (const a of assignmentRows) {
     if (!approvedAssignmentsByUser.has(a.user_id)) approvedAssignmentsByUser.set(a.user_id, new Set());
     approvedAssignmentsByUser.get(a.user_id)!.add(a.lesson_id);
   }
 
   const lastResetAtByPair = new Map<string, number>();
-  for (const r of examResetRes.data as { user_id: string; course_id: string; reset_at: string }[]) {
+  for (const r of examResetRows as { user_id: string; course_id: string; reset_at: string }[]) {
     const key = `${r.user_id}:${r.course_id}`;
     const ms = new Date(r.reset_at).getTime();
     if (!lastResetAtByPair.has(key) || ms > lastResetAtByPair.get(key)!) lastResetAtByPair.set(key, ms);
   }
 
   const examSubmissionsByPair = new Map<string, { score: number; passed: boolean; submitted_at: string }[]>();
-  for (const s of examSubmissionRes.data as { user_id: string; course_id: string; score: number; passed: boolean; submitted_at: string }[]) {
+  for (const s of examSubmissionRows as { user_id: string; course_id: string; score: number; passed: boolean; submitted_at: string }[]) {
     const key = `${s.user_id}:${s.course_id}`;
     if (!examSubmissionsByPair.has(key)) examSubmissionsByPair.set(key, []);
     examSubmissionsByPair.get(key)!.push(s);
@@ -840,7 +845,7 @@ export type AdminMemberListItem = {
   role: UserRole;
   status: ProfileStatus;
   createdAt: string;
-  // true=인증완료, false=미인증, null=조회 실패(service_role 환경변수 문제 등)로 알 수 없음
+  // true=인증완료, false=미인증, null=조회 실패(API 연결 문제 등)로 알 수 없음
   // — getAuthConfirmationMap()과 동일한 3값 규칙(getRecentSignups 참고).
   emailConfirmed: boolean | null;
 };
@@ -954,12 +959,12 @@ export async function getAdminMemberDetail(userId: string): Promise<AdminMemberD
 
   await logAdminAccess(supabase, userId, '조회', '회원 상세(주소/사진/신청내역/수료이력)');
 
-  const [enrollments, certRows, signedUrlRes, confirmationMap] = await Promise.all([
+  const [enrollments, certRows, signedUrl, confirmationMap] = await Promise.all([
     getMyEnrollments(userId),
     supabase.from('certificates').select('id, course_id, issued_at, is_manual_override, note, courses(title)').eq('user_id', userId),
     profileRow.photo_path
-      ? supabase.storage.from('member-photos').createSignedUrl(profileRow.photo_path, 60)
-      : Promise.resolve({ data: null, error: null }),
+      ? memberPhotoSignedUrl(profileRow.photo_path)
+      : Promise.resolve(null),
     getAuthConfirmationMap(),
   ]);
   if (certRows.error) throw new Error(certRows.error.message);
@@ -977,7 +982,7 @@ export async function getAdminMemberDetail(userId: string): Promise<AdminMemberD
       address: profileRow.address,
       photoPath: profileRow.photo_path,
     },
-    photoSignedUrl: signedUrlRes.data?.signedUrl ?? null,
+    photoSignedUrl: signedUrl,
     emailConfirmed: confirmedAt === undefined ? null : confirmedAt !== null,
     enrollments,
     certificates: (
@@ -1262,15 +1267,35 @@ export async function getCourseExamQuestionsForCourse(courseId: string): Promise
   const supabase = await createClient();
   const { data, error } = await supabase
     .from('course_exam_question_links')
-    .select(
-      'id, bank_question_id, order, exam_question_bank(question, question_type, answer_text, exam_bank_options(id, label, is_correct, order))'
-    )
+    .select('id, bank_question_id, order, exam_question_bank(question, question_type, answer_text)')
     .eq('course_id', courseId)
     .order('order', { ascending: true });
   if (error) throw new Error(error.message);
 
+  // 보기는 관계 안의 관계라 문항 id로 따로 조회해 붙인다.
+  const links = data as {
+    id: string;
+    bank_question_id: string;
+    order: number;
+    exam_question_bank: { question: string; question_type: AdminExamQuestionType; answer_text: string | null } | null;
+  }[];
+  const optionRows = await selectIn<{ id: string; bank_question_id: string; label: string; is_correct: boolean; order: number }>(
+    supabase,
+    'exam_bank_options',
+    'id, bank_question_id, label, is_correct, order',
+    'bank_question_id',
+    links.map((l) => l.bank_question_id)
+  );
+  const optionsByQuestion = groupBy(optionRows, (o) => o.bank_question_id);
+
   return (
-    data as unknown as {
+    links.map((l) => ({
+      ...l,
+      exam_question_bank: l.exam_question_bank && {
+        ...l.exam_question_bank,
+        exam_bank_options: (optionsByQuestion.get(l.bank_question_id) ?? []).map((o) => ({ id: o.id, label: o.label, is_correct: o.is_correct, order: o.order })),
+      },
+    })) as {
       id: string;
       bank_question_id: string;
       order: number;
@@ -1346,12 +1371,26 @@ export async function getAdminAssignmentSubmissions(filters?: {
   const { data, error } = await supabase
     .from('assignment_submissions')
     .select(
-      'id, user_id, lesson_id, status, content, is_late, submitted_at, review_note, profiles(name, email), lessons(title, course_id, courses(title))'
+      'id, user_id, lesson_id, status, content, is_late, submitted_at, review_note, profiles(name, email), lessons(title, course_id)'
     )
     .order('submitted_at', { ascending: false });
   if (error) throw new Error(error.message);
 
-  const rows = data as unknown as {
+  // 강좌 제목은 관계 안의 관계라 강좌 id로 따로 조회해 붙인다.
+  const baseRows = data as { lessons: { title: string; course_id: string } | null }[];
+  const courseRows = await selectIn<{ id: string; title: string }>(
+    supabase,
+    'courses',
+    'id, title',
+    'id',
+    baseRows.flatMap((r) => (r.lessons ? [r.lessons.course_id] : []))
+  );
+  const courseById = new Map(courseRows.map((c) => [c.id, { title: c.title }]));
+
+  const rows = baseRows.map((r) => ({
+    ...r,
+    lessons: r.lessons && { ...r.lessons, courses: courseById.get(r.lessons.course_id) ?? null },
+  })) as unknown as {
     id: string;
     user_id: string;
     lesson_id: string;
@@ -1455,7 +1494,7 @@ export async function getAdminDiagnosisResults(
     user_id: string | null;
   }[];
 
-  // reveal 토큰 검증(HMAC 서명, SUPABASE_SERVICE_ROLE_KEY 필요)이 실패하면 목록 화면 전체가
+  // reveal 토큰 검증(HMAC 서명, PII 열람 전용 시크릿 필요)이 실패하면 목록 화면 전체가
   // 500으로 죽어서는 안 된다 — PII 노출은 "검증 성공 시에만 해제"가 원칙이므로, 여기서 나는
   // 어떤 에러든 "해제 안 함(마스킹 유지)"으로 안전하게 처리하고 서버 로그에만 남긴다
   // (관리자가 "개인정보 보기" 클릭 시 서버 에러 화면이 뜨던 문제, 2026-09-15 보고).
@@ -1465,7 +1504,7 @@ export async function getAdminDiagnosisResults(
       const {
         data: { user },
       } = await supabase.auth.getUser();
-      if (user && verifyRevealToken('diagnosis_result', reveal.id, user.id, reveal.token, reveal.exp)) {
+      if (user && await verifyRevealToken('diagnosis_result', reveal.id, user.id, reveal.token, reveal.exp)) {
         const target = rows.find((r) => r.id === reveal.id);
         verifiedReveal = await logAdminAccess(supabase, target?.user_id ?? null, '조회', `진단 결과 연락처 열람(${reveal.id})`);
       }
@@ -1598,7 +1637,7 @@ export async function getAdminDiagnosisLeads(
       const {
         data: { user },
       } = await supabase.auth.getUser();
-      if (user && verifyRevealToken('diagnosis_lead', reveal.id, user.id, reveal.token, reveal.exp)) {
+      if (user && await verifyRevealToken('diagnosis_lead', reveal.id, user.id, reveal.token, reveal.exp)) {
         const target = rows.find((r) => r.id === reveal.id);
         verifiedReveal = await logAdminAccess(supabase, target?.user_id ?? null, '조회', `강사과정 문의 연락처 열람(${reveal.id})`);
       }

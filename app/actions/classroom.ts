@@ -2,7 +2,7 @@
 
 import { redirect } from 'next/navigation';
 import { getClassroomAccess, getLessonById } from '@/lib/supabase/classroom-queries';
-import { createClient } from '@/lib/supabase/server';
+import { createClient } from '@/lib/db/server';
 
 // 강의실(module-lms-5) 학습자 액션. 페이지 자체가 이미 enrollments.status==='approved'를
 // 확인하지만(F-LRN-6), 서버 액션은 그 확인을 거치지 않고 직접 호출될 수 있으므로

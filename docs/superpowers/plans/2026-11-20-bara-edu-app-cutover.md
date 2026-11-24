@@ -484,14 +484,49 @@ test('이메일 미인증 계정도 그대로 이관(email_confirmed_at null)', 
 코드가 아니라 공용 인프라 작업이라 이 계획의 태스크로 자동 실행하지 않는다. 항목별로 명령·영향·되돌리기를 보여 드리고 확인받은 뒤 실행한다.
 
 1. **ylia-pg-01**: `bara_edu`·`bara_edu_staging` DB 생성, `db:bootstrap`(역할 4개) → `db:migrate`. 파라미터 그룹·재부팅 없음.
-2. **SSM**: `/bara-edu/api/service-key`(SecureString, 32바이트 난수) 생성 — API(WAS)와 앱(Amplify)이 같은 값을 읽는다. `/bara-edu/app/pii-reveal-secret`(SecureString, 32바이트 난수) 생성 — 앱만 읽는다.
-3. **IAM**: `ylia-was-role`에 S3 버킷(사진)·SES 발신(`bara-edu.kr`)·SSM 파라미터 읽기 권한 추가. Amplify 컴퓨트 역할 생성(SSM 파라미터 2개 `/bara-edu/api/service-key`·`/bara-edu/app/pii-reveal-secret` 읽기만) 후 앱에 연결.
-4. **S3**: 비공개 버킷 생성(퍼블릭 액세스 차단, 기본 암호화).
-5. **YLIA_WAS_01**: Node 22, `api/` 배포, systemd 유닛(`MemoryMax=256M`, 환경변수는 DB URL·SSM 파라미터 이름), 설치 직후 남은 메모리 1회 확인(CloudWatch 대신).
-6. **YLIA_WEB_SVR_01**: nginx `api.bara-edu.kr` 서버 블록(요청 수 제한 포함)·인증서, Jenkins 잡.
+2. **SSM**: 두 값 모두 SecureString, **32바이트 이상 난수**(예: `umask 077; openssl rand -base64 48 | tr -d '\n' > <임시 파일>` → `aws ssm put-parameter --type SecureString --value file://<임시 파일>` → 임시 파일 삭제. 화면에 띄우지 않는다. **끝 줄바꿈이 들어가면 안 된다** — 키는 바이트 그대로 비교되고 HTTP 헤더 값에 줄바꿈을 넣을 수 없다).
+   - `/bara-edu/api/service-key` — API(WAS)와 앱(Amplify)이 같은 값을 읽는다. **WAS 역할(`ylia-was-role`)은 이 파라미터를 읽는다**(API가 시작 때 `BARA_SERVICE_KEY_PARAM`으로 GetParameter, R22).
+   - `/bara-edu/app/pii-reveal-secret` — 앱만 읽는다. **서비스 키와 다른 값**이어야 한다(같은 값 재사용 금지).
+3. **IAM**: `ylia-was-role`에 S3(사진 버킷 **이 버킷 하나로 한정**: `arn:aws:s3:::<bucket>/*`의 Get/Put/DeleteObject)·SES 발신(`bara-edu.kr`)·SSM 파라미터 `/bara-edu/api/service-key` 읽기(+`kms:Decrypt`) 권한 추가. Amplify 컴퓨트 역할 생성(SSM 파라미터 2개 `/bara-edu/api/service-key`·`/bara-edu/app/pii-reveal-secret` 읽기만) 후 앱에 연결.
+4. **S3**: 비공개 버킷 생성 — 퍼블릭 액세스 차단(4개 모두 on), 기본 암호화(SSE-S3) on, **버전 관리 off**(탈퇴 시 삭제한 사진이 이전 버전으로 남지 않게). 버전 관리를 꼭 켜야 하면 이전 버전을 1일 뒤 만료하는 수명 주기 규칙을 함께 넣는다. IAM의 S3 권한은 이 버킷으로만 한정(3번).
+5. **YLIA_WAS_01**: Node 22, `api/` 배포, 설치 직후 남은 메모리 1회 확인(CloudWatch 대신).
+   - systemd 유닛: `MemoryMax=256M`, `Restart=always`, `EnvironmentFile=/etc/bara-edu/api.env`. 유닛 파일에는 값(키·URL)을 쓰지 않는다.
+   - `/etc/bara-edu/api.env`는 `root:root` `0600`. 내용: `NODE_ENV=production`, `DATABASE_URL`(`bara_edu_app` 역할, `sslmode=verify-full&sslrootcert=<RDS global-bundle.pem 경로>`), `BARA_SERVICE_KEY_PARAM=/bara-edu/api/service-key`, `MAIL_FROM`, `S3_BUCKET`, `AWS_REGION=ap-northeast-2`, `SITE_ORIGINS`, `API_HOST=<WAS 사설 IP>`, `TLS_CERT_FILE`, `TLS_KEY_FILE`, `LOG_LEVEL=info`. **`BARA_DEV_FAKES`는 넣지 않는다**(있으면 API가 시작을 거절). 편집기로 작성하고 `echo`/`export`로 값을 셸에 남기지 않는다.
+   - TLS(WEB→WAS 구간 암호화, 대표 결정 11/23): WAS용 내부 인증서를 만든다 — 사설 CA로 발급하거나, 자체 서명 인증서를 WEB 쪽에 고정(pin). 인증서 SAN에 WEB이 접속할 이름(WAS 사설 IP 또는 내부 호스트명)을 넣는다. 개인키는 API 실행 계정만 읽게 한다(소유자 그 계정 `0600`, 또는 `root:<API 그룹>` `0640`). 저장소에 커밋하지 않는다. WEB nginx: `proxy_pass https://<WAS 사설 IP>:3200;` + `proxy_ssl_verify on;` + `proxy_ssl_trusted_certificate <CA 또는 고정한 인증서>;` + `proxy_ssl_name <SAN 이름>;`. 시작 로그에 평문 경고(`TLS is off in production`)가 없어야 한다. 단, `NODE_ENV`가 빠지면 경고 자체가 안 나오므로 경고 부재만으로 판단하지 않는다 — (1) `systemctl show bara-edu-api -p EnvironmentFiles`와 `api.env`에 `NODE_ENV=production`이 있는지 눈으로 확인, (2) WAS에서 `ss -tlnp`로 `<WAS 사설 IP>:3200`에만 열려 있는지 확인, (3) WEB에서 `curl --cacert <CA 또는 고정 인증서> https://<SAN 이름>:3200/healthz`가 TLS로 응답하는지 확인. (실제 설치 11/23: 포트 3200 — 3100은 ylia-stock 사용 중. 배포 경로 `/app/bara-edu/current`, 설정 `/app/bara-edu/shared/api.env`.)
+   - `db:migrate`를 돌린 뒤에는 **매번 API를 재시작**한다(테이블·RPC 목록을 캐시한다).
+   - 이관 스크립트(`migrate:supabase`)는 운영 배포 디렉터리가 아니라 **별도 체크아웃**(같은 커밋을 다른 경로에 clone, `npm ci`)에서 실행한다. 접속 정보는 `read -s` 또는 0600 파일 `source` 후 삭제(`api/README.md`).
+6. **YLIA_WEB_SVR_01**: nginx `api.bara-edu.kr` 서버 블록(요청 수 제한 포함)·인증서, 위 5번의 `proxy_ssl_*` 설정, Jenkins 잡.
 7. **DNS**: `api.bara-edu.kr` 레코드.
-8. **Amplify**: `feat/app-cutover` 미리보기 브랜치(키는 브랜치 단위로만) + 스테이징 DB로 리허설 — 운영 Supabase 데이터 복사본으로 Task 12 스크립트 실행, 체크리스트 전체, 리허설 데이터 당일 삭제·기록.
-9. **11/24 전환**: 점검 화면 → Supabase 쓰기 중단 → 이관(`--photos`) → `feat/app-cutover` main 머지·환경변수 교체(Supabase 변수 제거, `BARA_API_URL` 추가) → 확인 → 점검 해제. 실패 시 되돌리기는 설계 §5-7(환경변수 Supabase로 복귀).
-10. **같은 날**: 개인정보처리방침 수탁자 문구 갱신(설계 §5 보충), Supabase 서비스 키 교체.
+8. **Amplify**: `feat/app-cutover` 미리보기 브랜치(키는 브랜치 단위로만) + 스테이징 DB로 리허설 — 운영 Supabase 데이터 복사본으로 Task 12 스크립트 실행, 체크리스트 전체(`2026-11-20-cutover-smoke.md`), 리허설 데이터 당일 삭제·기록. 추가 확인:
+   - 요청 IP: 앱(Amplify) 쪽에서 실제 `x-forwarded-for` 체인과 `CloudFront-Viewer-Address`를 확인한다. 서로 다른 두 네트워크(예: Wi-Fi와 LTE)에서 요청해 **같은 요청 제한 버킷을 쓰지 않는지** 본다(R11).
+   - `SITE_ORIGINS`에 apex(`https://bara-edu.kr`), www(서비스한다면), 미리보기 호스트가 모두 들어 있다.
+   - 이관 출력: `not <uid>/photo: 0`, `rejected (not an API photo key): 0`, `null_email=0`. 이와 별도로 원본 `auth.users`에서 **API의 zod 이메일 검사에 걸리는 이메일 수**를 센다(0이 아니면 그 회원은 로그인·재설정이 막히므로 목록을 대표께 보고).
+   - 실제 Gmail·Naver 계정으로 가입(인증 메일 수신·링크).
+   - 휴대폰 사진 3MB로 수강신청.
+   - Amplify 콘솔에 buildSpec 덮어쓰기(override)가 없다(저장소 `amplify.yml`이 쓰인다).
+   - `BARA_API_URL`이 `https://api.bara-edu.kr`이다.
+   - 이관된 "7일 넘은 미인증 계정" 수를 세어 둔다 — 첫 03:00 KST 정리 작업이 지울 건수다. 예상과 다르면 첫 실행 전에 대표 확인.
+9. **11/24 전환**: 점검 화면 → Supabase 쓰기 중단 → 이관(`--photos`) → `feat/app-cutover` main 머지·환경변수 교체(`BARA_API_URL` 추가) → 확인(`전환 직후 수동 확인`) → 점검 해제.
+   - **되돌리기 = 머지 전 Amplify 작업 재배포, 또는 머지 커밋 revert**(R23). 머지 후 코드에는 Supabase 경로가 없으므로 환경변수만 Supabase로 바꿔서는 돌아가지 않는다.
+   - Amplify 콘솔의 `SUPABASE_*` 변수와 Supabase 프로젝트는 **2026-12-01까지 그대로 둔다**(되돌리기용).
+   - `--photos` 이관 후에 되돌리면 S3 버킷을 비우고 그 사실(일시·건수·작업자)을 기록한다.
+10. **같은 날**:
+    - 개인정보처리방침 새 버전 게시 — 관리자 법적 문서 기능으로 `docs/01-plan/features/bara-edu-lms.legal-privacy.md`의 갱신본(제5조 위탁·국외이전, 시행일 2026-11-24)을 올린다(`supabase/seed.sql`은 고치지 않는다).
+    - 운영자 접근 기록 작성: 이관·psql 작업마다 누가·언제·무엇을(대상 DB, 실행 명령 종류, 조회/변경 범위).
+11. **2026-12-01**:
+    - Supabase 프로젝트의 데이터와 Storage 삭제, 삭제 기록(일시·범위·작업자) 작성.
+    - Supabase `service_role` 키와 DB 비밀번호 교체 또는 폐기(과거 빌드 산출물에 들어 있었다).
+    - Amplify 콘솔의 `SUPABASE_*`·`NEXT_PUBLIC_SUPABASE_*` 변수 삭제, 빌드 캐시 비우기.
+    - (리허설 당일) 스테이징 DB와 S3 리허설 복사본은 리허설한 날 바로 삭제하고 기록한다 — 12/1까지 두지 않는다.
+
+**전환 후 1주 안에 할 일(R24)**
+
+- 신뢰할 클라이언트 IP: `CloudFront-Viewer-Address` 또는 `x-forwarded-for`의 가장 오른쪽 값을 쓰는 헬퍼 하나를 만들어 `lib/db/api.ts`·`proxy.ts`·`admin-queries.ts`가 함께 쓴다(지금은 첫 값이라 위조 가능, R11).
+- 회원가입 이메일 존재 여부 노출(열거) 대응.
+- 탈퇴를 API의 단일 트랜잭션 오퍼레이션으로.
+- 세션 쿠키 만료를 슬라이딩으로(지금은 발급 후 30일 고정).
+- 오류 화면(503 등): service-planner → ui-ux-designer 스펙 먼저.
+- ux-writer 문구 정리.
+- QA 보고서의 테스트 공백.
 
 대표님이 미리 주셔야 하는 것: 운영 Supabase DB 접속 정보(스키마 대조·이관용), Supabase 서비스 키(사진 이관용). SES 샌드박스 해제 결과(2026-11-20 신청).

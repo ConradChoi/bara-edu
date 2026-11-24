@@ -3,6 +3,7 @@ import pg from 'pg';
 import { z } from 'zod';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/app.js';
+import { MemoryStorage } from '../src/storage/storage.js';
 import { MemoryMailer } from '../src/mail/mailer.js';
 import { loadConfig } from '../src/config.js';
 import { createSession } from '../src/auth/sessions.js';
@@ -40,10 +41,10 @@ const svc = defineOp({
 beforeAll(async () => {
   ctx = await setupTestDb();
   const extra = [whoami, boom, svc];
-  app = buildApp({ config, pool: ctx.pool, mailer: new MemoryMailer() }, extra);
+  app = buildApp({ config, pool: ctx.pool, mailer: new MemoryMailer(), storage: new MemoryStorage() }, extra);
   await app.ready();
   one = new pg.Pool({ connectionString: ctx.pool.options.connectionString, max: 1 });
-  oneApp = buildApp({ config, pool: one, mailer: new MemoryMailer() }, extra);
+  oneApp = buildApp({ config, pool: one, mailer: new MemoryMailer(), storage: new MemoryStorage() }, extra);
   await oneApp.ready();
 });
 afterAll(async () => {

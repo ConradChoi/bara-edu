@@ -13,7 +13,7 @@ function withDb(url: string, db: string, user?: string, password?: string): stri
   return u.toString();
 }
 
-export async function setupTestDb(): Promise<{ pool: pg.Pool; adminPool: pg.Pool; close(): Promise<void> }> {
+export async function setupTestDb(): Promise<{ pool: pg.Pool; adminPool: pg.Pool; adminUrl: string; close(): Promise<void> }> {
   const dbName = `bara_test_${randomBytes(6).toString('hex')}`;
   const root = new pg.Client({ connectionString: ADMIN_URL });
   await root.connect();
@@ -28,6 +28,7 @@ export async function setupTestDb(): Promise<{ pool: pg.Pool; adminPool: pg.Pool
   return {
     pool,
     adminPool,
+    adminUrl,
     async close() {
       await pool.end();
       await adminPool.end();

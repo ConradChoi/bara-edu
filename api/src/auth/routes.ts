@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { sendError } from '../http/errors.js';
 import { hit, normalizeEmail } from './rate-limit.js';
 import { revokeAllSessions, revokeSession } from './sessions.js';
+import type { MailMessage } from '../mail/mailer.js';
 import { changePassword, confirmEmailAsAdmin, listConfirmations, login, requestReset, resendConfirmation, resetPassword, sendResetAsAdmin, signup, verifyEmail, withdrawAnonymize } from './service.js';
 
 type SessionRow = {
@@ -35,32 +36,43 @@ const idParam = z.object({ id: z.string().uuid() });
 
 const INVALID = '요청 형식이 올바르지 않습니다.';
 
-function clientIp(req: FastifyRequest): string {
+// request.ip would be the app's own egress address (shared by all users), so without the header IP limits are skipped
+function clientIp(req: FastifyRequest): string | null {
   const h = req.headers['x-bara-client-ip'];
   const v = typeof h === 'string' ? h.trim().slice(0, 64) : '';
-  return v || req.ip;
+  return v || null;
 }
 
 export function registerAuthRoutes(app: FastifyInstance): void {
   const onMailError = (err: unknown) => app.log.error({ errorName: err instanceof Error ? err.name : 'unknown' }, 'auth mail failed');
+  const deliver = (msg: MailMessage) => {
+    setImmediate(() => {
+      app.deps.mailer.send(msg).catch(onMailError);
+    });
+  };
+  const tooMany = (reply: FastifyReply) => sendError(reply, 'rate_limited', '요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.');
+  // true when this request's IP is over the limit; requests without a client IP are not IP-limited
+  const ipLimited = async (req: FastifyRequest, bucket: string, limit: number, windowSeconds: number) => {
+    const ip = clientIp(req);
+    return ip !== null && !(await hit(app.deps.pool, bucket, ip, limit, windowSeconds));
+  };
   const originAllowed = (origin: string) => app.deps.config.siteOrigins.includes(origin);
 
   app.post('/v1/auth/signup', async (req, reply) => {
     const body = signupBody.safeParse(req.body);
     if (!body.success || !originAllowed(body.data.origin)) return sendError(reply, 'validation', INVALID);
-    if (!(await hit(app.deps.pool, 'signup', clientIp(req), 10, 3600))) {
-      return sendError(reply, 'rate_limited', '요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.');
-    }
-    return { status: await signup(app.deps.pool, app.deps.mailer, body.data, onMailError) };
+    if (await ipLimited(req, 'signup', 10, 3600)) return tooMany(reply);
+    return { status: await signup(app.deps.pool, deliver, body.data) };
   });
 
   app.post('/v1/auth/resend', async (req, reply) => {
     const body = resendBody.safeParse(req.body);
     if (!body.success || !originAllowed(body.data.origin)) return sendError(reply, 'validation', INVALID);
-    const { pool, mailer } = app.deps;
+    const { pool } = app.deps;
     const { email: to, origin } = body.data;
+    if (await ipLimited(req, 'resend-ip', 20, 3600)) return tooMany(reply);
     const allowed = (await hit(pool, 'resend-60s', to, 1, 60)) && (await hit(pool, 'resend-1h', to, 4, 3600));
-    if (allowed) await resendConfirmation(pool, mailer, to, origin, onMailError);
+    if (allowed) await resendConfirmation(pool, deliver, to, origin);
     return { status: 'pending_confirmation' };
   });
 
@@ -76,8 +88,9 @@ export function registerAuthRoutes(app: FastifyInstance): void {
   app.post('/v1/auth/login', async (req, reply) => {
     const body = loginBody.safeParse(req.body);
     if (!body.success) return sendError(reply, 'validation', INVALID);
+    if (await ipLimited(req, 'login-ip', 50, 900)) return tooMany(reply);
     const r = await login(app.deps.pool, app.deps.config.sessionTtlDays, body.data.email, body.data.password);
-    if (r.kind === 'rate_limited') return sendError(reply, 'rate_limited', '요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.');
+    if (r.kind === 'rate_limited') return tooMany(reply);
     if (r.kind === 'fail') return sendError(reply, 'unauthenticated', r.detail);
     return { sessionToken: r.sessionToken, expiresAt: r.expiresAt, userId: r.userId };
   });
@@ -108,10 +121,11 @@ export function registerAuthRoutes(app: FastifyInstance): void {
   app.post('/v1/auth/request-reset', async (req, reply) => {
     const body = resendBody.safeParse(req.body);
     if (!body.success || !originAllowed(body.data.origin)) return sendError(reply, 'validation', INVALID);
-    const { pool, mailer } = app.deps;
+    const { pool } = app.deps;
     const { email: to, origin } = body.data;
+    if (await ipLimited(req, 'reset-ip', 20, 3600)) return tooMany(reply);
     const allowed = (await hit(pool, 'reset-60s', to, 1, 60)) && (await hit(pool, 'reset-1h', to, 4, 3600));
-    if (allowed) await requestReset(pool, mailer, to, origin, onMailError);
+    if (allowed) await requestReset(pool, deliver, to, origin);
     return { ok: true };
   });
 
@@ -149,9 +163,9 @@ export function registerAuthRoutes(app: FastifyInstance): void {
     const params = idParam.safeParse(req.params);
     const body = sendResetBody.safeParse(req.body);
     if (!params.success || !body.success || !originAllowed(body.data.origin)) return sendError(reply, 'validation', INVALID);
-    const r = await sendResetAsAdmin(app.deps.pool, app.deps.mailer, params.data.id, body.data.origin, onMailError);
+    const r = await sendResetAsAdmin(app.deps.pool, deliver, params.data.id, body.data.origin);
     if (r === 'not_found') return sendError(reply, 'not_found', '회원을 찾을 수 없습니다.');
-    return { ok: true, mailSent: r === 'sent' };
+    return { ok: true, mailSent: true };
   });
 
   app.get('/v1/admin/users/confirmations', async (req, reply) => {

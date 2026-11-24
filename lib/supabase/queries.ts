@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server';
+import { createClient } from '@/lib/db/server';
 import type { BankAccount, Category, Course, CourseMaterial, CourseMaterialKind, EnrollmentStatus, LessonMode } from '@/lib/types';
 
 type CategoryRow = {

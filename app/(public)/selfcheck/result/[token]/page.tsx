@@ -10,7 +10,7 @@ import RadarChart from '@/components/diagnosis/RadarChart';
 import ScoreBar from '@/components/diagnosis/ScoreBar';
 import { DIAGNOSIS_AREAS, DIAGNOSIS_DISCLAIMER, DIAGNOSIS_TIER_LABELS, RECENT_SUBMIT_COOKIE } from '@/data/diagnosis/config';
 import { getDiagnosisDetail, getDiagnosisSummary } from '@/lib/supabase/diagnosis-queries';
-import { createClient } from '@/lib/supabase/server';
+import { createClient } from '@/lib/db/server';
 
 export const metadata: Metadata = { title: '진단 결과 | 도형심리 역량진단' };
 

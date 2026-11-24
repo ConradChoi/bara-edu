@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import DiagnosisStepper from '@/components/diagnosis/DiagnosisStepper';
-import { createClient } from '@/lib/supabase/server';
+import { createClient } from '@/lib/db/server';
 
 export const metadata: Metadata = { title: '도형심리 역량진단 | 바라 평생교육원' };
 
