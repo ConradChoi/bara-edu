@@ -41,17 +41,18 @@ export interface NoticeConfig {
 }
 
 export const defaultNoticeConfig: NoticeConfig = {
-  id: 'notice-2026-service-migration-v3',
+  id: 'notice-2026-service-migration-v4',
   enabled: true,
-  endsAt: '2026-11-25T00:00:00+09:00',
+  endsAt: '2026-12-02T00:00:00+09:00',
   badge: '공지사항',
   title: '서비스 환경 이전 작업 안내',
   content: '더 안정적인 서비스를 위해 서버 환경 구축과 데이터 이전 작업을 진행합니다.',
   items: [
     '작업 기간: 2026년 11월 23일(월) ~ 11월 24일(화)',
-    '작업 기간 중 서비스 이용이 일시적으로 중단될 수 있어요. 정확한 중단 시간은 다시 안내드릴게요.',
+    '작업이 끝나는 대로 바로 서비스를 열어 드릴게요.',
     '이전이 끝나면 다시 로그인해 주세요.',
     '이전 전에 받은 인증·비밀번호 재설정 메일 링크는 사용할 수 없어요. 필요하면 다시 요청해 주세요.',
+    '이전 후 이용 중 문제가 있으면 아래 연락처로 알려 주세요.',
   ],
   footer: `문의: ${siteConfig.phone}`,
 };
