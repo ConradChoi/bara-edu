@@ -1,0 +1,29 @@
+# 서버 전환 운영자 접근 기록 (2026-11-23 ~ 11-24)
+
+런북 10번 "운영자 접근 기록". 이관·DB 관리자 작업마다 누가·언제·무엇을 했는지 남긴다.
+
+- 승인: 대표(최종훈) — 항목마다 대화로 확인 후 실행
+- 실행: Claude Code(대표의 로컬 세션) → `ssh ylia-was`(EC2 Instance Connect) → WAS에서 Node `pg`로 접속
+- 접속 정보: WAS `~/bara-edu-ops/*.env`(0600)에만 두고 화면·대화에 출력하지 않음. 2026-11-24 13:10 KST에 파일 삭제(아래 마지막 항목)
+- 시각은 KST, 대화 기록의 명령 실행 시각 기준(분 단위)
+
+| 일시(KST) | 대상 | 작업 종류 | 조회·변경 범위 |
+|---|---|---|---|
+| 11-23 21:17 | ylia-pg-01(RDS 마스터) | 조회 | DB·역할 목록 확인 |
+| 11-23 22:25 | ylia-pg-01 | 변경 | `bara_edu`·`bara_edu_staging` DB 생성, 역할 4개 부트스트랩(`db:bootstrap`) — 42501 오류로 중단 |
+| 11-23 22:27 | `bara_edu` | 변경(롤백) | 역할·스키마 적용을 롤백 트랜잭션으로 시험(0f61947 수정 확인) |
+| 11-23 22:28 | `bara_edu`·`bara_edu_staging` | 변경 | 부트스트랩·스키마 적용(`db:migrate`), 앱 계정 로그인 확인 |
+| 11-24 08:12 | 운영 Supabase(읽기 전용) → `bara_edu_staging` | 조회·적재 | 리허설 이관(회원·전체 public 테이블). 원본은 REPEATABLE READ READ ONLY |
+| 11-24 08:27 | Supabase → `bara_edu_staging`, Supabase Storage → S3 | 조회·적재 | 스테이징 초기화 후 사진 포함 재이관(사진 2건) |
+| 11-24 08:40 ~ 09:51 | `bara_edu_staging` | 조회 | 리허설 확인: 요청 제한 IP 키, 세션, 가입 행(테스트 계정만), SES 발송 지표 |
+| 11-24 10:53 | Supabase(읽기 전용) → `bara_edu`, Storage → S3 | 조회·적재 | 최종 운영 이관(사진 포함). 건수·체크섬 전부 일치, 사진 2/2 |
+| 11-24 13:04 ~ 13:06 | `bara_edu` | 조회 | `legal_documents` 버전 목록과 개인정보처리방침 v2 본문(공개 문서) |
+| 11-24 13:09 | ylia-pg-01 | 조회 | `bara_edu*` DB 목록·접속 수·크기 |
+| 11-24 13:10 | ylia-pg-01 | 변경 | `bara_edu_staging` 삭제(리허설 복사본, 실제 회원 이메일 포함 — 리허설 당일 삭제) |
+| 11-24 13:10 | WAS `~/bara-edu-ops` | 삭제 | `admin.env`(마스터 URL)·`migrate.env`(Supabase DB URL·서비스 키)·`app-db.env`·`supabase-ca.crt` 삭제 |
+
+## 같은 날 함께 정리한 것
+
+- Amplify 미리보기 브랜치 `feat/app-cutover` 삭제, API `SITE_ORIGINS`에서 미리보기 주소 제거 후 재시작(healthz 200)
+- 로컬의 미리보기 basic auth 비밀번호 파일, Supabase CA 임시 파일 삭제
+- 남겨 둔 것: 로컬 `~/.config/bara-edu/supabase.env`(0600) — 12/1 Supabase 키 교체·삭제 작업 때까지. RDS 마스터 비밀번호는 Secrets Manager에만 있음
