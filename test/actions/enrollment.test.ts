@@ -29,6 +29,9 @@ function builder(table: string) {
 vi.mock('@/lib/db/server', () => ({
   createClient: async () => ({ from: builder, auth: { getUser: async () => ({ data: { user }, error: null }) } }),
 }));
+let applyResult: string;
+const applyEnrollment = vi.fn(async (_id: string) => applyResult);
+vi.mock('@/lib/db/enrollment', () => ({ applyEnrollment: (id: string) => applyEnrollment(id) }));
 vi.mock('@/lib/db/storage', () => ({ uploadMemberPhoto: (f: File) => uploadMemberPhoto(f) }));
 vi.mock('@/lib/supabase/queries', () => ({ getApprovedSeatsTaken: async () => seatsTaken }));
 vi.mock('next/navigation', () => ({
@@ -63,6 +66,8 @@ beforeEach(() => {
   seatsTaken = {};
   upload = { path: 'u1/photo' };
   uploadMemberPhoto.mockClear();
+  applyEnrollment.mockClear();
+  applyResult = 'ok';
   profile = { status: 'active', address: '서울', photo_path: 'u1/photo' };
   course = { status: 'active', seats: 10, requires_certificate_info: true };
   existing = null;
@@ -71,8 +76,6 @@ beforeEach(() => {
     'select:courses': () => ok(course),
     'select:enrollments': () => ok(existing),
     'update:profiles': () => ok(null),
-    'update:enrollments': () => ok([{ id: 'e1' }]),
-    'insert:enrollments': () => ok(null),
   };
 });
 
@@ -90,84 +93,86 @@ test('프로필이 active가 아니거나(탈퇴) 없으면 /sign-in, 아무것�
   expect(ops.filter((o) => o.action !== 'select')).toHaveLength(0);
 });
 
+const applyCalls = () => applyEnrollment.mock.calls.length;
+const wrote = () => ops.filter((o) => o.action !== 'select');
+
 test('약관 동의가 없으면 agree-required', async () => {
   expect(await run(form({}))).toBe(`REDIRECT:/courses/${SLUG}/apply?error=agree-required`);
-  expect(writes('enrollments')).toHaveLength(0);
+  expect(applyCalls()).toBe(0);
 });
 
 test('강좌가 없으면 강좌 페이지로', async () => {
   course = null;
   expect(await run()).toBe(`REDIRECT:/courses/${SLUG}`);
+  expect(applyCalls()).toBe(0);
 });
 
-test('신규 신청: insert(입금 기한 3일) 후 강좌 페이지로', async () => {
-  const before = Date.now();
+test('신규 신청: API 오퍼레이션을 courseId로 한 번 부르고 강좌 페이지로 (프로필은 그대로면 갱신하지 않는다)', async () => {
   expect(await run()).toBe(`REDIRECT:/courses/${SLUG}`);
-  const [ins] = writes('enrollments');
-  expect(ins.action).toBe('insert');
-  expect(ins.values).toMatchObject({ user_id: 'u1', course_id: CID });
-  const due = new Date(ins.values!.payment_due_at as string).getTime();
-  expect(due).toBeGreaterThanOrEqual(before + 3 * DAY);
-  expect(due).toBeLessThan(Date.now() + 3 * DAY + 1000);
-  expect(writes('profiles')).toHaveLength(0); // 주소·사진이 그대로면 프로필을 갱신하지 않는다
+  expect(applyEnrollment).toHaveBeenCalledWith(CID);
+  expect(applyCalls()).toBe(1);
+  expect(wrote()).toHaveLength(0);
   expect(uploadMemberPhoto).not.toHaveBeenCalled();
 });
 
-test('insert 오류(unique 충돌 등) → conflict, 성공처럼 넘어가지 않는다', async () => {
-  handlers['insert:enrollments'] = () => fail;
-  expect(await run()).toBe(`REDIRECT:/courses/${SLUG}/apply?error=conflict`);
-});
-
-test('이미 승인됐거나 입금 기한이 남은 신청이 있으면 쓰지 않고 강좌 페이지로(중복 방지)', async () => {
+test('이미 승인됐거나 입금 기한이 남은 신청은 사진·프로필·API 쓰기 전에 강좌 페이지로(중복 방지)', async () => {
   existing = { id: 'e1', status: 'approved', payment_due_at: new Date(Date.now() - DAY).toISOString() };
-  expect(await run()).toBe(`REDIRECT:/courses/${SLUG}`);
+  expect(await run(form({ agree: 'on', address: '새 주소', photo: photo() }))).toBe(`REDIRECT:/courses/${SLUG}`);
   existing = { id: 'e1', status: 'pending', payment_due_at: new Date(Date.now() + DAY).toISOString() };
-  expect(await run()).toBe(`REDIRECT:/courses/${SLUG}`);
-  expect(writes('enrollments')).toHaveLength(0);
+  expect(await run(form({ agree: 'on', address: '새 주소', photo: photo() }))).toBe(`REDIRECT:/courses/${SLUG}`);
+  expect(applyCalls()).toBe(0);
+  expect(uploadMemberPhoto).not.toHaveBeenCalled();
+  expect(wrote()).toHaveLength(0);
 });
 
 test.each([
   ['rejected', new Date(Date.now() + DAY).toISOString()],
   ['expired', new Date(Date.now() - DAY).toISOString()],
   ['pending', new Date(Date.now() - DAY).toISOString()], // 입금 기한 초과
-])('재신청(%s): 기존 행을 pending으로 되돌리고 상태 조건으로 갱신', async (status, due) => {
+])('재신청(%s)은 막지 않고 API로 넘긴다', async (status, due) => {
   existing = { id: 'e1', status, payment_due_at: due };
   expect(await run()).toBe(`REDIRECT:/courses/${SLUG}`);
-  const [upd] = writes('enrollments');
-  expect(upd.action).toBe('update');
-  expect(upd.values).toMatchObject({ status: 'pending', rejection_reason: null });
-  expect(upd.filters).toEqual([['id', 'e1'], ['status', status]]);
+  expect(applyCalls()).toBe(1);
 });
 
-test('재신청 갱신이 0행(동시 처리)이거나 오류면 conflict', async () => {
-  existing = { id: 'e1', status: 'rejected', payment_due_at: new Date().toISOString() };
-  handlers['update:enrollments'] = () => ok([]);
-  expect(await run()).toBe(`REDIRECT:/courses/${SLUG}/apply?error=conflict`);
-  handlers['update:enrollments'] = () => fail;
-  expect(await run()).toBe(`REDIRECT:/courses/${SLUG}/apply?error=conflict`);
-});
-
-test('모집 상태가 아니거나(closed) 정원이 찼으면 신청을 쓰지 않는다', async () => {
-  course = { status: 'closed', seats: 10, requires_certificate_info: false };
-  expect(await run()).toBe(`REDIRECT:/courses/${SLUG}`);
-  course = { status: 'active', seats: 2, requires_certificate_info: false };
+test('모집 상태가 아니거나(closed) 정원이 찼으면 사진·프로필·API 쓰기 전에 거절', async () => {
+  const input = () => form({ agree: 'on', address: '새 주소', photo: photo() });
+  course = { status: 'closed', seats: 10, requires_certificate_info: true };
+  expect(await run(input())).toBe(`REDIRECT:/courses/${SLUG}`);
+  course = { status: 'active', seats: 2, requires_certificate_info: true };
   seatsTaken = { [CID]: 2 };
-  expect(await run()).toBe(`REDIRECT:/courses/${SLUG}`);
-  expect(writes('enrollments')).toHaveLength(0);
+  expect(await run(input())).toBe(`REDIRECT:/courses/${SLUG}`);
+  expect(applyCalls()).toBe(0);
+  expect(uploadMemberPhoto).not.toHaveBeenCalled();
+  expect(wrote()).toHaveLength(0);
   seatsTaken = { [CID]: 1 };
-  expect(await run()).toBe(`REDIRECT:/courses/${SLUG}`);
-  expect(writes('enrollments')).toHaveLength(1);
+  await run(form({ agree: 'on' }));
   course = { status: 'upcoming', seats: 5, requires_certificate_info: false };
   seatsTaken = {};
   await run();
-  expect(writes('enrollments')).toHaveLength(2);
+  expect(applyCalls()).toBe(2);
+});
+
+test('API의 최종 판단: closed·full·already_active·course_not_found는 강좌 페이지, inactive는 /sign-in, conflict·failed는 conflict', async () => {
+  for (const r of ['closed', 'full', 'already_active', 'course_not_found']) {
+    applyResult = r;
+    expect(await run(), r).toBe(`REDIRECT:/courses/${SLUG}`);
+  }
+  for (const r of ['inactive', 'unauthenticated']) {
+    applyResult = r;
+    expect(await run(), r).toBe('REDIRECT:/sign-in');
+  }
+  for (const r of ['conflict', 'failed']) {
+    applyResult = r;
+    expect(await run(), r).toBe(`REDIRECT:/courses/${SLUG}/apply?error=conflict`);
+  }
 });
 
 test('자격증 정보가 필요 없는 강좌는 주소·사진을 묻지 않는다', async () => {
   course = { status: 'active', seats: 10, requires_certificate_info: false };
   profile = { status: 'active', address: null, photo_path: null };
   expect(await run()).toBe(`REDIRECT:/courses/${SLUG}`);
-  expect(writes('enrollments')).toHaveLength(1);
+  expect(applyCalls()).toBe(1);
   expect(uploadMemberPhoto).not.toHaveBeenCalled();
 });
 
@@ -176,22 +181,23 @@ test('자격증 정보 필요: 주소가 어디에도 없으면 address-required
   expect(await run()).toBe(`REDIRECT:/courses/${SLUG}/apply?error=address-required`);
   profile = { status: 'active', address: '서울', photo_path: null };
   expect(await run()).toBe(`REDIRECT:/courses/${SLUG}/apply?error=photo-required`);
-  expect(writes('enrollments')).toHaveLength(0);
+  expect(applyCalls()).toBe(0);
 });
 
-test('새 주소·사진을 보내면 업로드 후 프로필을 갱신한다 (주소는 앞뒤 공백 제거)', async () => {
+test('새 주소·사진을 보내면 업로드 후 프로필을 갱신하고 그 다음에 신청한다 (주소는 앞뒤 공백 제거)', async () => {
   profile = { status: 'active', address: null, photo_path: null };
   expect(await run(form({ agree: 'on', address: '  부산시 1  ', photo: photo() }))).toBe(`REDIRECT:/courses/${SLUG}`);
   expect(uploadMemberPhoto).toHaveBeenCalledTimes(1);
   const [upd] = writes('profiles');
   expect(upd.values).toEqual({ address: '부산시 1', photo_path: 'u1/photo' });
   expect(upd.filters).toEqual([['id', 'u1']]);
+  expect(applyCalls()).toBe(1);
 });
 
 test('저장된 주소·사진이 있으면 새 입력 없이도 재사용한다', async () => {
   expect(await run(form({ agree: 'on', address: '   ' }))).toBe(`REDIRECT:/courses/${SLUG}`);
   expect(writes('profiles')).toHaveLength(0);
-  expect(writes('enrollments')).toHaveLength(1);
+  expect(applyCalls()).toBe(1);
 });
 
 test('빈 파일(size 0)은 업로드하지 않는다', async () => {
@@ -199,7 +205,7 @@ test('빈 파일(size 0)은 업로드하지 않는다', async () => {
   expect(uploadMemberPhoto).not.toHaveBeenCalled();
 });
 
-test('사진 오류 매핑: too-large, invalid, failed(→photo-failed — 사진 저장소 문제, conflict 아님)', async () => {
+test('사진 오류 매핑: too-large, invalid, failed(→photo-failed)', async () => {
   const withPhoto = () => form({ agree: 'on', photo: photo() });
   upload = { error: 'too-large' };
   expect(await run(withPhoto())).toBe(`REDIRECT:/courses/${SLUG}/apply?error=photo-too-large`);
@@ -207,12 +213,12 @@ test('사진 오류 매핑: too-large, invalid, failed(→photo-failed — 사�
   expect(await run(withPhoto())).toBe(`REDIRECT:/courses/${SLUG}/apply?error=photo-invalid`);
   upload = { error: 'failed' };
   expect(await run(withPhoto())).toBe(`REDIRECT:/courses/${SLUG}/apply?error=photo-failed`);
-  expect(writes('enrollments')).toHaveLength(0);
+  expect(applyCalls()).toBe(0);
   expect(writes('profiles')).toHaveLength(0);
 });
 
-test('프로필 갱신 실패 → conflict, 신청은 쓰지 않는다', async () => {
+test('프로필 갱신 실패 → conflict, 신청은 하지 않는다', async () => {
   handlers['update:profiles'] = () => fail;
   expect(await run(form({ agree: 'on', address: '새 주소' }))).toBe(`REDIRECT:/courses/${SLUG}/apply?error=conflict`);
-  expect(writes('enrollments')).toHaveLength(0);
+  expect(applyCalls()).toBe(0);
 });
