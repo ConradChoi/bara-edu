@@ -1,11 +1,10 @@
 import type pg from 'pg';
 import { withService } from '../db/context.js';
 import type { MailMessage } from '../mail/mailer.js';
-import { randomBytes } from 'node:crypto';
 import { hashPassword, verifyPassword } from './passwords.js';
 import { hit, release, reserve } from './rate-limit.js';
-import { consumeEmailTokenIn, invalidateEmailTokensIn, issueEmailToken } from './tokens.js';
-import { createSession, revokeOtherSessionsIn } from './sessions.js';
+import { consumeEmailTokenIn, invalidateEmailTokensIn, issueEmailToken, lockUserTokensIn } from './tokens.js';
+import { createSession, revokeAllSessionsIn, revokeOtherSessionsIn } from './sessions.js';
 
 type SignupInput = { email: string; password: string; name: string; phone?: string | null; origin: string };
 
@@ -14,7 +13,12 @@ const confirmLink = (origin: string, token: string) => `${origin}/auth/confirm?t
 // queues the message for sending after the HTTP response; must not throw or await the send
 export type MailDeliver = (msg: MailMessage) => void;
 
-export async function signup(pool: pg.Pool, deliver: MailDeliver, input: SignupInput): Promise<'pending_confirmation' | 'already_registered'> {
+// 어떤 경우에도 같은 값을 돌려준다(이메일 열거 방지, 대표 결정 2026-11-25). 신규/인증 완료/미인증은 보내는 메일만 다르다.
+// 탈퇴 계정의 이메일은 `withdrawn+<id>@deleted.invalid`로 바뀌어 원래 주소는 비어 있으므로 새 가입으로 처리되고,
+// 익명화 주소로 가입을 시도하면 기존 계정으로 취급하되 보낼 곳이 없어 메일은 보내지 않는다.
+const UNDELIVERABLE = /@deleted\.invalid$/;
+
+export async function signup(pool: pg.Pool, deliver: MailDeliver, input: SignupInput): Promise<'pending_confirmation'> {
   const passwordHash = await hashPassword(input.password);
   const meta = { name: input.name, ...(input.phone ? { phone: input.phone } : {}) };
   const r = await withService(pool, (tx) =>
@@ -24,8 +28,43 @@ export async function signup(pool: pg.Pool, deliver: MailDeliver, input: SignupI
       [input.email, passwordHash, JSON.stringify(meta)],
     ),
   );
-  if (r.rowCount === 0) return 'already_registered';
-  const token = await issueEmailToken(pool, r.rows[0].id, 'confirm');
+  if (r.rowCount > 0) {
+    const token = await issueEmailToken(pool, r.rows[0].id, 'confirm');
+    deliver({ to: input.email, template: 'confirm', link: confirmLink(input.origin, token) });
+    return 'pending_confirmation';
+  }
+
+  const existing = await withService(pool, (tx) =>
+    tx.query<{ id: string; email_confirmed_at: Date | null }>('select id, email_confirmed_at from auth.users where lower(email) = $1', [input.email]),
+  );
+  const user = existing.rows[0];
+  if (!user || UNDELIVERABLE.test(input.email)) return 'pending_confirmation';
+  if (user.email_confirmed_at) {
+    // 같은 주소로 가입을 반복해 안내 메일을 쏟아내지 못하게 resend와 같은 간격으로 제한한다
+    // 하루 1통(가장 엄격한 것부터 확인): 특정 주소로 안내 메일을 쏟아내 SES 발신 평판을 해치는 것을 막는다
+    if ((await hit(pool, 'already-24h', input.email, 1, 86_400)) && (await hit(pool, 'already-60s', input.email, 1, 60)) && (await hit(pool, 'already-1h', input.email, 4, 3600))) {
+      deliver({ to: input.email, template: 'already_registered', link: `${input.origin}/sign-in` });
+    }
+    return 'pending_confirmation';
+  }
+  // 미인증 기존 계정: 인증 메일을 다시 보내고(/v1/auth/resend와 같은 60초·1시간 제한), 가입 입력값을 새 값으로 덮어쓴다.
+  // 남의 이메일로 미리 가입해 둔 사람(선점자)의 비밀번호가 본인 인증 뒤에도 남는 것을 막기 위해서다.
+  // 덮어쓰기·토큰 무효화·메일은 한 묶음이다 — 제한에 걸렸을 때 덮어쓰기만 하면 직전에 보낸 인증 링크가 죽어
+  // 본인이 60초 동안 인증할 수 없고, 무효화만 하면 링크 없이 계정이 잠긴다. 그래서 제한에 걸리면 아무것도 바꾸지 않는다.
+  if (!((await hit(pool, 'resend-60s', input.email, 1, 60)) && (await hit(pool, 'resend-1h', input.email, 4, 3600)))) return 'pending_confirmation';
+  const claimed = await withService(pool, async (tx) => {
+    await lockUserTokensIn(tx, user.id); // 락 순서: 토큰 -> 사용자 (verifyEmail과 같은 순서)
+    // 인증 처리와 겹치지 않게 행을 잠그고, 그 사이 인증됐다면 덮어쓰지 않는다
+    const u = await tx.query<{ id: string }>('select id from auth.users where id = $1 and email_confirmed_at is null for update', [user.id]);
+    if (u.rowCount === 0) return false;
+    await tx.query('update auth.users set encrypted_password = $2, raw_user_meta_data = $3::jsonb, updated_at = now() where id = $1', [user.id, passwordHash, JSON.stringify(meta)]);
+    await tx.query('update public.profiles set name = $2, phone = $3 where id = $1', [user.id, input.name, input.phone ? input.phone : null]);
+    await invalidateEmailTokensIn(tx, user.id);
+    await revokeAllSessionsIn(tx, user.id);
+    return true;
+  });
+  if (!claimed) return 'pending_confirmation';
+  const token = await issueEmailToken(pool, user.id, 'confirm');
   deliver({ to: input.email, template: 'confirm', link: confirmLink(input.origin, token) });
   return 'pending_confirmation';
 }
@@ -92,6 +131,7 @@ export async function changePassword(pool: pg.Pool, userId: string, currentToken
   if ((await verifyPassword(currentPassword, r.rows[0].encrypted_password)) !== 'ok') return false;
   const newHash = await hashPassword(newPassword);
   await withService(pool, async (tx) => {
+    await lockUserTokensIn(tx, userId); // 락 순서: 토큰 -> 사용자
     await tx.query('update auth.users set encrypted_password = $2, updated_at = now() where id = $1', [userId, newHash]);
     await revokeOtherSessionsIn(tx, userId, currentToken);
     await invalidateEmailTokensIn(tx, userId);
@@ -144,17 +184,4 @@ export async function listConfirmations(pool: pg.Pool): Promise<Array<{ id: stri
     tx.query<{ id: string; email_confirmed_at: Date | null }>('select id, email_confirmed_at from auth.users order by created_at, id'),
   );
   return r.rows.map((row) => ({ id: row.id, emailConfirmedAt: row.email_confirmed_at ? row.email_confirmed_at.toISOString() : null }));
-}
-
-export async function withdrawAnonymize(pool: pg.Pool, userId: string, anonymizedEmail: string): Promise<boolean> {
-  const hash = await hashPassword(randomBytes(32).toString('base64url'));
-  return withService(pool, async (tx) => {
-    const r = await tx.query(
-      "update auth.users set email = $2, encrypted_password = $3, raw_user_meta_data = '{}'::jsonb, updated_at = now() where id = $1",
-      [userId, anonymizedEmail, hash],
-    );
-    if (r.rowCount === 0) return false;
-    await invalidateEmailTokensIn(tx, userId);
-    return true;
-  });
 }

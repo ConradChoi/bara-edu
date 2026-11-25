@@ -686,7 +686,9 @@ begin
     select q.id, q.question, q."order", o.id, o.label, o."order"
     from quiz_questions q
     join quiz_options o on o.question_id = q.id
+    -- 정답이 설정되지 않은 문항은 채점할 수 없으므로 보여 주지 않는다(submit_quiz_attempt의 채점 대상과 같은 규칙, 2026-11-25)
     where q.lesson_id = p_lesson_id
+      and exists (select 1 from quiz_options c where c.question_id = q.id and c.is_correct)
     order by q."order", o."order";
 end;
 $$;
@@ -730,9 +732,26 @@ begin
     raise exception 'not enrolled or not approved';
   end if;
 
-  select count(*) into v_total_questions from quiz_questions where lesson_id = p_lesson_id;
+  -- 채점 대상은 정답이 설정된 문항뿐이다(2026-11-25). 예전에는 정답 없는 문항이 total_questions에는 세어지고
+  -- results·정답 수에서는 빠져 100점이 불가능했다. get_quiz_for_lesson도 같은 문항만 보여 준다.
+  select count(*) into v_total_questions
+  from quiz_questions q
+  where q.lesson_id = p_lesson_id
+    and exists (select 1 from quiz_options c where c.question_id = q.id and c.is_correct);
   if v_total_questions = 0 then
     raise exception 'quiz not found for lesson';
+  end if;
+
+  -- 한 문항에 선택지를 둘 이상 고르는 요청은 채점이 모호하므로 거부한다(같은 id의 중복은 하나로 본다)
+  if exists (
+    select 1
+    from quiz_questions q
+    join quiz_options o on o.question_id = q.id
+    where q.lesson_id = p_lesson_id and o.id = any(coalesce(p_selected_option_ids, '{}'::uuid[]))
+    group by q.id
+    having count(distinct o.id) > 1
+  ) then
+    raise exception 'multiple options selected for one question';
   end if;
 
   select
@@ -754,6 +773,10 @@ begin
   where q.lesson_id = p_lesson_id;
 
   v_score := round(100.0 * v_correct_count / v_total_questions);
+
+  -- 같은 회원이 같은 강의에 동시에 제출해도 attempt_no가 겹치지 않도록 (회원, 강의) 단위로 직렬화한다(2026-11-25).
+  -- 기존 데이터에 이미 겹친 번호가 있을 수 있어 unique 제약 대신 잠금을 쓴다(제약을 걸면 기존 중복 때문에 적용이 실패).
+  perform pg_advisory_xact_lock(hashtextextended('quiz_attempt:' || v_user_id::text || ':' || p_lesson_id::text, 0));
 
   select coalesce(max(qs.attempt_no), 0) + 1 into v_next_attempt
   from quiz_submissions qs

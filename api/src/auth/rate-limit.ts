@@ -1,8 +1,8 @@
 import type pg from 'pg';
 import { withService, type Tx } from '../db/context.js';
 
-// must exceed the longest window used (1 hour)
-const RETENTION_SECONDS = 24 * 3600;
+// must exceed the longest window used (24 hours: already_registered mail cap)
+const RETENTION_SECONDS = 25 * 3600;
 
 export function normalizeEmail(raw: string): string {
   return raw.trim().toLowerCase();

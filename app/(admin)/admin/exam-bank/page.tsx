@@ -31,7 +31,7 @@ const SUCCESS_MESSAGE: Record<string, string> = {
 };
 
 const ERROR_MESSAGE: Record<string, string> = {
-  validation: '내용을 입력해주세요.',
+  validation: '내용을 입력해 주세요.',
   failed: '처리 중 문제가 발생했어요.',
   'invalid-category': '유효하지 않은 카테고리예요.',
 };
@@ -66,7 +66,7 @@ export default async function AdminExamBankPage({
           <Link href="/admin/categories" className="underline">
             카테고리 관리
           </Link>
-          에서 먼저 지정해주세요.
+          에서 먼저 지정해 주세요.
         </p>
       ) : (
         <div className="flex flex-wrap gap-2">

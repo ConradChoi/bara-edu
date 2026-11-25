@@ -20,8 +20,8 @@ const SUCCESS_MESSAGE: Record<string, string> = {
 const ERROR_MESSAGE: Record<string, string> = {
   failed: '처리 중 문제가 발생했어요.',
   'already-processed': '다른 관리자가 이미 처리했어요.',
-  'reason-required': '종료 사유를 입력해주세요.',
-  'reveal-failed': '개인정보 보기 처리 중 오류가 발생했어요. 잠시 후 다시 시도해주세요. 계속되면 관리자에게 문의해주세요.',
+  'reason-required': '종료 사유를 입력해 주세요.',
+  'reveal-failed': '개인정보 보기 처리 중 오류가 발생했어요. 잠시 후 다시 시도해 주세요. 계속되면 관리자에게 문의해 주세요.',
 };
 
 export default async function AdminDiagnosisLeadsPage({
@@ -122,7 +122,7 @@ export default async function AdminDiagnosisLeadsPage({
                           triggerLabel="바로 종료"
                           triggerClassName="rounded-pill border border-danger px-3 py-1.5 text-[12px] font-medium text-danger"
                           title="문의를 바로 종료할까요?"
-                          description="종료 사유를 입력해주세요."
+                          description="종료 사유를 입력해 주세요."
                           confirmLabel="종료"
                           tone="danger"
                           action={closeLead.bind(null, lead.id, 'new')}
@@ -134,7 +134,7 @@ export default async function AdminDiagnosisLeadsPage({
                       <ConfirmDialog
                         triggerLabel="종료 처리"
                         title="문의를 종료할까요?"
-                        description="종료 사유를 입력해주세요."
+                        description="종료 사유를 입력해 주세요."
                         confirmLabel="종료"
                         action={closeLead.bind(null, lead.id, 'contacted')}
                         reasonField={{ name: 'reason', label: '종료 사유 *', placeholder: '예: 강사과정 안내 완료' }}

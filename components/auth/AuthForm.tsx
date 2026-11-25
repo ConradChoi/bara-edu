@@ -3,6 +3,7 @@
 import { useActionState } from 'react';
 import Link from 'next/link';
 import { signup, login, type AuthFormState } from '@/app/actions/auth';
+import { siteConfig } from '@/data/site-config';
 import ResendConfirmationForm from '@/components/auth/ResendConfirmationForm';
 
 const initialState: AuthFormState = undefined;
@@ -16,21 +17,56 @@ export default function AuthForm({ mode, redirectTo }: AuthFormProps) {
   const action = mode === 'signup' ? signup : login;
   const [state, formAction, pending] = useActionState(action, initialState);
 
-  // 가입 직후와, 인증 전 계정으로 로그인한 경우 모두 같은 인증 안내를 보여준다.
   if (state && 'pendingConfirmation' in state) {
+    // 로그인 쪽은 메일을 새로 보내지 않았으므로 "보냈어요"라고 하지 않는다(문구 문서 4장 코드 요청 3, 방법 A).
+    // 가입 쪽은 가입 여부를 숨기려고 신규·기존 모두 같은 문구를 쓴다(대표 결정 2026-11-25).
+    if (state.source === 'login') {
+      return (
+        <div className="flex flex-col gap-5">
+          <div className="flex flex-col gap-2">
+            <p className="text-[15px] font-semibold text-n-9">이메일 인증이 아직 끝나지 않았어요</p>
+            <p className="text-[14px] leading-relaxed text-n-7">
+              받은 인증 메일의 링크를 눌러 주세요. 메일이 없으면 아래에서 다시 받을 수 있어요.
+            </p>
+          </div>
+          <div className="flex flex-col gap-2 border-t border-n-3 pt-4">
+            <ResendConfirmationForm defaultEmail={state.email} />
+          </div>
+          <Link href="/sign-in" className="text-center text-[13px] font-medium text-pink">
+            로그인 화면으로
+          </Link>
+        </div>
+      );
+    }
     return (
       <div className="flex flex-col gap-5">
-        <p className="text-[14px] leading-relaxed text-n-7">
-          <span className="font-semibold text-n-9">{state.email}</span>로 인증 메일을 보내드렸어요. 메일함에서 링크를 눌러
-          가입을 완료해주세요.
-        </p>
+        <div className="flex flex-col gap-2">
+          <p className="text-[15px] font-semibold text-n-9">메일을 보냈어요</p>
+          <p className="text-[14px] leading-relaxed text-n-7">
+            <span className="font-semibold text-n-9">{state.email}</span>로 안내 메일을 보냈어요. 메일함을 확인해 주세요.
+          </p>
+          <p className="text-[14px] leading-relaxed text-n-7">가입이 처음이면 메일 안의 링크를 눌러 가입을 마칠 수 있어요.</p>
+        </div>
+        <div className="flex flex-col gap-1 text-[12.5px] leading-relaxed text-n-6">
+          <p>몇 분이 지나도 메일이 없다면 스팸메일함을 확인해 주세요.</p>
+          <p>입력한 이메일 주소가 맞는지도 확인해 주세요.</p>
+          <p>
+            그래도 없으면 전화로 문의해 주세요. {siteConfig.phone}
+            {siteConfig.supportHours ? ` (${siteConfig.supportHours})` : ''}
+          </p>
+        </div>
         <div className="flex flex-col gap-2 border-t border-n-3 pt-4">
-          <p className="text-[12.5px] text-n-6">메일이 안 왔거나 링크가 만료됐다면 다시 보낼 수 있어요.</p>
+          <p className="text-[12.5px] text-n-6">메일이 오지 않았거나 인증 링크가 만료됐나요? 아래에서 메일을 다시 받을 수 있어요.</p>
           <ResendConfirmationForm defaultEmail={state.email} />
         </div>
-        <Link href="/sign-in" className="text-center text-[13px] font-medium text-pink">
-          로그인 화면으로
-        </Link>
+        <div className="flex flex-col items-center gap-2">
+          <Link href="/sign-in" className="text-center text-[13px] font-medium text-pink">
+            로그인 화면으로
+          </Link>
+          <Link href="/sign-up" className="text-center text-[12.5px] text-n-6 underline">
+            이메일 주소를 잘못 썼다면 처음부터 다시 쓰기
+          </Link>
+        </div>
       </div>
     );
   }

@@ -65,3 +65,19 @@ test('pg 오류 로그에는 message·stack이 없고 code·constraint·table만
   expect(errEntry.err.constraint).toEqual(expect.any(String));
   expect(errEntry.err.table).toBe('users');
 });
+
+test('탈퇴 후 사진 삭제가 실패하면 로그에 userId와 오류 이름만 남는다 (이메일 없음)', async () => {
+  const email = 'photo-fail@bara-edu.kr';
+  const id = (await ctx.adminPool.query('insert into auth.users (email, email_confirmed_at) values ($1, now()) returning id', [email])).rows[0].id as string;
+  const token = (await createSession(ctx.pool, id, 30)).token;
+  const failing = { put: async () => {}, signedUrl: async () => '', remove: async () => { throw Object.assign(new Error(`s3 said ${email}`), { name: 'S3Down' }); } };
+  const out: string[] = [];
+  const failApp = buildApp({ config: loadConfig({ DATABASE_URL: 'postgresql://x/x', BARA_SERVICE_KEY: KEY }), pool: ctx.pool, mailer: new MemoryMailer(), storage: failing as never, logger: { level: 'info', stream: { write: (l: string) => void out.push(l) } } });
+  const r = await failApp.inject({ method: 'POST', url: '/v1/account/withdraw', headers: { 'x-bara-service-key': KEY, 'x-bara-session': token }, payload: { reason: 'other' } });
+  await failApp.close();
+  expect(r.statusCode).toBe(200);
+  const line = out.find((l) => l.includes('withdraw photo removal failed'));
+  expect(line).toBeTruthy();
+  expect(JSON.parse(line!)).toMatchObject({ userId: id, errorName: 'S3Down' });
+  expect(out.join('')).not.toContain(email);
+});

@@ -5,15 +5,17 @@ import { applyToCourse } from '@/app/actions/enrollment';
 import BankAccountList from '@/components/enrollment/BankAccountList';
 import { getApprovedSeatsTaken, getCourseBySlug, getMyContactInfo, getMyEnrollmentForCourse } from '@/lib/supabase/queries';
 import { createClient } from '@/lib/db/server';
+import { siteConfig } from '@/data/site-config';
 
 export const metadata: Metadata = { title: '신청 확인 | 바라 평생교육원' };
 
 const ERROR_MESSAGE: Record<string, string> = {
   'agree-required': '약관에 동의해야 신청할 수 있어요',
-  conflict: '처리 중 문제가 발생했어요. 신청 현황을 확인한 뒤 다시 시도해주세요.',
-  'address-required': '주소를 입력해주세요',
-  'photo-required': '자격증 발급용 사진을 등록해주세요',
-  'photo-invalid': '이미지 파일만 등록할 수 있어요',
+  conflict: '처리 중 문제가 발생했어요. 신청 현황을 확인한 뒤 다시 시도해 주세요.',
+  'address-required': '주소를 입력해 주세요',
+  'photo-required': '자격증 발급용 사진을 등록해 주세요',
+  'photo-invalid': '사진은 JPG, PNG, WebP 파일만 올릴 수 있어요. GIF는 올릴 수 없어요',
+  'photo-failed': `사진을 저장하는 곳에 문제가 생겨 올리지 못했어요. 잠시 후 다시 시도해 주세요. 계속되면 전화로 문의해 주세요. ${siteConfig.phone}`,
   'photo-too-large': '사진 파일은 5MB 이하만 등록할 수 있어요',
 };
 
@@ -93,7 +95,7 @@ export default async function ApplyConfirmPage({
               <input
                 name="photo"
                 type="file"
-                accept="image/*"
+                accept="image/jpeg,image/png,image/webp"
                 required={!contactInfo.hasPhoto}
                 className="text-[13px] text-n-7 file:mr-3 file:h-9 file:cursor-pointer file:rounded-pill file:border file:border-n-3 file:bg-n-0 file:px-4 file:text-[12.5px] file:font-medium file:text-n-7 hover:file:border-indigo hover:file:text-indigo"
               />

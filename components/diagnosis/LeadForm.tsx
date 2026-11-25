@@ -2,8 +2,8 @@ import { submitDiagnosisLead } from '@/app/actions/diagnosis';
 import { INSTRUCTOR_CANDIDATE_DISCLAIMER } from '@/data/diagnosis/config';
 
 const ERROR_MESSAGE: Record<string, string> = {
-  validation: '이름·연락처와 연락 수신 동의를 확인해주세요.',
-  failed: '문의 접수에 실패했어요. 잠시 후 다시 시도해주세요.',
+  validation: '이름·연락처와 연락 수신 동의를 확인해 주세요.',
+  failed: '문의 접수에 실패했어요. 잠시 후 다시 시도해 주세요.',
 };
 
 // 강사과정 관심 문의 폼(F-DIAG-15). tier=instructor_candidate 결과 화면에서만 렌더된다

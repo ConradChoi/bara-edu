@@ -240,7 +240,7 @@ export default function DiagnosisStepper({
           <p className="text-[12px] font-semibold text-pink">1/{TOTAL_PAGES} · 기본정보</p>
           <p className="text-[13px] text-n-6">진단을 위해 몇 가지 정보가 필요해요</p>
 
-          <TextField name="name" label="이름 *" placeholder="이름을 입력해주세요" defaultValue={defaultName} hasError={errorFields.has('name')} />
+          <TextField name="name" label="이름 *" placeholder="이름을 입력해 주세요" defaultValue={defaultName} hasError={errorFields.has('name')} />
           {/* 휴대전화/이메일은 최소 1개만 필수(최소수집 원칙) — 하나라도 입력하면 나머지 필드의
               에러 표시는 함께 사라진다(둘 다 같은 missing 집합에 들어가므로). */}
           <TextField
@@ -258,7 +258,7 @@ export default function DiagnosisStepper({
             hasError={errorFields.has('email')}
           />
           {(errorFields.has('phone') || errorFields.has('email')) && (
-            <p className="-mt-2 text-[11px] text-danger">휴대전화 또는 이메일 중 최소 1개는 입력해주세요</p>
+            <p className="-mt-2 text-[11px] text-danger">휴대전화 또는 이메일 중 최소 1개는 입력해 주세요</p>
           )}
 
           <div data-field="learningExperience" className="flex flex-col gap-1.5">
@@ -279,7 +279,7 @@ export default function DiagnosisStepper({
                 </label>
               ))}
             </div>
-            {errorFields.has('learningExperience') && <p className="text-[11px] text-danger">지금까지의 학습 경험을 선택해주세요</p>}
+            {errorFields.has('learningExperience') && <p className="text-[11px] text-danger">지금까지의 학습 경험을 선택해 주세요</p>}
           </div>
 
           <TextField name="certificateLevel" label="보유 자격 수준 (선택)" placeholder="예: 도형기질활용지도자 2급" />
@@ -335,7 +335,7 @@ export default function DiagnosisStepper({
 
             {errorFields.size > 0 && page === areaIdx + 1 && (
               <div className="rounded-md border border-danger bg-danger/10 px-3 py-2.5 text-[12.5px] font-medium text-danger">
-                5문항 중 {errorFields.size}문항에 아직 답하지 않았어요. 표시된 문항에 답해주세요.
+                5문항 중 {errorFields.size}문항에 아직 답하지 않았어요. 표시된 문항에 답해 주세요.
               </div>
             )}
 
@@ -355,7 +355,7 @@ export default function DiagnosisStepper({
                     </span>
                   </label>
                 ))}
-                {errorFields.has(q.code) && <p className="text-[11px] text-danger">이 문항에 답해주세요</p>}
+                {errorFields.has(q.code) && <p className="text-[11px] text-danger">이 문항에 답해 주세요</p>}
               </fieldset>
             ))}
           </div>
@@ -363,7 +363,7 @@ export default function DiagnosisStepper({
 
         {submitError && (
           <div className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger">
-            제출에 실패했어요. 잠시 후 다시 시도해주세요.
+            제출에 실패했어요. 잠시 후 다시 시도해 주세요.
           </div>
         )}
 

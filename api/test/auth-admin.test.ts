@@ -146,40 +146,6 @@ test('send-reset: 허용되지 않은 origin → 400, 없는 회원 → 404', as
   expect(mailer.sent).toHaveLength(0);
 });
 
-test('withdraw-anonymize: 이메일 변경, 기존 비밀번호 로그인 불가, 세션은 logout-all 전까지 유지', async () => {
-  const u = await addUser();
-  const s1 = await sessionOf(u.email);
-  const s2 = await sessionOf(u.email);
-  const anon = `withdrawn+${u.id}@deleted.invalid`;
-  const r = await call('POST', '/v1/auth/withdraw-anonymize', { anonymizedEmail: anon }, s1);
-  expect(r.statusCode).toBe(200);
-  const row = await ctx.adminPool.query('select email, raw_user_meta_data from auth.users where id=$1', [u.id]);
-  expect(row.rows[0].email).toBe(anon);
-  expect(row.rows[0].raw_user_meta_data).toEqual({});
-  expect(await sessionStatus(s1)).toBe(200);
-  expect(await sessionStatus(s2)).toBe(200);
-  expect((await login(u.email)).statusCode).toBe(401);
-  expect((await login(anon)).statusCode).toBe(401);
-
-  const out = await call('POST', '/v1/auth/logout-all', undefined, s1);
-  expect(out.statusCode).toBe(200);
-  expect(out.json()).toEqual({ ok: true });
-  expect(await sessionStatus(s1)).toBe(401);
-  expect(await sessionStatus(s2)).toBe(401);
-  expect((await login(u.email)).statusCode).toBe(401);
-});
-
-test('탈퇴 3단계: 익명화 후에도 자기 세션으로 op 호출 가능 → logout-all 후 401', async () => {
-  const u = await addUser();
-  const s = await sessionOf(u.email);
-  expect((await call('POST', '/v1/auth/withdraw-anonymize', { anonymizedEmail: `withdrawn+${u.id}@deleted.invalid` }, s)).statusCode).toBe(200);
-  const mine = await call('POST', '/v1/op/profiles.getMine', { params: {} }, s);
-  expect(mine.statusCode).toBe(200);
-  expect(mine.json().data.id).toBe(u.id);
-  expect((await call('POST', '/v1/auth/logout-all', undefined, s)).statusCode).toBe(200);
-  expect((await call('POST', '/v1/op/profiles.getMine', { params: {} }, s)).statusCode).toBe(401);
-});
-
 test('logout-all: 세션 없으면 401, 다른 회원 세션은 그대로', async () => {
   const a = await addUser();
   const b = await addUser();
@@ -193,28 +159,6 @@ test('logout-all: 세션 없으면 401, 다른 회원 세션은 그대로', asyn
   expect(await sessionStatus(sb)).toBe(200);
 });
 
-test('withdraw-anonymize 후 기존 이메일로 다시 가입 가능', async () => {
-  const u = await addUser();
-  const s = await sessionOf(u.email);
-  await call('POST', '/v1/auth/withdraw-anonymize', { anonymizedEmail: `withdrawn+${u.id}@deleted.invalid` }, s);
-  const r = await call('POST', '/v1/auth/signup', { email: u.email, password: 'password1', name: '새회원', origin: ORIGIN });
-  expect(r.json().status).toBe('pending_confirmation');
-});
-
-test('withdraw-anonymize: 형식이 다르거나 남의 id면 400, 세션 없으면 401, 아무것도 안 바뀜', async () => {
-  const u = await addUser();
-  const other = await addUser();
-  const s = await sessionOf(u.email);
-  for (const bad of [`withdrawn+${u.id}@withdrawn.invalid`, `withdrawn+${other.id}@deleted.invalid`, 'x@deleted.invalid', `WITHDRAWN+${u.id}@deleted.invalid`]) {
-    expect((await call('POST', '/v1/auth/withdraw-anonymize', { anonymizedEmail: bad }, s)).statusCode).toBe(400);
-  }
-  expect((await call('POST', '/v1/auth/withdraw-anonymize', {})).statusCode).toBe(401);
-  expect((await call('POST', '/v1/auth/withdraw-anonymize', { anonymizedEmail: `withdrawn+${u.id}@deleted.invalid` })).statusCode).toBe(401);
-  const row = await ctx.adminPool.query('select email from auth.users where id=$1', [u.id]);
-  expect(row.rows[0].email).toBe(u.email);
-  expect(await sessionStatus(s)).toBe(200);
-});
-
 test('없는 회원 id → 404, UUID가 아닌 id → 400', async () => {
   const admin = await adminSession();
   const nf = await call('POST', '/v1/admin/users/00000000-0000-4000-8000-000000000000/confirm-email', undefined, admin);
@@ -225,14 +169,3 @@ test('없는 회원 id → 404, UUID가 아닌 id → 400', async () => {
   expect(bad.json().error.code).toBe('validation');
 });
 
-test('withdraw-anonymize 후 남아 있던 confirm·recovery 토큰으로 세션·비밀번호를 얻을 수 없다', async () => {
-  const u = await addUser();
-  const confirm = await issueEmailToken(ctx.pool, u.id, 'confirm');
-  const recovery = await issueEmailToken(ctx.pool, u.id, 'recovery');
-  const s = await sessionOf(u.email);
-  const anon = `withdrawn+${u.id}@deleted.invalid`;
-  expect((await call('POST', '/v1/auth/withdraw-anonymize', { anonymizedEmail: anon }, s)).statusCode).toBe(200);
-  expect((await call('POST', '/v1/auth/verify-email', { token: confirm })).statusCode).toBe(400);
-  expect((await call('POST', '/v1/auth/reset-password', { token: recovery, newPassword: 'hijacked123' })).statusCode).toBe(400);
-  expect((await login(anon, 'hijacked123')).statusCode).toBe(401);
-});

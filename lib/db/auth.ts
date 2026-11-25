@@ -1,5 +1,6 @@
 import 'server-only';
 import { apiFetch, type ApiResult } from './api';
+import { formField, type FormField } from '@/lib/form-messages';
 import { clearSession, readSession, writeSession } from './session-cookie';
 
 type Issued = { sessionToken: string; expiresAt: string };
@@ -7,14 +8,35 @@ type Issued = { sessionToken: string; expiresAt: string };
 export type SessionInfo = {
   user: { id: string; email: string; emailConfirmedAt: string | null };
   profile: { role: string; status: string } | null;
+  // 슬라이딩 만료가 반영된 세션 만료 시각(ISO). 옛 API 응답에는 없을 수 있다.
+  expiresAt?: string;
+  // 이 요청에서 세션 만료가 실제로 늘어났는지. true일 때만 proxy가 쿠키를 다시 쓴다(옛 API 응답에는 없음 → 쓰지 않음).
+  renewed?: boolean;
 };
 
 export type SignUpInput = { email: string; password: string; name: string; phone: string | null };
-export type SignUpResult = { ok: true; status: 'pending_confirmation' | 'already_registered' } | { ok: false };
+// 실패 사유: 429는 IP 한도(요청이 많음), 400은 API 입력 검증, 503은 연결 불가 — 화면이 문구를 나눌 수 있게 구분한다.
+export type FailReason = 'rate_limited' | 'validation' | 'unavailable' | 'failed';
+// field: API가 400으로 문제 삼은 입력 칸(있을 때만)
+export type SignUpResult = { ok: true; status: 'pending_confirmation' } | { ok: false; reason: FailReason; field?: FormField };
+export type ResendResult = { ok: true } | { ok: false; reason: FailReason; field?: FormField };
 export type LoginResult =
   | { ok: true }
-  | { ok: false; reason: 'invalid_credentials' | 'email_not_confirmed' | 'rate_limited' | 'failed' };
-export type ChangePasswordResult = { ok: true } | { ok: false; reason: 'wrong_current' | 'unauthenticated' | 'failed' };
+  | { ok: false; reason: 'invalid_credentials' | 'email_not_confirmed' | 'rate_limited' | 'unavailable' | 'validation' | 'failed'; field?: FormField };
+export type ResetResult = { ok: true } | { ok: false; field?: FormField };
+
+function fieldOf(r: { status: number; error: { field?: string } }): { field?: FormField } {
+  const field = r.status === 400 ? formField(r.error.field) : undefined;
+  return field ? { field } : {};
+}
+
+function failReason(r: { status: number }): FailReason {
+  if (r.status === 429) return 'rate_limited';
+  if (r.status === 400) return 'validation';
+  if (r.status === 503) return 'unavailable';
+  return 'failed';
+}
+export type ChangePasswordResult = { ok: true } | { ok: false; reason: 'wrong_current' | 'unauthenticated' | 'validation' | 'failed'; field?: string };
 
 // a 401 can also be `unauthorized_service` (bad service key) — that is not the user's session
 export function isDeadSession(r: ApiResult<unknown>): boolean {
@@ -22,15 +44,16 @@ export function isDeadSession(r: ApiResult<unknown>): boolean {
 }
 
 export async function signUp(input: SignUpInput, origin: string): Promise<SignUpResult> {
-  const r = await apiFetch<{ status: 'pending_confirmation' | 'already_registered' }>('/v1/auth/signup', {
+  const r = await apiFetch<{ status: 'pending_confirmation' }>('/v1/auth/signup', {
     method: 'POST',
     body: { ...input, origin },
   });
-  return r.ok ? { ok: true, status: r.data.status } : { ok: false };
+  return r.ok ? { ok: true, status: r.data.status } : { ok: false, reason: failReason(r), ...fieldOf(r) };
 }
 
-export async function resend(email: string, origin: string): Promise<boolean> {
-  return (await apiFetch('/v1/auth/resend', { method: 'POST', body: { email, origin } })).ok;
+export async function resend(email: string, origin: string): Promise<ResendResult> {
+  const r = await apiFetch('/v1/auth/resend', { method: 'POST', body: { email, origin } });
+  return r.ok ? { ok: true } : { ok: false, reason: failReason(r), ...fieldOf(r) };
 }
 
 export async function verifyEmail(token: string): Promise<boolean> {
@@ -49,7 +72,8 @@ export async function login(email: string, password: string): Promise<LoginResul
   if (r.status === 401 && r.error.code === 'unauthenticated') {
     return { ok: false, reason: r.error.message === 'email_not_confirmed' ? 'email_not_confirmed' : 'invalid_credentials' };
   }
-  return { ok: false, reason: r.status === 429 ? 'rate_limited' : 'failed' };
+  if (r.status === 400) return { ok: false, reason: 'validation', ...fieldOf(r) };
+  return { ok: false, reason: r.status === 429 ? 'rate_limited' : r.status === 503 ? 'unavailable' : 'failed' };
 }
 
 export async function logout(): Promise<void> {
@@ -65,6 +89,7 @@ export async function changePassword(currentPassword: string, newPassword: strin
   const r = await apiFetch('/v1/auth/change-password', { method: 'POST', session, body: { currentPassword, newPassword } });
   if (r.ok) return { ok: true };
   if (r.status === 403) return { ok: false, reason: 'wrong_current' };
+  if (r.status === 400) return { ok: false, reason: 'validation', ...(r.error.field ? { field: r.error.field } : {}) };
   return { ok: false, reason: isDeadSession(r) ? 'unauthenticated' : 'failed' };
 }
 
@@ -72,10 +97,13 @@ export async function requestReset(email: string, origin: string): Promise<boole
   return (await apiFetch('/v1/auth/request-reset', { method: 'POST', body: { email, origin } })).ok;
 }
 
-export async function resetPassword(token: string, newPassword: string): Promise<boolean> {
+export async function resetPassword(token: string, newPassword: string): Promise<ResetResult> {
   const r = await apiFetch('/v1/auth/reset-password', { method: 'POST', body: { token, newPassword } });
-  if (r.ok) await clearSession();
-  return r.ok;
+  if (r.ok) {
+    await clearSession();
+    return { ok: true };
+  }
+  return { ok: false, ...fieldOf(r) };
 }
 
 // token and IP are explicit so proxy.ts can call this without next/headers
@@ -83,18 +111,15 @@ export async function getSession(token: string, clientIp: string | null): Promis
   return apiFetch<SessionInfo>('/v1/auth/session', { method: 'GET', session: token, clientIp });
 }
 
-export async function withdrawAnonymize(anonymizedEmail: string): Promise<boolean> {
-  const r = await apiFetch('/v1/auth/withdraw-anonymize', { method: 'POST', session: await readSession(), body: { anonymizedEmail } });
-  return r.ok;
-}
+export type WithdrawResult = { ok: true } | { ok: false; reason: 'active_enrollment' | 'unauthenticated' | 'failed' };
 
-export async function withdrawCleanup(): Promise<boolean> {
-  const r = await apiFetch('/v1/op/account.withdrawCleanup', { method: 'POST', session: await readSession(), body: { params: {} } });
-  return r.ok;
-}
-
-export async function logoutAll(): Promise<boolean> {
-  return (await apiFetch('/v1/auth/logout-all', { method: 'POST', session: await readSession() })).ok;
+// 탈퇴 전체(검증·익명화·학습 이력 파기·전체 세션 삭제·사진 삭제)를 API가 한 트랜잭션으로 처리한다.
+// 성공하면 서버의 세션이 이미 없어졌으므로 호출한 쪽은 쿠키만 지우면 된다.
+export async function withdrawAccount(reason: string, detail: string | null): Promise<WithdrawResult> {
+  const r = await apiFetch('/v1/account/withdraw', { method: 'POST', session: await readSession(), body: { reason, detail } });
+  if (r.ok) return { ok: true };
+  if (r.status === 409 && r.error.message === 'active_enrollment') return { ok: false, reason: 'active_enrollment' };
+  return { ok: false, reason: isDeadSession(r) ? 'unauthenticated' : 'failed' };
 }
 
 export async function adminConfirmEmail(userId: string): Promise<boolean> {

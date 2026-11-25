@@ -22,14 +22,15 @@ export default async function SignInPage({
       {reset && (
         <div className="rounded-md border border-success bg-success/10 px-3.5 py-3">
           <p className="text-[13px] font-semibold text-success">비밀번호가 변경됐어요</p>
-          <p className="text-[12px] text-n-7">새 비밀번호로 로그인해주세요.</p>
+          <p className="text-[12px] text-n-7">새 비밀번호로 로그인해 주세요.</p>
         </div>
       )}
       {confirmError && (
         <div className="flex flex-col gap-3 rounded-md border border-danger bg-danger/10 px-3.5 py-3">
           <div>
             <p className="text-[13px] font-semibold text-danger">가입 인증 링크가 만료됐거나 이미 사용됐어요</p>
-            <p className="text-[12px] text-n-7">아래에 가입한 이메일을 입력하면 인증 메일을 다시 보내드려요.</p>
+            <p className="text-[12px] text-n-7">이미 인증했다면 아래에서 바로 로그인해 주세요.</p>
+            <p className="text-[12px] text-n-7">아직 인증하지 못했다면 가입한 이메일을 입력해 메일을 다시 받아 주세요.</p>
           </div>
           <ResendConfirmationForm />
         </div>

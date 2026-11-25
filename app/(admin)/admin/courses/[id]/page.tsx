@@ -21,9 +21,9 @@ import { getCategoryTree } from '@/lib/supabase/queries';
 export const metadata: Metadata = { title: '강좌 수정 | 관리자' };
 
 const SUCCESS_MESSAGE: Record<string, string> = {
-  created: '강좌를 등록했어요. 이어서 커리큘럼을 추가해주세요.',
+  created: '강좌를 등록했어요. 이어서 커리큘럼을 추가해 주세요.',
   updated: '수정했어요.',
-  duplicated: '강좌를 복사했어요. 제목·slug·시작일/종료일과, 강의별 과제 마감일·온라인 세션 일시를 모두 다시 확인해주세요.',
+  duplicated: '강좌를 복사했어요. 제목·slug·시작일/종료일과, 강의별 과제 마감일·온라인 세션 일시를 모두 다시 확인해 주세요.',
   lessonAdded: '강의를 추가했어요.',
   lessonUpdated: '강의를 수정했어요.',
   lessonDeleted: '강의를 삭제했어요.',
@@ -34,10 +34,10 @@ const SUCCESS_MESSAGE: Record<string, string> = {
 };
 
 const ERROR_MESSAGE: Record<string, string> = {
-  validation: '필수 항목을 확인해주세요 (slug는 영문 소문자·숫자·하이픈만 가능해요, 종료일은 시작일 이후여야 해요).',
+  validation: '필수 항목을 확인해 주세요 (slug는 영문 소문자·숫자·하이픈만 가능해요, 종료일은 시작일 이후여야 해요).',
   'slug-taken': '이미 사용 중인 slug예요.',
-  'lesson-validation': '강의명을 입력해주세요.',
-  'material-validation': '교재명을 입력해주세요.',
+  'lesson-validation': '강의명을 입력해 주세요.',
+  'material-validation': '교재명을 입력해 주세요.',
   'material-main-exists': '주교재는 강좌당 1개만 등록할 수 있어요.',
   failed: '처리 중 문제가 발생했어요.',
 };

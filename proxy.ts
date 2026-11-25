@@ -1,16 +1,32 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { apiFetch } from '@/lib/db/api';
+import { clientIpFrom } from '@/lib/db/client-ip';
 import { getSession, isDeadSession } from '@/lib/db/auth';
 
 const SESSION_COOKIE = 'bara_session';
 const USER_ROUTE_PREFIXES = ['/my', '/learn'];
 const ADMIN_ROUTE_PREFIX = '/admin';
+// 세션 쿠키를 쓰거나 지우는 응답은 공유 캐시(CDN)에 저장되면 다른 방문자에게 쿠키가 나갈 수 있다 — 항상 private, no-store.
+const NO_STORE = 'private, no-store';
 
 function toSignIn(request: NextRequest, withRedirect: boolean): NextResponse {
   const url = request.nextUrl.clone();
   url.pathname = '/sign-in';
   if (withRedirect) url.searchParams.set('redirect', request.nextUrl.pathname);
   return NextResponse.redirect(url);
+}
+
+// API에 닿지 못한 보호 경로 요청: 평문 대신 /service-unavailable 화면으로 rewrite하고 상태는 503을 유지한다.
+// 주소창은 원래 주소(/my 등)라 새로고침이 곧 재시도다. 세션 쿠키는 건드리지 않는다 — 연결 불가는 세션 만료가 아니다.
+// 정적 화면이라 API를 다시 부르지 않는다(app/service-unavailable). Retry-After는 backend와 협의 전 초안값 30초.
+function toServiceUnavailable(request: NextRequest): NextResponse {
+  const url = request.nextUrl.clone();
+  url.pathname = '/service-unavailable';
+  url.search = '';
+  return NextResponse.rewrite(url, {
+    status: 503,
+    headers: { 'Retry-After': '30', 'Cache-Control': NO_STORE, 'X-Robots-Tag': 'noindex' },
+  });
 }
 
 // forwards the request without the cookie too, so pages rendered after this don't look it up again
@@ -24,6 +40,25 @@ function withoutSessionCookie(request: NextRequest, redirectTo: NextResponse | n
     path: '/',
     expires: new Date(0),
   });
+  response.headers.set('Cache-Control', NO_STORE);
+  return response;
+}
+
+// API는 남은 기간이 절반 아래가 되면 세션을 30일로 늘리는데(sliding), 브라우저 쿠키는 로그인 때의 만료일 그대로라
+// 브라우저가 먼저 쿠키를 버린다. API가 "이번 요청에서 실제로 연장했다"(renewed)고 알려 줄 때만 expiresAt으로
+// 같은 옵션(writeSession과 동일)으로 다시 쓴다 — 그 밖의 응답(공개 페이지 포함)에는 토큰이 실리지 않는다.
+function withRefreshedCookie(response: NextResponse, token: string, expiresAt: string | undefined, renewed: boolean | undefined): NextResponse {
+  if (renewed !== true) return response;
+  const expires = expiresAt ? new Date(expiresAt) : null;
+  if (!expires || Number.isNaN(expires.getTime())) return response;
+  response.cookies.set(SESSION_COOKIE, token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    path: '/',
+    expires,
+  });
+  response.headers.set('Cache-Control', NO_STORE);
   return response;
 }
 
@@ -33,20 +68,10 @@ export async function proxy(request: NextRequest) {
   const isAdminRoute = pathname.startsWith(ADMIN_ROUTE_PREFIX);
   const isProtected = isAdminRoute || USER_ROUTE_PREFIXES.some((p) => pathname.startsWith(p));
 
-  // TEMP(R24 IP 진단, 2026-11-25): 헤더 모양 확인 후 바로 삭제. ?ipdiag=1 요청만, IP 끝자리는 가림.
-  if (request.nextUrl.searchParams.get('ipdiag') === '1') {
-    const mask = (v: string) => v.trim().replace(/(\d+\.\d+\.\d+)\.\d+/g, '$1.x').replace(/^([0-9a-f]+:[0-9a-f]+:[0-9a-f]+):[0-9a-f:]+/i, '$1:x');
-    console.log('[ipdiag]', JSON.stringify({
-      xff: (request.headers.get('x-forwarded-for') ?? '').split(',').map(mask),
-      viewer: mask(request.headers.get('cloudfront-viewer-address') ?? ''),
-      realIp: mask(request.headers.get('x-real-ip') ?? ''),
-    }));
-  }
-
   const token = request.cookies.get(SESSION_COOKIE)?.value;
   if (!token) return isProtected ? toSignIn(request, true) : NextResponse.next();
 
-  const clientIp = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || null;
+  const clientIp = clientIpFrom((n) => request.headers.get(n));
   const r = await getSession(token, clientIp);
 
   if (isDeadSession(r)) {
@@ -54,10 +79,7 @@ export async function proxy(request: NextRequest) {
   }
   if (!r.ok) {
     if (!isProtected) return NextResponse.next();
-    return new NextResponse('서비스에 일시적으로 연결할 수 없어요.', {
-      status: 503,
-      headers: { 'content-type': 'text/plain; charset=utf-8' },
-    });
+    return toServiceUnavailable(request);
   }
 
   const profile = r.data.profile;
@@ -72,7 +94,7 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(new URL('/', request.url));
   }
 
-  return NextResponse.next();
+  return withRefreshedCookie(NextResponse.next(), token, r.data.expiresAt, r.data.renewed);
 }
 
 export const config = {

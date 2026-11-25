@@ -1,8 +1,10 @@
 import 'server-only';
 import { headers } from 'next/headers';
+import { clientIpFrom } from './client-ip';
 import { getServiceKey } from './service-key';
 
-export type ApiError = { code: string; message: string; sqlstate?: string };
+// field: 400 validation에서 문제가 된 입력 칸(email, password, name, phone, currentPassword, token, origin, reason)
+export type ApiError = { code: string; message: string; sqlstate?: string; field?: string };
 export type ApiResult<T> = { ok: true; data: T } | { ok: false; status: number; error: ApiError };
 
 const TIMEOUT_MS = 10_000;
@@ -11,8 +13,8 @@ const INTERNAL: ApiError = { code: 'internal', message: '요청을 처리하지 
 
 async function clientIp(): Promise<string | null> {
   try {
-    const first = (await headers()).get('x-forwarded-for')?.split(',')[0]?.trim();
-    return first || null;
+    const h = await headers();
+    return clientIpFrom((n) => h.get(n));
   } catch {
     return null;
   }
@@ -21,7 +23,12 @@ async function clientIp(): Promise<string | null> {
 function parseError(body: unknown): ApiError | null {
   const e = (body as { error?: unknown } | null)?.error as Partial<ApiError> | undefined;
   if (!e || typeof e.code !== 'string' || typeof e.message !== 'string') return null;
-  return e.sqlstate ? { code: e.code, message: e.message, sqlstate: e.sqlstate } : { code: e.code, message: e.message };
+  return {
+    code: e.code,
+    message: e.message,
+    ...(e.sqlstate ? { sqlstate: e.sqlstate } : {}),
+    ...(typeof e.field === 'string' ? { field: e.field } : {}),
+  };
 }
 
 export async function apiFetch<T>(

@@ -13,6 +13,7 @@ import {
 import StatusBadge from '@/components/admin/StatusBadge';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import { getQuizQuestionsForLesson } from '@/lib/supabase/admin-queries';
+import { NO_CORRECT_LABEL, QUIZ_HIDDEN_NOTICE, countHiddenQuestions, hasCorrectOption } from '@/lib/quiz-admin';
 import { getLessonById } from '@/lib/supabase/classroom-queries';
 
 export const metadata: Metadata = { title: '퀴즈 관리 | 관리자' };
@@ -28,7 +29,7 @@ const SUCCESS_MESSAGE: Record<string, string> = {
 };
 
 const ERROR_MESSAGE: Record<string, string> = {
-  validation: '내용을 입력해주세요.',
+  validation: '내용을 입력해 주세요.',
   failed: '처리 중 문제가 발생했어요.',
 };
 
@@ -56,6 +57,13 @@ export default async function AdminLessonQuizPage({
         <h1 className="text-[20px] font-semibold text-n-9">퀴즈 관리 — {lesson.title}</h1>
       </div>
 
+      <p className="text-[12.5px] text-n-6">{QUIZ_HIDDEN_NOTICE}</p>
+      {countHiddenQuestions(questions) > 0 && (
+        <div className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger" role="status">
+          정답이 없는 문항이 {countHiddenQuestions(questions)}개 있어요. 보기 하나를 정답으로 지정해야 학습자에게 보여요.
+        </div>
+      )}
+
       {success && SUCCESS_MESSAGE[success] && (
         <div className="rounded-md border border-success bg-success/10 px-3.5 py-3 text-[13px] font-medium text-success">
           {SUCCESS_MESSAGE[success]}
@@ -72,7 +80,12 @@ export default async function AdminLessonQuizPage({
       ) : (
         <ul className="flex flex-col gap-4">
           {questions.map((q, index) => (
-            <li key={q.id} className="rounded-lg border border-n-3 p-4">
+            <li key={q.id} className={`rounded-lg border p-4 ${hasCorrectOption(q) ? 'border-n-3' : 'border-danger'}`}>
+              {!hasCorrectOption(q) && (
+                <div className="mb-2">
+                  <StatusBadge tone="danger">{NO_CORRECT_LABEL}</StatusBadge>
+                </div>
+              )}
               <div className="flex items-start gap-2">
                 <span className="mt-2 text-[12px] text-n-5">{index + 1}.</span>
                 <form action={updateQuestion.bind(null, q.id, lessonId, courseId)} className="flex flex-1 items-center gap-2">

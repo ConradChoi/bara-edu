@@ -1,4 +1,4 @@
-export type MailMessage = { to: string; template: 'confirm' | 'recovery'; link: string };
+export type MailMessage = { to: string; template: 'confirm' | 'recovery' | 'already_registered'; link: string };
 
 export interface Mailer {
   send(msg: MailMessage): Promise<void>;

@@ -224,6 +224,7 @@ export interface SiteConfig {
   businessRegistrationNumber: string;
   mailOrderLicenseNumber: string;
   phone: string;
+  supportHours: string;
   email: string;
   address: string;
   kakaoUrl?: string;

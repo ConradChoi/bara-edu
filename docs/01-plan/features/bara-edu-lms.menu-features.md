@@ -97,7 +97,7 @@ graph TD
 
 | ID | 메뉴/화면 | 기능명 | 설명 | 우선순위 | 관련 데이터 |
 |---|---|---|---|:---:|---|
-| F-AUTH-1 | 회원가입 | 이메일/비밀번호 가입 | 이메일 인증 필수(2026-08-17부터, Q1 변경). 인증 전에는 세션 없음 → "이메일을 확인해주세요" 안내, 인증 메일 링크(`/auth/confirm?token=`) 클릭 시 세션 발급 후 `/my?welcome=1`로 이동(링크가 무효·만료면 `/sign-in?confirmError=1`). 메일은 Amazon SES 발송 (2026-11-23 서버 이전 반영) | Must | bara-edu API(`/v1/auth/signup`·`verify-email`), `profiles` |
+| F-AUTH-1 | 회원가입 | 이메일/비밀번호 가입 | 이메일 인증 필수(2026-08-17부터, Q1 변경). 인증 전에는 세션 없음 → "이메일을 확인해주세요" 안내, 인증 메일 링크(`/auth/confirm?token=`) 클릭 시 세션 발급 후 `/my?welcome=1`로 이동(링크가 무효·만료면 `/sign-in?confirmError=1`). 메일은 Amazon SES 발송 (2026-11-23 서버 이전 반영). 이메일 열거 방지(2026-11-25): 가입 응답·화면은 신규/이미 가입/미인증 모두 같다("안내 메일을 보냈어요"). 이미 인증한 계정에는 안내 메일(로그인 링크·문의 전화·운영시간), 미인증 계정에는 인증 메일을 다시 보낸다(재전송과 같은 60초 제한), 이때 비밀번호·이름·연락처는 새 입력값으로 바뀌고 이전 인증 링크는 무효가 된다("마지막 가입자가 이긴다" 구조 — 남이 먼저 가입해 둔 계정을 본인이 덮어쓸 수 있지만 반대도 가능하다. 근본 해결인 인증 시 비밀번호 재확인은 다음 배포). 이미 가입된 계정 안내 메일은 같은 주소에 24시간 1통 인증 전 로그인은 "이메일 인증이 아직 끝나지 않았어요" 별도 안내 | Must | bara-edu API(`/v1/auth/signup`·`verify-email`), `profiles` |
 | F-AUTH-2 | 로그인 | 이메일/비밀번호 로그인 | 세션 발급, 원래 목적지로 복귀. 인증 전 계정으로 로그인하면 인증 안내와 **인증 메일 재발송 폼**을 보여준다 (2026-11-23 서버 이전 반영) | Must | bara-edu API(`/v1/auth/login`·`resend`) |
 | F-AUTH-3 | 공통 | 세션 만료 처리 | 보호 페이지 접근 시 로그인으로 리다이렉트 후 복귀. 세션은 httpOnly 쿠키(`bara_session`, 발급 후 30일) (2026-11-23 서버 이전 반영) | Must | bara-edu API(`/v1/auth/session`) |
 | F-AUTH-4 | 비밀번호 재설정 | 메일 링크로 새 비밀번호 설정 | 관리자가 보낸 재설정 메일(F-ADMM-6)의 링크 `/reset-password?token=`에서 새 비밀번호 입력. 링크는 1시간 유효·1회용 (2026-11-23 서버 이전 반영) | Must | bara-edu API(`/v1/auth/reset-password`) |
@@ -200,7 +200,7 @@ graph TD
 | ID | 메뉴/화면 | 기능명 | 설명 | 우선순위 | 관련 데이터 |
 |---|---|---|---|:---:|---|
 | F-ADME-1 | 목록 | 상태별 필터(전체/대기/승인/반려) | | Must | `enrollments` |
-| F-ADME-2 | 승인 처리 | 입금 확인 → 승인 | 확인 다이얼로그, 승인 즉시 강의실 접근 부여 | Must | `enrollments` |
+| F-ADME-2 | 승인 처리 | 입금 확인 → 승인 | 확인 다이얼로그, 승인 즉시 강의실 접근 부여. 정원(승인 건수)이 찼으면 승인하지 않고 "정원이 찼어요. 강좌 정원을 먼저 늘려 주세요." 안내(2026-11-25, 강좌 행 잠금으로 동시 승인도 정원을 넘지 않음). 일괄 승인 기능은 없다 | Must | `enrollments` |
 | F-ADME-3 | 반려 처리 | 사유 입력 필수 | 학습자에게 사유 노출 | Must | `enrollments` |
 | F-ADME-4 | 동시성 처리 | 중복 처리 방지 | "이미 처리됨" 안내 | Must | `enrollments` |
 
@@ -256,6 +256,19 @@ graph TD
 | 게이팅 정책 | 결과 **요약은 비로그인 공개**, **상세(영역별 점수·Radar·해석·PDF)는 로그인 후** |
 | 주요 비목표 | PBA Radar 연동 · 자격/강사 자격 자동판정 · 임상 진단 표현 · 강사과정 판매 페이지 · 차트 라이브러리 도입 |
 | 선행 게이트 | ~~열린 질문 Q1~Q3 종결~~(2026-09-14 완료) → service-planner/ui-ux-designer 단계 진행 중. 개인정보처리방침 개정(privacy-security-officer)은 구현 단계에서 별도 수행 |
+
+### 2.14 오류 화면 (2026-11-25 구현 — 정의서: [bara-edu-lms.error-pages.md](../../02-design/features/bara-edu-lms.error-pages.md))
+
+| 기능 ID | 화면 | 파일 | 내용 | 우선순위 |
+|---|---|---|---|:---:|
+| F-ERR-1 | 404 | `app/not-found.tsx`, `(public)/(user)/(admin)/not-found.tsx` | HTTP 404·noindex. 홈/강좌 보러가기/전화(번호+운영시간). 강좌 경로는 "없거나 지금은 신청을 받지 않아요" 변형. 추천 카드 없음 | Must |
+| F-ERR-2 | 사용자 오류 | `(public)/error.tsx`, `(user)/error.tsx`, `app/error.tsx` | 다시 시도/홈/전화. 재시도 3회째부터 홈 우선·전화 강조. 신청·시험 경로는 저장 확인 안내. 문의번호 미노출 | Must |
+| F-ERR-3 | 관리자 오류 | `(admin)/error.tsx`, `(admin)/not-found.tsx` | AdminShell 유지. 경로·시각·문의번호(digest) 표시 + 복사. 문의번호는 관리자 화면에만 | Must |
+| F-ERR-4 | 루트 실패 | `app/global-error.tsx` | 인라인 스타일 전용 최소 화면 | Must |
+| F-ERR-5 | 연결 불가 | `app/service-unavailable/page.tsx` + `proxy.ts` | 보호 경로에서 API에 닿지 못하면 rewrite + 503. 세션 쿠키 유지 | Must |
+| F-ERR-6 | 폼 오류 문구 | `app/actions/auth.ts`, `enrollment.ts`, `lib/form-messages.ts` | 429 전용 문구, 400 입력 한도 칸별 안내, 사진 저장 실패 분리, GIF 불가 안내 | Must |
+
+대표 결정(2026-11-25): 문의번호는 관리자 화면에만 · 전화 안내에 운영시간(`siteConfig.supportHours`) 병기 · 한국어만 · 404 추천 카드 없음.
 
 ---
 

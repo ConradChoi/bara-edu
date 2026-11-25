@@ -500,29 +500,3 @@ export async function getCompletedEnrollmentsForUser(userId: string): Promise<Co
     })
     .map((r) => ({ courseId: r.course_id, courseTitle: r.courses?.title ?? '(알 수 없음)', courseSlug: r.courses?.slug ?? '' }));
 }
-
-// Q12 강화판(회원탈퇴 차단 조건): 예전에는 approved 신청을 전부 "진행 중"으로 간주해,
-// 강좌를 끝까지 수료(진도 100%)한 학습자도 영원히 탈퇴할 수 없는 문제가 있었다
-// (qa-reviewer 점검, 2026-08-09 — module-lms-4는 module-lms-5의 "완료" 개념이 생기기
-// 전에 작성된 로직이었다). approved 건은 진도가 아직 100%가 아닐 때만 탈퇴를 막도록
-// 강화한다. 순환 참조를 피하기 위해 queries.ts를 고치는 대신 이 파일(진도 데이터를
-// 이미 다루는 곳)에 새 함수로 둔다.
-export async function hasIncompleteApprovedEnrollment(userId: string): Promise<boolean> {
-  const supabase = await createClient();
-  const nowIso = new Date().toISOString();
-  const { data, error } = await supabase
-    .from('enrollments')
-    .select('course_id, status')
-    .eq('user_id', userId)
-    .or(`status.eq.approved,and(status.eq.pending,payment_due_at.gte.${nowIso})`);
-  if (error) throw new Error(error.message);
-
-  const rows = data as { course_id: string; status: string }[];
-  if (rows.some((r) => r.status === 'pending')) return true;
-
-  const approvedCourseIds = rows.filter((r) => r.status === 'approved').map((r) => r.course_id);
-  if (approvedCourseIds.length === 0) return false;
-
-  const stats = await getProgressStatsForCourses(userId, approvedCourseIds);
-  return approvedCourseIds.some((id) => stats[id].totalLessons === 0 || stats[id].completedLessons < stats[id].totalLessons);
-}

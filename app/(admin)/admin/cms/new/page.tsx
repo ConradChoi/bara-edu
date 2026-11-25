@@ -4,7 +4,7 @@ import { createLegalDocument } from '@/app/actions/admin-cms';
 export const metadata: Metadata = { title: '새 문서 추가 | 관리자' };
 
 const ERROR_MESSAGE: Record<string, string> = {
-  validation: '필수 항목을 확인해주세요.',
+  validation: '필수 항목을 확인해 주세요.',
   'slug-taken': '이미 사용 중인 slug + 버전 조합이에요.',
   failed: '처리 중 문제가 발생했어요.',
 };

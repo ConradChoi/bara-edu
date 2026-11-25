@@ -34,7 +34,7 @@ const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 
 test('apiFetch가 키·세션·클라이언트 IP 헤더를 붙인다', async () => {
-  headerValues['x-forwarded-for'] = ' 203.0.113.7 , 10.0.0.1';
+  headerValues['x-forwarded-for'] = '6.6.6.6, 203.0.113.7 , 130.176.1.1';
   fetchMock.mockResolvedValue(json(200, { hello: 1 }));
   const r = await apiFetch<{ hello: number }>('/v1/x', { method: 'POST', body: { a: 1 }, session: 'tok' });
   expect(r).toEqual({ ok: true, data: { hello: 1 } });
@@ -60,6 +60,14 @@ test('세션·IP가 없으면 해당 헤더를 보내지 않는다 (headers() �
   expect(fetchMock.mock.calls[1][1].headers['x-bara-client-ip']).toBeUndefined();
 });
 
+test('위조된 XFF 맨 앞 값은 무시하고 cloudfront-viewer-address를 우선한다', async () => {
+  headerValues['x-forwarded-for'] = '6.6.6.6, 203.0.113.9, 130.176.1.1';
+  headerValues['cloudfront-viewer-address'] = '203.0.113.7:4444';
+  fetchMock.mockResolvedValue(json(200, {}));
+  await apiFetch('/v1/x', {});
+  expect(fetchMock.mock.calls[0][1].headers['x-bara-client-ip']).toBe('203.0.113.7');
+});
+
 test('clientIp를 넘기면 headers()를 쓰지 않고 그 값을 보낸다 (null이면 생략)', async () => {
   headersThrows = true;
   fetchMock.mockResolvedValue(json(200, {}));
@@ -75,6 +83,15 @@ test('API 오류 응답 → ok:false + error 그대로', async () => {
   const error = { code: 'db_error', message: 'dup', sqlstate: '23505' };
   fetchMock.mockResolvedValue(json(400, { error }));
   expect(await apiFetch('/v1/x', {})).toEqual({ ok: false, status: 400, error });
+});
+
+test('400 validation의 field는 error에 그대로 실린다 (없으면 키도 없다)', async () => {
+  const error = { code: 'validation', message: 'x', field: 'email' };
+  fetchMock.mockResolvedValueOnce(json(400, { error }));
+  expect(await apiFetch('/v1/x', {})).toEqual({ ok: false, status: 400, error });
+  fetchMock.mockResolvedValueOnce(json(400, { error: { code: 'validation', message: 'x' } }));
+  const r = await apiFetch('/v1/x', {});
+  expect(r.ok === false && 'field' in r.error).toBe(false);
 });
 
 test('JSON이 아니거나 모양이 틀린 오류 본문 → internal', async () => {

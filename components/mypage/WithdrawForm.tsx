@@ -26,7 +26,7 @@ export default function WithdrawForm({ action }: { action: (formData: FormData) 
           className="h-10 rounded-md border border-n-3 bg-n-1 px-2.5 text-[13px] text-n-9 outline-none focus:border-pink"
         >
           <option value="" disabled>
-            선택해주세요
+            선택해 주세요
           </option>
           {WITHDRAWAL_REASONS.map((r) => (
             <option key={r.key} value={r.key}>

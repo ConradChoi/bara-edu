@@ -117,23 +117,21 @@ DB 연결 풀: 연결 대기 5초 제한, 유휴 연결이 끊기면 고정 문�
 | POST | `/v1/auth/change-password` | 비밀번호 변경(세션 필요) |
 | POST | `/v1/auth/request-reset` | 비밀번호 재설정 메일 요청 |
 | POST | `/v1/auth/reset-password` | 비밀번호 재설정 |
-| POST | `/v1/auth/withdraw-anonymize` | 탈퇴 익명화(세션 필요, 세션은 폐기하지 않음) |
+| POST | `/v1/account/withdraw` | 회원 탈퇴(세션 필요, 한 트랜잭션) |
 | GET | `/v1/auth/session` | 현재 세션의 사용자·프로필(세션 필요) |
 | POST | `/v1/admin/users/:id/confirm-email` | 관리자: 이메일 인증 처리 |
 | POST | `/v1/admin/users/:id/send-reset` | 관리자: 재설정 메일 발송 |
 | GET | `/v1/admin/users/confirmations` | 관리자: 인증 대기 목록 |
 | POST | `/v1/op/:name` | 오퍼레이션 실행 |
 
-## 회원 탈퇴 순서
+## 회원 탈퇴
 
-앱 서버(`app/actions/account.ts`)는 반드시 아래 순서로 호출한다(R17). 정리를 먼저 해야 실패해도 계정이 살아 있어 재시도할 수 있고, 세션 폐기를 마지막에 해야 3단계에서 본인 권한(RLS)으로 profiles를 갱신할 수 있다.
+`POST /v1/account/withdraw` 한 번으로 끝난다(R24). 본문 `{ "reason": "<key>", "detail": "<선택, 1000자 이하>" }`.
 
-1. `POST /v1/op/account.withdrawCleanup` — 학습 이력(`progress`·퀴즈·과제·시험 제출·응시 초기화)과 `diagnosis_leads`를 지우고 `diagnosis_results`의 개인 정보를 비운다. 멱등. 실패하면 중단(`?withdrawError=failed`).
-2. `POST /v1/auth/withdraw-anonymize` — 이메일을 `withdrawn+<id>@deleted.invalid`로 바꾸고 비밀번호를 임의 값으로, 메타데이터를 비우고, 남은 이메일 토큰을 무효화한다(한 트랜잭션). 세션은 그대로 둔다. 실패하면 중단.
-3. 같은 세션으로 profiles를 탈퇴 상태로 갱신한다(이름·전화·주소·사진 경로 비움, 이메일은 2와 같은 값). 실패하면 중단.
-4. 사진 삭제 — 키는 항상 `<uid>/photo`. 실패해도 탈퇴는 계속한다.
-5. `POST /v1/auth/logout-all` — 그 회원의 모든 세션(현재 세션 포함)을 폐기한다. 실패해도 계속한다(이미 익명화됨).
-6. 브라우저 세션 쿠키를 지운다.
+- 한 DB 트랜잭션에서: 진행 중 수강 확인 -> 학습 이력 파기·진단 PII 비움 -> `auth.users` 익명화(이메일 `withdrawn+<id>@deleted.invalid`, 임의 비밀번호, 메타데이터 비움, 이메일 토큰 무효화) -> `profiles` 탈퇴 처리 -> 모든 세션 삭제. 어느 단계든 실패하면 전부 롤백된다.
+- 사진(`<uid>/photo`) 삭제는 커밋 뒤에 한다. 실패하면 로그만 남기고 탈퇴는 성공으로 응답한다.
+- 응답: `200 { "ok": true }`, `400 validation`, `401 unauthenticated`, `409 conflict`(message `active_enrollment` — 입금 대기 또는 미수료 승인 강좌가 있음), `404 not_found`.
+- 응답 후 세션은 이미 삭제되어 있다. 앱은 쿠키만 지우면 된다.
 
 ## 오퍼레이션
 

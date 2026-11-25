@@ -7,7 +7,7 @@ import { getAdminLegalDocumentGroups } from '@/lib/supabase/admin-queries';
 export const metadata: Metadata = { title: '약관·정책 CMS | 관리자' };
 
 const ERROR_MESSAGE: Record<string, string> = {
-  validation: '필수 항목을 확인해주세요.',
+  validation: '필수 항목을 확인해 주세요.',
   failed: '처리 중 문제가 발생했어요.',
 };
 

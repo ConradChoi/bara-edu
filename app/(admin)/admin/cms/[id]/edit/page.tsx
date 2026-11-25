@@ -14,8 +14,8 @@ const SUCCESS_MESSAGE: Record<string, string> = {
 };
 
 const ERROR_MESSAGE: Record<string, string> = {
-  validation: '제목과 본문을 모두 입력해주세요.',
-  failed: '처리에 실패했어요. 잠시 후 다시 시도해주세요.',
+  validation: '제목과 본문을 모두 입력해 주세요.',
+  failed: '처리에 실패했어요. 잠시 후 다시 시도해 주세요.',
 };
 
 export default async function EditLegalDocumentPage({

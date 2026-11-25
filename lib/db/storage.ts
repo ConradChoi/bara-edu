@@ -27,15 +27,6 @@ export async function uploadMemberPhoto(file: File): Promise<{ path: string } | 
   }
 }
 
-export async function removeMemberPhoto(path: string): Promise<boolean> {
-  try {
-    const r = await apiFetch('/v1/storage/member-photos/remove', { method: 'POST', session: await readSession(), body: { path } });
-    return r.ok;
-  } catch {
-    return false;
-  }
-}
-
 export async function memberPhotoSignedUrl(path: string): Promise<string | null> {
   try {
     const r = await apiFetch<{ url: string }>('/v1/storage/member-photos/signed-url', {

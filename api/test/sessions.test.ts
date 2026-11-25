@@ -53,6 +53,7 @@ test('남은 기간이 절반 미만이면 연장된다', async () => {
   await ctx.adminPool.query("update auth.sessions set expires_at = now() + interval '10 days' where user_id = $1", [userId]);
   const found = await resolveSession(ctx.pool, token, 30);
   expect(found!.expiresAt.getTime()).toBeGreaterThan(Date.now() + 29 * DAY);
+  expect(found!.renewed).toBe(true);
   const row = (await ctx.adminPool.query('select expires_at from auth.sessions where user_id = $1', [userId])).rows[0];
   expect(row.expires_at.getTime()).toBeGreaterThan(Date.now() + 29 * DAY);
 });
@@ -63,6 +64,7 @@ test('남은 기간이 절반 이상이면 연장하지 않는다', async () => 
   await ctx.adminPool.query("update auth.sessions set expires_at = now() + interval '20 days' where user_id = $1", [userId]);
   const found = await resolveSession(ctx.pool, token, 30);
   expect(found!.expiresAt.getTime()).toBeLessThan(Date.now() + 21 * DAY);
+  expect(found!.renewed).toBe(false);
 });
 
 test('revokeSession은 해당 토큰만 지운다', async () => {

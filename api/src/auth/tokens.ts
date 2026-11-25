@@ -30,6 +30,13 @@ export async function consumeEmailTokenIn(tx: Tx, token: string, purpose: TokenP
   return r.rowCount === 0 ? null : r.rows[0].user_id;
 }
 
+// 락 순서 규칙: 이메일 토큰 -> 사용자(auth.users) -> profiles.
+// verify-email·reset-password는 토큰을 먼저 갱신한 뒤 사용자를 갱신한다. 사용자 행을 먼저 잠그는 경로(재가입 덮어쓰기, 탈퇴,
+// 비밀번호 변경)는 시작할 때 이 함수로 그 회원의 토큰 행부터 잠가 같은 순서를 지킨다(AB-BA 데드락 방지).
+export async function lockUserTokensIn(tx: Tx, userId: string): Promise<void> {
+  await tx.query('select 1 from auth.email_tokens where user_id = $1 order by token_hash for update', [userId]);
+}
+
 export async function invalidateEmailTokensIn(tx: Tx, userId: string, purpose?: TokenPurpose): Promise<void> {
   await tx.query(
     'update auth.email_tokens set used_at = now() where user_id = $1 and used_at is null and ($2::text is null or purpose = $2)',

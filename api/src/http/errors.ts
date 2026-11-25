@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 
-export type ErrorCode = 'unauthorized_service' | 'unauthenticated' | 'forbidden' | 'validation' | 'rate_limited' | 'not_found' | 'internal';
+export type ErrorCode = 'unauthorized_service' | 'unauthenticated' | 'forbidden' | 'validation' | 'rate_limited' | 'not_found' | 'conflict' | 'internal';
 
 const STATUS: Record<ErrorCode, number> = {
   unauthorized_service: 401,
@@ -9,11 +9,13 @@ const STATUS: Record<ErrorCode, number> = {
   validation: 400,
   rate_limited: 429,
   not_found: 404,
+  conflict: 409,
   internal: 500,
 };
 
-export function sendError(reply: FastifyReply, code: ErrorCode, message: string): FastifyReply {
-  return reply.code(STATUS[code]).send({ error: { code, message } });
+// `field`는 400 validation에서 문제가 된 입력 칸의 이름이다(앱이 칸별 안내에 쓴다). 없으면 응답에 넣지 않는다.
+export function sendError(reply: FastifyReply, code: ErrorCode, message: string, field?: string): FastifyReply {
+  return reply.code(STATUS[code]).send({ error: field ? { code, message, field } : { code, message } });
 }
 
 export function registerErrorHandlers(app: FastifyInstance): void {

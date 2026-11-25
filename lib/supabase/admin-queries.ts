@@ -8,6 +8,7 @@ import { headers } from 'next/headers';
 import { getKstStartOfDaysAgoIso, getKstStartOfTodayIso, getKstStartOfWeekIso, formatKstWeekRangeLabel, toKstDateKey } from '@/lib/kst';
 import { verifyRevealToken } from '@/lib/supabase/admin-pii-reveal';
 import { requireAdminClient } from '@/lib/supabase/require-admin';
+import { clientIpFrom } from '@/lib/db/client-ip';
 import { createClient } from '@/lib/db/server';
 import { listEmailConfirmations } from '@/lib/db/auth';
 import { memberPhotoSignedUrl } from '@/lib/db/storage';
@@ -927,7 +928,7 @@ export async function logAdminAccess(
     if (!user) return false;
 
     const h = await headers();
-    const ip = h.get('x-forwarded-for')?.split(',')[0]?.trim() || h.get('x-real-ip') || null;
+    const ip = clientIpFrom((n) => h.get(n));
 
     const { error } = await supabase.from('admin_access_logs').insert({
       admin_id: user.id,

@@ -24,11 +24,11 @@ const SUCCESS_MESSAGE: Record<string, string> = {
 };
 
 const ERROR_MESSAGE: Record<string, string> = {
-  'name-required': '이름을 입력해주세요.',
+  'name-required': '이름을 입력해 주세요.',
   'depth-exceeded': '3Depth를 초과하는 하위 카테고리는 만들 수 없어요.',
-  'has-children': '하위 카테고리가 있어 삭제할 수 없어요. 먼저 하위 카테고리를 정리해주세요.',
-  'has-courses': '이 카테고리를 쓰는 강좌가 있어 삭제할 수 없어요. 대신 비활성화해주세요.',
-  'already-processed': '다른 곳에서 이미 변경됐어요. 새로고침 후 다시 시도해주세요.',
+  'has-children': '하위 카테고리가 있어 삭제할 수 없어요. 먼저 하위 카테고리를 정리해 주세요.',
+  'has-courses': '이 카테고리를 쓰는 강좌가 있어 삭제할 수 없어요. 대신 비활성화해 주세요.',
+  'already-processed': '다른 곳에서 이미 변경됐어요. 새로고침 후 다시 시도해 주세요.',
   failed: '처리 중 문제가 발생했어요.',
 };
 
@@ -164,8 +164,8 @@ function CategoryNode({
             disabled={usage > 0 || children.length > 0}
             disabledReason={
               children.length > 0
-                ? '하위 카테고리가 있어 삭제할 수 없어요. 먼저 하위 카테고리를 정리해주세요.'
-                : `이 카테고리를 쓰는 강좌가 ${usage}건 있어요. 삭제 대신 비활성화해주세요.`
+                ? '하위 카테고리가 있어 삭제할 수 없어요. 먼저 하위 카테고리를 정리해 주세요.'
+                : `이 카테고리를 쓰는 강좌가 ${usage}건 있어요. 삭제 대신 비활성화해 주세요.`
             }
             action={deleteCategory.bind(null, category.id)}
           />

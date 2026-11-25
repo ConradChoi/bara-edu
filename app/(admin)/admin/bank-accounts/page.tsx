@@ -16,7 +16,7 @@ const SUCCESS_MESSAGE: Record<string, string> = {
 };
 
 const ERROR_MESSAGE: Record<string, string> = {
-  validation: '은행명·계좌번호·예금주를 모두 입력해주세요.',
+  validation: '은행명·계좌번호·예금주를 모두 입력해 주세요.',
   'max-reached': '계좌는 최대 3개까지 등록할 수 있어요.',
   failed: '처리 중 문제가 발생했어요.',
 };
