@@ -17,12 +17,16 @@ test('confirm 메일: 제목·받는사람·발신·링크, HTML과 텍스트 �
   expect(input.FromEmailAddress).toBe(FROM);
   expect(input.Destination?.ToAddresses).toEqual(['a@bara-edu.kr']);
   const simple = input.Content!.Simple!;
-  expect(simple.Subject?.Data).toBe('[바라 평생교육원] 이메일 인증을 완료해 주세요');
-  expect(simple.Body?.Text?.Data).toContain('아래 링크를 눌러 이메일 인증을 완료해 주세요. 링크는 24시간 동안 유효해요.')
-  expect(simple.Body?.Text?.Data).toContain('본인이 가입을 요청하지 않았다면 이 메일을 무시해 주세요.')
-  expect(simple.Body?.Text?.Data).toContain('안녕하세요. 바라 평생교육원이에요.');
-  expect(simple.Body?.Text?.Data).toContain('https://bara-edu.kr/auth/confirm?token=abc');
-  expect(simple.Body?.Html?.Data).toContain('링크는 24시간 동안 유효해요.');
+  expect(simple.Subject?.Data).toBe('[바라 평생교육원] 가입을 마무리해 주세요');
+  const text = simple.Body?.Text?.Data ?? '';
+  expect(text).toContain('안녕하세요. 바라 평생교육원이에요.');
+  // 링크를 열면 비밀번호를 입력해야 가입이 끝난다는 안내, 24시간(= auth.email_tokens confirm 만료, auth-signup.test.ts가 DB 값 확인)
+  expect(text).toContain('아래 링크를 열고, 가입할 때 정한 비밀번호를 입력해 주세요. 그러면 가입이 끝나요. 링크는 24시간 동안 쓸 수 있어요.');
+  expect(text).toContain('본인이 가입을 요청하지 않았다면 이 메일을 무시해 주세요. 아무것도 바뀌지 않아요.');
+  expect(text).toContain('링크가 열리지 않으면 주소를 복사해 인터넷 창에 붙여 넣어 주세요.');
+  expect(text.indexOf('https://bara-edu.kr/auth/confirm?token=abc')).toBeGreaterThan(text.indexOf('비밀번호를 입력해 주세요'));
+  expect(text).not.toContain('이메일 인증');
+  expect(simple.Body?.Html?.Data).toContain('링크는 24시간 동안 쓸 수 있어요.');
   expect(simple.Body?.Html?.Data).toContain('href="https://bara-edu.kr/auth/confirm?token=abc"');
 });
 

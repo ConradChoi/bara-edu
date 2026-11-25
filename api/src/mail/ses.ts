@@ -9,10 +9,14 @@ const GREETING = '안녕하세요. 바라 평생교육원이에요.';
 const SIGNATURE = '바라 평생교육원';
 
 const TEMPLATES: Record<MailMessage['template'], Template> = {
+  // 문구: docs/02-design/features/bara-edu-lms.signup-verify-password-copy.md 3장. "24시간"은 tokens.ts의 confirm 토큰 만료와 같아야 한다(ses.test.ts가 확인).
   confirm: {
-    subject: '[바라 평생교육원] 이메일 인증을 완료해 주세요',
-    intro: ['아래 링크를 눌러 이메일 인증을 완료해 주세요. 링크는 24시간 동안 유효해요.', '본인이 가입을 요청하지 않았다면 이 메일을 무시해 주세요.'],
-    after: [],
+    subject: '[바라 평생교육원] 가입을 마무리해 주세요',
+    intro: [
+      '아래 링크를 열고, 가입할 때 정한 비밀번호를 입력해 주세요. 그러면 가입이 끝나요. 링크는 24시간 동안 쓸 수 있어요.',
+      '본인이 가입을 요청하지 않았다면 이 메일을 무시해 주세요. 아무것도 바뀌지 않아요.',
+    ],
+    after: ['링크가 열리지 않으면 주소를 복사해 인터넷 창에 붙여 넣어 주세요.'],
     closing: [],
   },
   recovery: {
