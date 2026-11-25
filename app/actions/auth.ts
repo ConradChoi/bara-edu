@@ -12,20 +12,26 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // ?redirect= 값을 검증 없이 그대로 redirect()에 넘기면 오픈 리다이렉트(CWE-601)로
 // 피싱에 악용될 수 있다(security-officer 점검, 2026-08-06). 사이트 내부 상대경로만 허용한다.
+//
+// 브라우저(WHATWG URL 파서)는 URL 안의 탭·개행을 지우고 `\`를 `/`로 취급한다 — "/\t/evil.com"은
+// "//evil.com"(프로토콜 상대 URL)이 되고 "/\evil.com"도 마찬가지다. 그래서 제어문자(C0·DEL·C1)와
+// 공백(유니코드 공백 포함), 역슬래시가 하나라도 있으면 통째로 거부한다. 마지막으로 실제 URL 파서로
+// 같은 출처인지 한 번 더 확인한다.
+const UNSAFE_REDIRECT_CHARS = /[\u0000-\u001f\u007f-\u009f\s\\]/;
+const FALLBACK_REDIRECT = '/my';
+const MAX_REDIRECT_LENGTH = 2048;
+
 function safeRedirect(path: string | null): string {
-  // WHATWG URL 파서는 `\`를 `/`와 동일하게 취급해 "/\evil.com"이 "//evil.com"(프로토콜
-  // 상대 경로)으로 해석될 수 있다 — `//`, `://` 검사만으로는 막히지 않아 `\`도 함께 차단한다.
-  if (
-    path &&
-    path.startsWith('/') &&
-    !path.startsWith('//') &&
-    !path.startsWith('/\\') &&
-    !path.includes('://') &&
-    !path.includes('\\')
-  ) {
-    return path;
+  if (!path || path.length > MAX_REDIRECT_LENGTH) return FALLBACK_REDIRECT;
+  if (UNSAFE_REDIRECT_CHARS.test(path)) return FALLBACK_REDIRECT;
+  if (!path.startsWith('/') || path.startsWith('//') || path.includes('://')) return FALLBACK_REDIRECT;
+  try {
+    const base = 'http://redirect-check.invalid';
+    if (new URL(path, base).origin !== base) return FALLBACK_REDIRECT;
+  } catch {
+    return FALLBACK_REDIRECT;
   }
-  return '/my';
+  return path;
 }
 
 export async function signup(

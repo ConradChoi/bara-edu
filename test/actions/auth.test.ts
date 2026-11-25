@@ -137,13 +137,37 @@ test('resetPassword 액션: 토큰이 없으면 API를 부르지 않고 만료 �
   expect(fetchMock).not.toHaveBeenCalled();
 });
 
-// 알려진 버그(수정하지 않고 보고만 함): safeRedirect가 탭·개행을 걸러 내지 않는다.
-// 브라우저는 URL의 탭/개행을 지우므로 "/\t/evil.com"은 "//evil.com"(프로토콜 상대 URL)로 해석될 수 있다.
-// 고쳐지면 이 테스트가 (fails 기대 때문에) 실패하니 test.fails를 test로 바꿔 주세요.
-test.fails('login: 탭·개행이 섞인 ?redirect= 도 /my로 막아야 한다 (현재는 그대로 통과 — 오픈 리다이렉트)', async () => {
-  for (const bad of ['/\t/evil.com', '/\n/evil.com']) {
+// 브라우저는 URL의 탭·개행을 지우고 \를 /로 취급하므로 "/\t/evil.com"은 "//evil.com"이 된다.
+test('login: 탭·개행·제어문자·공백·역슬래시가 섞인 ?redirect= 는 /my로 막는다 (오픈 리다이렉트)', async () => {
+  const bad = [
+    '/\t/evil.com',
+    '/\n/evil.com',
+    '/\r/evil.com',
+    '/\r\n/evil.com',
+    '/\u0000/evil.com',
+    '/\u007f/evil.com',
+    '/\u0085/evil.com',
+    '/\u2028/evil.com',
+    '/\u00a0/evil.com',
+    '/ /evil.com',
+    ' //evil.com',
+    '\t//evil.com',
+    '/a b',
+    '/a\tb',
+    '/\\evil.com',
+    '/'.padEnd(3000, 'a'),
+  ];
+  for (const b of bad) {
     fetchMock.mockResolvedValueOnce(json(200, { sessionToken: 't', expiresAt: '2026-12-21T00:00:00.000Z', userId: 'u1' }));
-    const r = await actions.login(undefined, form({ email: 'a@b.kr', password: 'pw', redirect: bad })).then(() => 'none', (e: Error) => e.message);
-    expect(r).toBe('REDIRECT:/my');
+    const r = await actions.login(undefined, form({ email: 'a@b.kr', password: 'pw', redirect: b })).then(() => 'none', (e: Error) => e.message);
+    expect(r, JSON.stringify(b)).toBe('REDIRECT:/my');
+  }
+});
+
+test('login: 정상적인 내부 경로는 그대로 따른다 (쿼리·해시·인코딩 포함)', async () => {
+  for (const ok of ['/', '/my', '/learn/c1/lessons/l1?x=1&y=2', '/courses/a-b/apply#top', '/courses/%ED%95%9C%EA%B8%80']) {
+    fetchMock.mockResolvedValueOnce(json(200, { sessionToken: 't', expiresAt: '2026-12-21T00:00:00.000Z', userId: 'u1' }));
+    const r = await actions.login(undefined, form({ email: 'a@b.kr', password: 'pw', redirect: ok })).then(() => 'none', (e: Error) => e.message);
+    expect(r, ok).toBe(`REDIRECT:${ok}`);
   }
 });
