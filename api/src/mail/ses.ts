@@ -9,6 +9,13 @@ const GREETING = '안녕하세요. 바라 평생교육원이에요.';
 const SIGNATURE = '바라 평생교육원';
 
 const TEMPLATES: Record<MailMessage['template'], Template> = {
+  // 문구: docs/02-design/features/bara-edu-lms.admin-profile-edit.md 10장. {fields}·{at}는 보낼 때 채운다. 바뀐 값은 싣지 않는다. 링크는 로그인 화면.
+  profile_changed: {
+    subject: '[바라 평생교육원] 회원 정보가 수정됐어요',
+    intro: ['회원님의 정보({fields})가 {at}에 수정됐어요.', '바뀐 내용은 보안을 위해 메일에 적지 않아요.'],
+    after: ['본인이 요청하지 않았다면 아래 연락처로 바로 연락해 주세요.'],
+    closing: [],
+  },
   // 문구: docs/02-design/features/bara-edu-lms.signup-verify-password-copy.md 3장. "24시간"은 tokens.ts의 confirm 토큰 만료와 같아야 한다(ses.test.ts가 확인).
   confirm: {
     subject: '[바라 평생교육원] 가입을 마무리해 주세요',
@@ -33,6 +40,10 @@ const TEMPLATES: Record<MailMessage['template'], Template> = {
   },
 };
 
+const FIELD_LABEL = { name: '이름', phone: '연락처' } as const;
+const fill = (line: string, msg: MailMessage) =>
+  line.replace('{fields}', (msg.fields ?? ['name', 'phone']).map((f) => FIELD_LABEL[f]).join(', ')).replace('{at}', msg.at ?? '방금');
+
 const escapeHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
 export type SupportInfo = { phone: string; hours: string };
@@ -45,7 +56,8 @@ export class SesMailer implements Mailer {
   ) {}
 
   async send(msg: MailMessage): Promise<void> {
-    const t = TEMPLATES[msg.template];
+    const tpl = TEMPLATES[msg.template];
+    const t = { ...tpl, intro: tpl.intro.map((l) => fill(l, msg)) };
     const contact = [`전화: ${this.support.phone}`, ...(this.support.hours ? [`운영시간: ${this.support.hours}`] : [])];
     const link = escapeHtml(msg.link);
     const p = (lines: string[]) => lines.map((l) => `<p>${escapeHtml(l)}</p>`).join('');

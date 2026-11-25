@@ -77,3 +77,19 @@ test('운영시간이 비어 있으면 그 줄을 뺀다', async () => {
   expect(body.Text?.Data).not.toContain('운영시간');
   expect(body.Html?.Data).not.toContain('운영시간');
 });
+
+test('profile_changed 메일: 항목명·시각·고객센터 연락처, 값은 없다', async () => {
+  const { sent, client } = fakeClient();
+  await new SesMailer(client, FROM).send({ to: 'f@bara-edu.kr', template: 'profile_changed', link: 'https://bara-edu.kr/sign-in', fields: ['name', 'phone'], at: '2026.11.26 14:12' });
+  const simple = sent[0].Content!.Simple!;
+  expect(simple.Subject?.Data).toBe('[바라 평생교육원] 회원 정보가 수정됐어요');
+  const text = simple.Body?.Text?.Data ?? '';
+  expect(text).toContain('회원님의 정보(이름, 연락처)가 2026.11.26 14:12에 수정됐어요.');
+  expect(text).toContain('바뀐 내용은 보안을 위해 메일에 적지 않아요.');
+  expect(text).toContain('본인이 요청하지 않았다면 아래 연락처로 바로 연락해 주세요.');
+  expect(text).toContain('전화: ');
+  expect(text).not.toContain('{');
+  expect(simple.Body?.Html?.Data).toContain('href="https://bara-edu.kr/sign-in"');
+  await new SesMailer(client, FROM).send({ to: 'f@bara-edu.kr', template: 'profile_changed', link: 'https://bara-edu.kr/sign-in', fields: ['phone'], at: 'x' });
+  expect(sent[1].Content!.Simple!.Body?.Text?.Data).toContain('정보(연락처)가');
+});
