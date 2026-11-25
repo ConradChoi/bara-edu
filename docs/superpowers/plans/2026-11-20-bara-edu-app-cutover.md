@@ -519,14 +519,17 @@ test('이메일 미인증 계정도 그대로 이관(email_confirmed_at null)', 
     - Amplify 콘솔의 `SUPABASE_*`·`NEXT_PUBLIC_SUPABASE_*` 변수 삭제, 빌드 캐시 비우기.
     - (리허설 당일) 스테이징 DB와 S3 리허설 복사본은 리허설한 날 바로 삭제하고 기록한다 — 12/1까지 두지 않는다.
 
-**전환 후 1주 안에 할 일(R24)**
+**전환 후 1주 안에 할 일(R24)** — 백엔드 항목 B1~B5는 2026-11-25 `feat/r24-followups`에서 구현(아직 머지·배포 전, qa-reviewer 리뷰 후 배포)
 
-- 신뢰할 클라이언트 IP: `CloudFront-Viewer-Address` 또는 `x-forwarded-for`의 가장 오른쪽 값을 쓰는 헬퍼 하나를 만들어 `lib/db/api.ts`·`proxy.ts`·`admin-queries.ts`가 함께 쓴다(지금은 첫 값이라 위조 가능, R11).
-- 회원가입 이메일 존재 여부 노출(열거) 대응.
-- 탈퇴를 API의 단일 트랜잭션 오퍼레이션으로.
-- 세션 쿠키 만료를 슬라이딩으로(지금은 발급 후 30일 고정).
-- 오류 화면(503 등): service-planner → ui-ux-designer 스펙 먼저.
-- ux-writer 문구 정리.
-- QA 보고서의 테스트 공백.
+- [x] **신뢰할 클라이언트 IP(B1)**: `lib/db/client-ip.ts`의 `clientIpFrom(get)` 하나를 `lib/db/api.ts`·`proxy.ts`·`lib/supabase/admin-queries.ts`(logAdminAccess, 실제로 쓰이는 경로)가 함께 쓴다. 규칙은 운영 실측(2026-11-25, `?ipdiag=1` 로그)으로 정했다.
+  - 실측: `x-forwarded-for` = `<위조 가능한 값...>, <실제 클라이언트>, <CloudFront 엣지 IP>`, `cloudfront-viewer-address` = `<클라이언트 IP>:<포트>`.
+  - **"가장 오른쪽 값"은 틀렸다**(그 값은 엣지 IP). 1순위 `cloudfront-viewer-address`(마지막 `:` 뒤 포트를 자름, IPv6·대괄호 형태 포함), 2순위 `x-forwarded-for`의 **끝에서 두 번째** 값(값이 하나뿐이면 그 값, 로컬 개발), 둘 다 없으면 null. 뽑은 값이 IP 모양이 아니면 버린다. `x-real-ip`는 더 이상 쓰지 않는다.
+  - `proxy.ts`의 `?ipdiag=1` 임시 진단 로그는 삭제했다.
+- [x] **가입 이메일 열거 방지(B2)**: `/v1/auth/signup`은 신규·이미 인증·미인증 모두 `{status:'pending_confirmation'}`. 메일만 달라진다(신규·미인증=인증 메일, 인증 완료=`already_registered` 안내 메일 `{origin}/sign-in`). 미인증 재가입은 `/v1/auth/resend`와 같은 60초·1시간 제한, 인증 완료 계정 안내 메일도 60초 1통·1시간 4통. 탈퇴(익명화) 계정의 예전 주소는 비어 있어 새 가입으로 처리되고, 익명화 주소(`@deleted.invalid`)로 가입을 시도하면 같은 응답을 주되 메일은 보내지 않는다. 메일 제목 접두는 `[바라 평생교육원]`, 안내 메일에 문의 전화(`siteConfig.phone`)와 운영시간(`SUPPORT_HOURS`=`siteConfig.supportHours`, 값이 비면 줄 생략). 앱은 `already_registered` 분기를 없애고 문구를 `bara-edu-lms.signup-enumeration-copy.md`대로 바꿨다. 인증 전 로그인(`email_not_confirmed`)은 방법 A(별도 문구, 메일을 새로 보내지 않음).
+- [x] **탈퇴 단일 트랜잭션(B3)**: `POST /v1/account/withdraw`(`{reason, detail?}`) 한 번으로 진행 중 수강 확인 → 학습 이력 파기·진단 PII 비움 → 계정 익명화 → profiles 탈퇴 → 전체 세션 삭제를 한 DB 트랜잭션에서 한다(중간 실패는 전부 롤백). 사진 삭제는 커밋 뒤, 실패는 로그만. 진행 중 수강이면 `409 conflict`(`active_enrollment`). 옛 경로(`/v1/auth/withdraw-anonymize`, `account.withdrawCleanup`, 앱의 여러 번 호출)는 삭제했다.
+- [x] **세션 쿠키 슬라이딩(B4)**: `/v1/auth/session` 응답에 `expiresAt`(슬라이딩이 반영된 값)을 추가하고, `proxy.ts`가 유효한 세션이면 매 요청 같은 옵션(httpOnly, secure(prod), sameSite lax, path /)으로 쿠키 만료를 다시 쓴다(쿠키는 만료일을 읽을 수 없어 "바뀔 때만"은 판단 불가 → 매번).
+- [ ] 오류 화면(503 등): 스펙은 `docs/02-design/features/bara-edu-lms.error-pages.md`, 구현 남음.
+- [ ] ux-writer 문구 정리: 가입·재전송·메일 문구는 B2에서 반영, 나머지는 남음.
+- [~] **테스트 공백(B5)**: 수강신청 액션, `lib/db/storage.ts`, 인증 액션, `/auth/confirm` 라우트, RPC 4종(`submit_quiz_attempt`·`get_quiz_for_lesson`·`claim_diagnosis`·`get_diagnosis_summary`) 테스트 추가. 강의실·시험·관리자 액션은 남음.
 
 대표님이 미리 주셔야 하는 것: 운영 Supabase DB 접속 정보(스키마 대조·이관용), Supabase 서비스 키(사진 이관용). SES 샌드박스 해제 결과(2026-11-20 신청).

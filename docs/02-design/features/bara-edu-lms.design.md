@@ -1492,6 +1492,13 @@ export default function CourseForm({ categories, action, defaultValues, submitLa
 7. Admin 콘솔 (`module-lms-6`)
 8. 통합 QA·보안 점검·배포·**동시 오픈** (`module-lms-7`)
 
+### 6.1 서버 전환 후속(R24) — 클라이언트 IP·가입 응답·탈퇴·세션 쿠키 (2026-11-25)
+
+- **클라이언트 IP**: API의 IP 제한(가입·로그인 등)과 관리자 접속기록(`admin_access_logs.ip_address`)은 앱이 `x-bara-client-ip`로 넘긴 값을 쓴다. 값은 `lib/db/client-ip.ts`의 `clientIpFrom()`이 정한다 — 1순위 `cloudfront-viewer-address`(포트 제거), 2순위 `x-forwarded-for`의 끝에서 두 번째 값(하나뿐이면 그 값), 없으면 null. XFF의 맨 앞 값은 클라이언트가 위조할 수 있고 맨 끝 값은 CloudFront 엣지 IP다(운영 실측).
+- **가입 응답(이메일 열거 방지)**: `/v1/auth/signup`은 가입 여부와 관계없이 같은 응답(`pending_confirmation`)을 준다. 신규·미인증 기존 계정에는 인증 메일, 이미 인증한 계정에는 "이미 가입된 이메일이에요" 안내 메일(로그인 링크 `{origin}/sign-in`)을 보낸다. 화면은 항상 "`{email}`로 안내 메일을 보냈어요" (문구: `bara-edu-lms.signup-enumeration-copy.md`). 메일 본문에는 문의 전화(`siteConfig.phone`)와 운영시간(`siteConfig.supportHours`)이 들어간다.
+- **회원 탈퇴**: 앱은 `POST /v1/account/withdraw` 한 번만 호출한다. API가 한 트랜잭션에서 진행 중 수강 검사(입금 기한이 남은 입금대기, 또는 미수료 승인 강좌 → `409 active_enrollment`), 학습 이력·진단 PII 파기, `auth.users`·`profiles` 익명화, 전체 세션 삭제를 처리한다. 사진(`<uid>/photo`) 삭제는 커밋 뒤이며 실패해도 탈퇴는 성공이다. 거래·수료 기록은 보존한다.
+- **세션 쿠키**: API 세션은 만료까지 남은 기간이 절반 아래가 되면 30일로 연장된다. `proxy.ts`는 `/v1/auth/session` 응답의 `expiresAt`으로 브라우저 쿠키(`bara_session`: httpOnly, secure(prod), sameSite lax, path /)의 만료를 매 요청 갱신해 둘이 어긋나지 않게 한다.
+
 ---
 
 ## Version History
@@ -1502,3 +1509,4 @@ export default function CourseForm({ categories, action, defaultValues, submitLa
 | 1.1 | 2026-08-10 | 4.5절 홈(Home) 화면 설계 추가(bara-edu-lms.home.md 기반) — 히어로/카테고리/강좌/신청방법/브랜드소개·문의(Should)/Footer 전면 재설계, CourseCard·Badge·FilterChip `/courses`→공유 컴포넌트 추출 계획, 접근성(H-M10) 체크리스트. Figma F1~F8은 텍스트 산출물로 갈음(실물 Figma 반영은 후속) | UI/UX Designer |
 | 1.2 | 2026-09-09 | Admin 대시보드에 회원 가입 지표(F-ADM-2~5) 화면 정의 추가 — 카드 그룹 분리(신청·수료 / 회원가입, 미인증 카드는 비클릭), 배치 순서(가입 추이→최근 가입자를 카드 바로 아래로, 2단 배치는 기각), `SignupTrendChart`(라이브러리 없는 flex+인라인 style 막대, 라벨 5일 간격), 인증상태 배지는 `components/admin/StatusBadge.tsx`(success/warning) 재사용, 최근 가입자 행 클릭은 stretched-link 패턴. Error Handling 표에 관련 엣지케이스 4건 추가. Figma 05 Admin 대시보드 페이지 반영은 ui-ux-designer 후속 작업(F7 재검토 필요) | Service Planner |
 | 1.3 | 2026-09-09 | 4.6절 자격시험(Course Exam) 기능 설계 추가(F-ADMCAT-4/F-ADMC-7~9/F-LRN-7~10/F-ADMCE-1·4·5) — 데이터 모델 4테이블+3필드 확장, 카테고리 관리 자격증 플래그 토글, `CourseForm`을 `'use client'`로 전환하고 `CategoryPicker`에 `onLevel1Change` 콜백을 추가해 카테고리 실시간 연동(시험 설정 3필드는 CourseForm에 위치), 시험 문제 저작 화면(`/admin/courses/[id]/exam`, 퀴즈 저작 패턴 재사용+순서변경 추가), `CurriculumSidebar` 자격시험 섹션을 교재 섹션 다음 맨 아래 배치, `/learn/[courseId]/exam` 5개 상태(LOCKED/NOT_READY/AVAILABLE/PASSED/EXHAUSTED) 문구·CTA 정의, 수료증 발급 게이팅에 시험 합격 조건 추가, `/admin/certificates`에 "수료 보류 학습자"·"시험 응시 현황" 2섹션 신규(신규 라우트 없음). Error Handling 표에 엣지케이스 8건 추가. 열린 질문 6건(사이드바 잠금 클릭 가능 여부, Lock 아이콘 필요 여부, 리셋 사유 폼 형태, 보기 개수 고정 여부, flows.md 동기화 등)은 PO/ui-ux-designer/developer 확인 필요 | Service Planner |
+| 1.4 | 2026-11-25 | 6.1절 추가 — R24 서버 전환 후속(클라이언트 IP 규칙, 가입 응답 통일, 탈퇴 단일 트랜잭션 API, 세션 쿠키 슬라이딩) | AI Team |
