@@ -34,7 +34,7 @@ describe('validateForm', () => {
     expect(validateForm(filled({ memo: '010 1234 5678' }), base).errors.memo).toBe(MSG.memoPii);
     expect(validateForm(filled({ memo: 'a@b.kr 입니다' }), base).errors.memo).toBe(MSG.memoPii);
     expect(validateForm(filled({ memo: '01012345678' }), base).errors.memo).toBe(MSG.memoPii);
-    for (const memo of ['900101-1234567', '+82 10-1234-5678', '10-1234-5678', '０１０-１２３４-５６７８', '0 1 0 1 2 3 4 5 6 7 8', '110-123-456789', 'abc @ naver.com']) {
+    for (const memo of ['900101-1234567', '+82 10-1234-5678', '10-1234-5678', '０１０-１２３４-５６７８', '0 1 0 1 2 3 4 5 6 7 8', '110-123-456789', 'abc @ naver.com', 'abc (at) naver.com', 'abc[at]naver.com']) {
       expect(validateForm(filled({ memo }), base).errors.memo, memo).toBe(MSG.memoPii);
     }
     expect(validateForm(filled({ memo: '이모지 \ud83d' }), base).errors.memo).toBe(MSG.memoPii); // 짝 없는 서로게이트

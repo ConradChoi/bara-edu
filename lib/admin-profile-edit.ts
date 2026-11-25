@@ -57,7 +57,7 @@ const MEMO_CONTROL = /[\p{Cc}\p{Zl}\p{Zp}\p{Cs}]/u;
 const MEMO_DIGIT_RUN = /\d{9,}/;
 const MEMO_INTL = /\+\s*82/;
 const MEMO_RRN = /\d{6}\s*-?\s*[1-8]\d{6}/;
-const MEMO_EMAIL = /\S\s*@\s*\S/;
+const MEMO_EMAIL = /[^\s@]\s*@\s*[^\s@]|\S\s*[(\[]\s*at\s*[)\]]\s*\S/i; // 서버 api/src/ops/admin-profile.ts MEMO_EMAIL_RE와 같게
 
 export function memoHasPii(memo: string): boolean {
   const n = memo.normalize('NFKC');
