@@ -201,3 +201,49 @@ test('login: 정상적인 내부 경로는 그대로 따른다 (쿼리·해시·
     expect(r, ok).toBe(`REDIRECT:${ok}`);
   }
 });
+
+// ---- API 400의 error.field로 칸별 안내 (2026-11-25)
+const v400 = (field?: string) => json(400, { error: { code: 'validation', message: 'y', ...(field ? { field } : {}) } });
+
+test('signup: API 400의 field가 있으면 그 칸의 문구', async () => {
+  const cases: [string, string][] = [
+    ['email', '올바른 이메일 형식이 아니에요'],
+    ['password', '비밀번호는 8자 이상 200자 이하로 입력해 주세요'],
+    ['name', '이름은 2자 이상 100자 이하로 입력해 주세요'],
+    ['phone', '연락처는 30자 이하로 입력해 주세요'],
+  ];
+  for (const [field, error] of cases) {
+    fetchMock.mockResolvedValueOnce(v400(field));
+    expect(await signup(), field).toEqual({ error });
+  }
+});
+
+test('signup: field가 없거나 모르는 칸(origin 등)이면 기존 입력 확인 문구', async () => {
+  for (const field of [undefined, 'origin', 'whatever']) {
+    fetchMock.mockResolvedValueOnce(v400(field));
+    expect(await signup(), String(field)).toEqual({ error: expect.stringContaining('입력한 내용을 다시 확인해 주세요') });
+  }
+});
+
+test('resendConfirmation: 400 + field=email → 이메일 형식 문구', async () => {
+  fetchMock.mockResolvedValueOnce(v400('email'));
+  expect(await actions.resendConfirmation(undefined, form({ email: 'a@b.kr' }))).toEqual({ error: '올바른 이메일 형식이 아니에요' });
+});
+
+test('login: 400 + field=email → 이메일 형식 문구, field=password → 비밀번호 오류와 같은 문구, 그 외 일반 실패', async () => {
+  const run = () => actions.login(undefined, form({ email: 'a@b.kr', password: 'pw' }));
+  fetchMock.mockResolvedValueOnce(v400('email'));
+  expect(await run()).toEqual({ error: '올바른 이메일 형식이 아니에요' });
+  fetchMock.mockResolvedValueOnce(v400('password'));
+  expect(await run()).toEqual({ error: '이메일 또는 비밀번호가 올바르지 않아요' });
+  fetchMock.mockResolvedValueOnce(v400());
+  expect(await run()).toEqual({ error: '잠시 후 다시 시도해 주세요' });
+});
+
+test('resetPassword: 400 + field=password → 비밀번호 한도 문구, 토큰 문제는 만료 문구', async () => {
+  const run = () => actions.resetPassword(undefined, form({ token: 't1', password: 'newpass12', confirm: 'newpass12' }));
+  fetchMock.mockResolvedValueOnce(v400('password'));
+  expect(await run()).toEqual({ error: '비밀번호는 8자 이상 200자 이하로 입력해 주세요' });
+  fetchMock.mockResolvedValueOnce(json(400, { error: { code: 'validation', message: 'invalid_token' } }));
+  expect(await run()).toEqual({ error: '비밀번호 변경에 실패했어요. 링크가 만료됐을 수 있어요. 다시 요청해 주세요.' });
+});

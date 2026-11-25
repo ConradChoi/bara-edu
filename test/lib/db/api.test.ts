@@ -85,6 +85,15 @@ test('API 오류 응답 → ok:false + error 그대로', async () => {
   expect(await apiFetch('/v1/x', {})).toEqual({ ok: false, status: 400, error });
 });
 
+test('400 validation의 field는 error에 그대로 실린다 (없으면 키도 없다)', async () => {
+  const error = { code: 'validation', message: 'x', field: 'email' };
+  fetchMock.mockResolvedValueOnce(json(400, { error }));
+  expect(await apiFetch('/v1/x', {})).toEqual({ ok: false, status: 400, error });
+  fetchMock.mockResolvedValueOnce(json(400, { error: { code: 'validation', message: 'x' } }));
+  const r = await apiFetch('/v1/x', {});
+  expect(r.ok === false && 'field' in r.error).toBe(false);
+});
+
 test('JSON이 아니거나 모양이 틀린 오류 본문 → internal', async () => {
   const internal = { code: 'internal', message: '요청을 처리하지 못했어요.' };
   fetchMock.mockResolvedValueOnce(new Response('<html>', { status: 502 }));

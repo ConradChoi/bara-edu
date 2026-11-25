@@ -4,7 +4,7 @@ import { redirect } from 'next/navigation';
 import * as auth from '@/lib/db/auth';
 import { siteConfig } from '@/data/site-config';
 import { getSiteOrigin } from '@/lib/site-origin';
-import { LIMITS, MSG_RATE_LIMITED, MSG_UNAVAILABLE, isApiEmail } from '@/lib/form-messages';
+import { FIELD_MESSAGES, LIMITS, MSG_RATE_LIMITED, MSG_UNAVAILABLE, isApiEmail } from '@/lib/form-messages';
 
 // source: 'login'은 인증 전 계정으로 로그인한 경우다 — 메일을 새로 보내지 않았으므로 "메일을 보냈어요" 문구를 쓰면 안 된다.
 export type AuthFormState = { error: string } | { pendingConfirmation: true; email: string; source?: 'login' } | undefined;
@@ -59,7 +59,8 @@ export async function signup(
   if (!r.ok) {
     if (r.reason === 'rate_limited') return { error: MSG_RATE_LIMITED };
     if (r.reason === 'unavailable') return { error: MSG_UNAVAILABLE };
-    // 위 칸별 검사를 통과하고도 400이면 남은 원인은 이메일 주소다(API가 어느 칸인지는 알려 주지 않는다).
+    // 위 칸별 검사를 통과하고도 400이면 API가 알려 준 칸(error.field)의 문구를 쓰고, 칸을 모르면 이메일을 살펴보라고 안내한다.
+    if (r.reason === 'validation' && r.field) return { error: FIELD_MESSAGES[r.field] };
     if (r.reason === 'validation') return { error: '입력한 내용을 다시 확인해 주세요. 이메일 주소를 특히 살펴봐 주세요' };
     return { error: '가입 중 문제가 발생했어요. 잠시 후 다시 시도해 주세요' };
   }
@@ -81,6 +82,7 @@ export async function resendConfirmation(
   const sent = await auth.resend(email, await getSiteOrigin());
   if (!sent.ok) {
     if (sent.reason === 'rate_limited') return { error: MSG_RATE_LIMITED };
+    if (sent.reason === 'validation' && sent.field === 'email') return { error: FIELD_MESSAGES.email };
     return { error: `메일을 보내지 못했어요. 잠시 후 다시 시도해 주세요. 계속 안 되면 전화로 문의해 주세요. ${siteConfig.phone}` };
   }
 
@@ -106,6 +108,8 @@ export async function login(
     if (r.reason === 'invalid_credentials') return { error: '이메일 또는 비밀번호가 올바르지 않아요' };
     if (r.reason === 'rate_limited') return { error: MSG_RATE_LIMITED };
     if (r.reason === 'unavailable') return { error: MSG_UNAVAILABLE };
+    if (r.reason === 'validation' && r.field === 'email') return { error: FIELD_MESSAGES.email };
+    if (r.reason === 'validation' && r.field === 'password') return { error: '이메일 또는 비밀번호가 올바르지 않아요' };
     return { error: '잠시 후 다시 시도해 주세요' };
   }
 
@@ -130,7 +134,9 @@ export async function resetPassword(
   if (password.length > LIMITS.password) return { error: `비밀번호는 ${LIMITS.password}자 이하로 입력해 주세요` };
   if (password !== confirm) return { error: '비밀번호가 일치하지 않아요' };
 
-  if (!token || !(await auth.resetPassword(token, password))) {
+  const reset = token ? await auth.resetPassword(token, password) : ({ ok: false, field: undefined } as const);
+  if (!reset.ok) {
+    if (reset.field === 'password') return { error: FIELD_MESSAGES.password };
     return { error: '비밀번호 변경에 실패했어요. 링크가 만료됐을 수 있어요. 다시 요청해 주세요.' };
   }
 

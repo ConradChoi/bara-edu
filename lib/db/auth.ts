@@ -1,5 +1,6 @@
 import 'server-only';
 import { apiFetch, type ApiResult } from './api';
+import { formField, type FormField } from '@/lib/form-messages';
 import { clearSession, readSession, writeSession } from './session-cookie';
 
 type Issued = { sessionToken: string; expiresAt: string };
@@ -14,11 +15,18 @@ export type SessionInfo = {
 export type SignUpInput = { email: string; password: string; name: string; phone: string | null };
 // 실패 사유: 429는 IP 한도(요청이 많음), 400은 API 입력 검증, 503은 연결 불가 — 화면이 문구를 나눌 수 있게 구분한다.
 export type FailReason = 'rate_limited' | 'validation' | 'unavailable' | 'failed';
-export type SignUpResult = { ok: true; status: 'pending_confirmation' } | { ok: false; reason: FailReason };
-export type ResendResult = { ok: true } | { ok: false; reason: FailReason };
+// field: API가 400으로 문제 삼은 입력 칸(있을 때만)
+export type SignUpResult = { ok: true; status: 'pending_confirmation' } | { ok: false; reason: FailReason; field?: FormField };
+export type ResendResult = { ok: true } | { ok: false; reason: FailReason; field?: FormField };
 export type LoginResult =
   | { ok: true }
-  | { ok: false; reason: 'invalid_credentials' | 'email_not_confirmed' | 'rate_limited' | 'unavailable' | 'failed' };
+  | { ok: false; reason: 'invalid_credentials' | 'email_not_confirmed' | 'rate_limited' | 'unavailable' | 'validation' | 'failed'; field?: FormField };
+export type ResetResult = { ok: true } | { ok: false; field?: FormField };
+
+function fieldOf(r: { status: number; error: { field?: string } }): { field?: FormField } {
+  const field = r.status === 400 ? formField(r.error.field) : undefined;
+  return field ? { field } : {};
+}
 
 function failReason(r: { status: number }): FailReason {
   if (r.status === 429) return 'rate_limited';
@@ -26,7 +34,7 @@ function failReason(r: { status: number }): FailReason {
   if (r.status === 503) return 'unavailable';
   return 'failed';
 }
-export type ChangePasswordResult = { ok: true } | { ok: false; reason: 'wrong_current' | 'unauthenticated' | 'failed' };
+export type ChangePasswordResult = { ok: true } | { ok: false; reason: 'wrong_current' | 'unauthenticated' | 'validation' | 'failed'; field?: string };
 
 // a 401 can also be `unauthorized_service` (bad service key) — that is not the user's session
 export function isDeadSession(r: ApiResult<unknown>): boolean {
@@ -38,12 +46,12 @@ export async function signUp(input: SignUpInput, origin: string): Promise<SignUp
     method: 'POST',
     body: { ...input, origin },
   });
-  return r.ok ? { ok: true, status: r.data.status } : { ok: false, reason: failReason(r) };
+  return r.ok ? { ok: true, status: r.data.status } : { ok: false, reason: failReason(r), ...fieldOf(r) };
 }
 
 export async function resend(email: string, origin: string): Promise<ResendResult> {
   const r = await apiFetch('/v1/auth/resend', { method: 'POST', body: { email, origin } });
-  return r.ok ? { ok: true } : { ok: false, reason: failReason(r) };
+  return r.ok ? { ok: true } : { ok: false, reason: failReason(r), ...fieldOf(r) };
 }
 
 export async function verifyEmail(token: string): Promise<boolean> {
@@ -62,6 +70,7 @@ export async function login(email: string, password: string): Promise<LoginResul
   if (r.status === 401 && r.error.code === 'unauthenticated') {
     return { ok: false, reason: r.error.message === 'email_not_confirmed' ? 'email_not_confirmed' : 'invalid_credentials' };
   }
+  if (r.status === 400) return { ok: false, reason: 'validation', ...fieldOf(r) };
   return { ok: false, reason: r.status === 429 ? 'rate_limited' : r.status === 503 ? 'unavailable' : 'failed' };
 }
 
@@ -78,6 +87,7 @@ export async function changePassword(currentPassword: string, newPassword: strin
   const r = await apiFetch('/v1/auth/change-password', { method: 'POST', session, body: { currentPassword, newPassword } });
   if (r.ok) return { ok: true };
   if (r.status === 403) return { ok: false, reason: 'wrong_current' };
+  if (r.status === 400) return { ok: false, reason: 'validation', ...(r.error.field ? { field: r.error.field } : {}) };
   return { ok: false, reason: isDeadSession(r) ? 'unauthenticated' : 'failed' };
 }
 
@@ -85,10 +95,13 @@ export async function requestReset(email: string, origin: string): Promise<boole
   return (await apiFetch('/v1/auth/request-reset', { method: 'POST', body: { email, origin } })).ok;
 }
 
-export async function resetPassword(token: string, newPassword: string): Promise<boolean> {
+export async function resetPassword(token: string, newPassword: string): Promise<ResetResult> {
   const r = await apiFetch('/v1/auth/reset-password', { method: 'POST', body: { token, newPassword } });
-  if (r.ok) await clearSession();
-  return r.ok;
+  if (r.ok) {
+    await clearSession();
+    return { ok: true };
+  }
+  return { ok: false, ...fieldOf(r) };
 }
 
 // token and IP are explicit so proxy.ts can call this without next/headers

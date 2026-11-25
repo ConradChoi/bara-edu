@@ -57,6 +57,8 @@ export async function changePassword(formData: FormData) {
   const r = await changeLoginPassword(currentPassword, newPassword);
   if (!r.ok) {
     if (r.reason === 'unauthenticated') redirect('/sign-in');
+    if (r.reason === 'validation' && r.field === 'password') redirect('/my?settingsError=password-validation');
+    if (r.reason === 'validation' && r.field === 'currentPassword') redirect('/my?settingsError=current-password-wrong');
     redirect(r.reason === 'wrong_current' ? '/my?settingsError=current-password-wrong' : '/my?settingsError=failed');
   }
 

@@ -201,6 +201,12 @@ test('마이페이지 비밀번호 변경: change-password 1회, 403 → current
   expect(store.delete).not.toHaveBeenCalled();
   fetchMock.mockResolvedValueOnce(apiError(403, 'forbidden', '...'));
   await expect(changePasswordAction(form(fields))).rejects.toThrow('REDIRECT:/my?settingsError=current-password-wrong');
+  fetchMock.mockResolvedValueOnce(json(400, { error: { code: 'validation', message: 'x', field: 'password' } }));
+  await expect(changePasswordAction(form(fields))).rejects.toThrow('REDIRECT:/my?settingsError=password-validation');
+  fetchMock.mockResolvedValueOnce(json(400, { error: { code: 'validation', message: 'x', field: 'currentPassword' } }));
+  await expect(changePasswordAction(form(fields))).rejects.toThrow('REDIRECT:/my?settingsError=current-password-wrong');
+  fetchMock.mockResolvedValueOnce(json(400, { error: { code: 'validation', message: 'x' } }));
+  await expect(changePasswordAction(form(fields))).rejects.toThrow('REDIRECT:/my?settingsError=failed');
   fetchMock.mockResolvedValueOnce(apiError(500, 'internal', '...'));
   await expect(changePasswordAction(form(fields))).rejects.toThrow('REDIRECT:/my?settingsError=failed');
   fetchMock.mockResolvedValueOnce(apiError(401, 'unauthorized_service', '서비스 키가 올바르지 않습니다.'));

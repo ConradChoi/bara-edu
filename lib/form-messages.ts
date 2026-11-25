@@ -15,3 +15,15 @@ const API_EMAIL_RE = /^(?!\.)(?!.*\.\.)([A-Z0-9_'+\-.]*)[A-Z0-9_+-]@([A-Z0-9][A-
 export function isApiEmail(email: string): boolean {
   return email.length <= LIMITS.email && API_EMAIL_RE.test(email);
 }
+
+// API 400 응답의 error.field → 칸별 문구. 모르는 칸(origin 등 사용자가 고칠 수 없는 값)은 undefined.
+export type FormField = 'email' | 'password' | 'name' | 'phone';
+export const FIELD_MESSAGES: Record<FormField, string> = {
+  email: '올바른 이메일 형식이 아니에요',
+  password: `비밀번호는 8자 이상 ${LIMITS.password}자 이하로 입력해 주세요`,
+  name: `이름은 2자 이상 ${LIMITS.name}자 이하로 입력해 주세요`,
+  phone: `연락처는 ${LIMITS.phone}자 이하로 입력해 주세요`,
+};
+export function formField(v: string | undefined): FormField | undefined {
+  return v === 'email' || v === 'password' || v === 'name' || v === 'phone' ? v : undefined;
+}
