@@ -12,10 +12,20 @@ export type SessionInfo = {
 };
 
 export type SignUpInput = { email: string; password: string; name: string; phone: string | null };
-export type SignUpResult = { ok: true; status: 'pending_confirmation' } | { ok: false };
+// 실패 사유: 429는 IP 한도(요청이 많음), 400은 API 입력 검증, 503은 연결 불가 — 화면이 문구를 나눌 수 있게 구분한다.
+export type FailReason = 'rate_limited' | 'validation' | 'unavailable' | 'failed';
+export type SignUpResult = { ok: true; status: 'pending_confirmation' } | { ok: false; reason: FailReason };
+export type ResendResult = { ok: true } | { ok: false; reason: FailReason };
 export type LoginResult =
   | { ok: true }
-  | { ok: false; reason: 'invalid_credentials' | 'email_not_confirmed' | 'rate_limited' | 'failed' };
+  | { ok: false; reason: 'invalid_credentials' | 'email_not_confirmed' | 'rate_limited' | 'unavailable' | 'failed' };
+
+function failReason(r: { status: number }): FailReason {
+  if (r.status === 429) return 'rate_limited';
+  if (r.status === 400) return 'validation';
+  if (r.status === 503) return 'unavailable';
+  return 'failed';
+}
 export type ChangePasswordResult = { ok: true } | { ok: false; reason: 'wrong_current' | 'unauthenticated' | 'failed' };
 
 // a 401 can also be `unauthorized_service` (bad service key) — that is not the user's session
@@ -28,11 +38,12 @@ export async function signUp(input: SignUpInput, origin: string): Promise<SignUp
     method: 'POST',
     body: { ...input, origin },
   });
-  return r.ok ? { ok: true, status: r.data.status } : { ok: false };
+  return r.ok ? { ok: true, status: r.data.status } : { ok: false, reason: failReason(r) };
 }
 
-export async function resend(email: string, origin: string): Promise<boolean> {
-  return (await apiFetch('/v1/auth/resend', { method: 'POST', body: { email, origin } })).ok;
+export async function resend(email: string, origin: string): Promise<ResendResult> {
+  const r = await apiFetch('/v1/auth/resend', { method: 'POST', body: { email, origin } });
+  return r.ok ? { ok: true } : { ok: false, reason: failReason(r) };
 }
 
 export async function verifyEmail(token: string): Promise<boolean> {
@@ -51,7 +62,7 @@ export async function login(email: string, password: string): Promise<LoginResul
   if (r.status === 401 && r.error.code === 'unauthenticated') {
     return { ok: false, reason: r.error.message === 'email_not_confirmed' ? 'email_not_confirmed' : 'invalid_credentials' };
   }
-  return { ok: false, reason: r.status === 429 ? 'rate_limited' : 'failed' };
+  return { ok: false, reason: r.status === 429 ? 'rate_limited' : r.status === 503 ? 'unavailable' : 'failed' };
 }
 
 export async function logout(): Promise<void> {

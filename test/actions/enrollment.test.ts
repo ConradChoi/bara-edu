@@ -199,14 +199,14 @@ test('빈 파일(size 0)은 업로드하지 않는다', async () => {
   expect(uploadMemberPhoto).not.toHaveBeenCalled();
 });
 
-test('사진 오류 매핑: too-large, invalid, failed(→conflict)', async () => {
+test('사진 오류 매핑: too-large, invalid, failed(→photo-failed — 사진 저장소 문제, conflict 아님)', async () => {
   const withPhoto = () => form({ agree: 'on', photo: photo() });
   upload = { error: 'too-large' };
   expect(await run(withPhoto())).toBe(`REDIRECT:/courses/${SLUG}/apply?error=photo-too-large`);
   upload = { error: 'invalid' };
   expect(await run(withPhoto())).toBe(`REDIRECT:/courses/${SLUG}/apply?error=photo-invalid`);
   upload = { error: 'failed' };
-  expect(await run(withPhoto())).toBe(`REDIRECT:/courses/${SLUG}/apply?error=conflict`);
+  expect(await run(withPhoto())).toBe(`REDIRECT:/courses/${SLUG}/apply?error=photo-failed`);
   expect(writes('enrollments')).toHaveLength(0);
   expect(writes('profiles')).toHaveLength(0);
 });

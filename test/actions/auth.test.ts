@@ -63,14 +63,33 @@ test('signup: 비밀번호 앞뒤 공백은 그대로 둔다(trim하지 않음)'
   expect(sentBody().password).toBe(' pass word1 ');
 });
 
-test('signup: API 오류(400·429·500)와 연결 실패는 모두 같은 실패 문구', async () => {
-  const error = '가입 중 문제가 발생했어요. 잠시 후 다시 시도해 주세요';
-  for (const status of [400, 429, 500]) {
-    fetchMock.mockResolvedValueOnce(json(status, { error: { code: 'x', message: 'y' } }));
-    expect(await signup()).toEqual({ error });
-  }
+test('signup: API 오류는 상태별 문구 — 429는 요청이 많음, 연결 실패는 연결 문구, 500은 일반 실패, 400은 입력 확인', async () => {
+  fetchMock.mockResolvedValueOnce(json(429, { error: { code: 'rate_limited', message: 'y' } }));
+  expect(await signup()).toEqual({ error: '요청이 많아요. 잠시 후 다시 시도해 주세요' });
+  fetchMock.mockResolvedValueOnce(json(500, { error: { code: 'internal', message: 'y' } }));
+  expect(await signup()).toEqual({ error: '가입 중 문제가 발생했어요. 잠시 후 다시 시도해 주세요' });
+  fetchMock.mockResolvedValueOnce(json(400, { error: { code: 'validation', message: 'y' } }));
+  expect(await signup()).toEqual({ error: expect.stringContaining('이메일') });
   fetchMock.mockRejectedValueOnce(new Error('down'));
-  expect(await signup()).toEqual({ error });
+  expect(await signup()).toEqual({ error: '지금 연결이 원활하지 않아요. 잠시 후 다시 눌러 주세요' });
+});
+
+test('signup: API 한도(이름 100자·연락처 30자·비밀번호 200자·이메일 규칙)는 API를 부르기 전에 칸별로 안내', async () => {
+  expect(await signup({ name: '가'.repeat(101) })).toEqual({ error: '이름은 100자 이하로 입력해 주세요' });
+  expect(await signup({ phone: '1'.repeat(31) })).toEqual({ error: '연락처는 30자 이하로 입력해 주세요' });
+  expect(await signup({ password: 'a'.repeat(201) })).toEqual({ error: '비밀번호는 200자 이하로 입력해 주세요' });
+  for (const email of ['홍길동@예시.kr', 'a..b@c.kr', '.a@c.kr', 'a@c.k', `${'a'.repeat(250)}@c.kr`]) {
+    expect(await signup({ email }), email).toEqual({ error: '올바른 이메일 형식이 아니에요' });
+  }
+  expect(fetchMock).not.toHaveBeenCalled();
+  // 경계값은 통과해 API로 간다
+  fetchMock.mockResolvedValueOnce(json(200, { status: 'pending_confirmation' }));
+  expect(await signup({ phone: '1'.repeat(30), password: 'a'.repeat(200), name: '가'.repeat(100) })).toEqual({ pendingConfirmation: true, email: 'a@b.kr' });
+});
+
+test('resendConfirmation: 429는 요청이 많다는 문구, 그 밖의 실패는 전화 안내', async () => {
+  fetchMock.mockResolvedValueOnce(json(429, { error: { code: 'rate_limited', message: 'x' } }));
+  expect(await actions.resendConfirmation(undefined, form({ email: 'a@b.kr' }))).toEqual({ error: '요청이 많아요. 잠시 후 다시 시도해 주세요' });
 });
 
 test('signup: 가입 여부와 무관하게 같은 응답 객체 (이메일 열거 방지)', async () => {
@@ -89,7 +108,7 @@ test('resendConfirmation: 이메일 형식 검증은 API 호출 전, 성공은 �
 });
 
 test('resendConfirmation: 실패 문구에 전화 문의 안내(siteConfig.phone)', async () => {
-  fetchMock.mockResolvedValueOnce(json(429, { error: { code: 'rate_limited', message: 'x' } }));
+  fetchMock.mockResolvedValueOnce(json(500, { error: { code: 'internal', message: 'x' } }));
   const r = await actions.resendConfirmation(undefined, form({ email: 'a@b.kr' }));
   expect(r).toEqual({ error: expect.stringContaining(siteConfig.phone) });
 });
@@ -115,6 +134,17 @@ test('login: 성공 시 쿠키를 쓰고 ?redirect= 값 중 사이트 내부 경
     expect(await go(bad), bad).toBe('REDIRECT:/my');
   }
   expect(store.set).toHaveBeenCalledTimes(10); // 위 10번의 성공 로그인 모두 쿠키를 썼다
+});
+
+test('login: 429는 요청이 많다는 문구, 연결 실패는 연결 문구, 한도를 넘는 입력은 API를 부르지 않는다', async () => {
+  fetchMock.mockResolvedValueOnce(json(429, { error: { code: 'rate_limited', message: 'x' } }));
+  expect(await actions.login(undefined, form({ email: 'a@b.kr', password: 'pw' }))).toEqual({ error: '요청이 많아요. 잠시 후 다시 시도해 주세요' });
+  fetchMock.mockRejectedValueOnce(new Error('down'));
+  expect(await actions.login(undefined, form({ email: 'a@b.kr', password: 'pw' }))).toEqual({ error: '지금 연결이 원활하지 않아요. 잠시 후 다시 눌러 주세요' });
+  fetchMock.mockClear();
+  expect(await actions.login(undefined, form({ email: 'a@b.kr', password: 'p'.repeat(201) }))).toEqual({ error: '이메일 또는 비밀번호가 올바르지 않아요' });
+  expect(await actions.login(undefined, form({ email: '홍길동@예시.kr', password: 'pw' }))).toEqual({ error: '올바른 이메일 형식이 아니에요' });
+  expect(fetchMock).not.toHaveBeenCalled();
 });
 
 test('login: 실패하면 쿠키를 쓰지 않는다', async () => {

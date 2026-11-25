@@ -28,7 +28,7 @@ const SUCCESS_MESSAGE: Record<string, string> = {
 };
 
 const ERROR_MESSAGE: Record<string, string> = {
-  validation: '내용을 입력해주세요.',
+  validation: '내용을 입력해 주세요.',
   failed: '처리 중 문제가 발생했어요.',
 };
 

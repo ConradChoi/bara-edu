@@ -6,8 +6,9 @@ import { changePassword as changeLoginPassword, withdrawAccount, type WithdrawRe
 import { clearSession } from '@/lib/db/session-cookie';
 import { uploadMemberPhoto } from '@/lib/db/storage';
 import { WITHDRAWAL_REASONS } from '@/data/account-settings';
+import { LIMITS } from '@/lib/form-messages';
 
-const PHOTO_ERROR = { 'too-large': 'photo-too-large', invalid: 'photo-invalid', failed: 'failed' } as const;
+const PHOTO_ERROR = { 'too-large': 'photo-too-large', invalid: 'photo-invalid', failed: 'photo-failed' } as const;
 
 // 회원 탈퇴 (flows.md Q10~Q12, bara-edu-lms.legal-privacy.md 제3조 2항)
 // Q12: 진행 중인 강좌가 있으면 차단.
@@ -47,9 +48,11 @@ export async function changePassword(formData: FormData) {
   const newPassword = (formData.get('newPassword') as string | null) ?? '';
   const confirmPassword = (formData.get('confirmPassword') as string | null) ?? '';
 
-  if (!currentPassword || newPassword.length < 8 || newPassword !== confirmPassword) {
+  if (!currentPassword || newPassword.length < 8 || newPassword.length > LIMITS.password || newPassword !== confirmPassword) {
     redirect('/my?settingsError=password-validation');
   }
+  // API 한도(200자)를 넘는 현재 비밀번호는 맞을 수 없다.
+  if (currentPassword.length > LIMITS.password) redirect('/my?settingsError=current-password-wrong');
 
   const r = await changeLoginPassword(currentPassword, newPassword);
   if (!r.ok) {

@@ -64,7 +64,7 @@ test('login 실패 사유: 401 메시지별, 429, 그 외', async () => {
   fetchMock.mockResolvedValueOnce(apiError(429, 'rate_limited', '...'));
   expect(await auth.login('a@b.kr', 'pw')).toEqual({ ok: false, reason: 'rate_limited' });
   fetchMock.mockRejectedValueOnce(new Error('down'));
-  expect(await auth.login('a@b.kr', 'pw')).toEqual({ ok: false, reason: 'failed' });
+  expect(await auth.login('a@b.kr', 'pw')).toEqual({ ok: false, reason: 'unavailable' });
   fetchMock.mockResolvedValueOnce(apiError(401, 'unauthorized_service', '서비스 키가 올바르지 않습니다.'));
   expect(await auth.login('a@b.kr', 'pw')).toEqual({ ok: false, reason: 'failed' });
   expect(store.set).not.toHaveBeenCalled();
@@ -90,7 +90,7 @@ test('login 액션 문구: 잘못된 비밀번호·재설정 필요·429', async
   });
   fetchMock.mockResolvedValueOnce(apiError(429, 'rate_limited', '...'));
   expect(await actions.login(undefined, form({ email: 'a@b.kr', password: 'pw' }))).toEqual({
-    error: '잠시 후 다시 시도해 주세요',
+    error: '요청이 많아요. 잠시 후 다시 시도해 주세요',
   });
 });
 
@@ -98,7 +98,9 @@ test('login 액션: 서비스 키 오류(401 unauthorized_service)·503은 비�
   fetchMock.mockResolvedValueOnce(apiError(401, 'unauthorized_service', '서비스 키가 올바르지 않습니다.'));
   expect(await actions.login(undefined, form({ email: 'a@b.kr', password: 'pw' }))).toEqual({ error: '잠시 후 다시 시도해 주세요' });
   fetchMock.mockRejectedValueOnce(new Error('down'));
-  expect(await actions.login(undefined, form({ email: 'a@b.kr', password: 'pw' }))).toEqual({ error: '잠시 후 다시 시도해 주세요' });
+  expect(await actions.login(undefined, form({ email: 'a@b.kr', password: 'pw' }))).toEqual({
+    error: '지금 연결이 원활하지 않아요. 잠시 후 다시 눌러 주세요',
+  });
 });
 
 test('login 액션 성공 → 안전한 redirect만 따른다', async () => {
@@ -127,7 +129,7 @@ test('signup: 어떤 결과든 같은 pendingConfirmation 응답, origin 전달,
   });
   fetchMock.mockResolvedValueOnce(apiError(429, 'rate_limited', '...'));
   expect(await actions.signup(undefined, form(fields))).toEqual({
-    error: '가입 중 문제가 발생했어요. 잠시 후 다시 시도해 주세요',
+    error: '요청이 많아요. 잠시 후 다시 시도해 주세요',
   });
 });
 

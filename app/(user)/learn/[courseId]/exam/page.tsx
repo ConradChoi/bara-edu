@@ -24,7 +24,7 @@ export async function generateMetadata({ params }: { params: Promise<{ courseId:
 }
 
 const ERROR_MESSAGE: Record<string, string> = {
-  'exam-failed': '제출에 실패했어요. 다시 시도해주세요.',
+  'exam-failed': '제출에 실패했어요. 다시 시도해 주세요.',
 };
 
 export default async function CourseExamPage({
@@ -121,7 +121,7 @@ export default async function CourseExamPage({
             {questions.length > 0 ? (
               <ExamForm courseId={courseId} questions={questions} />
             ) : (
-              <p className="text-[13px] text-n-6">문항을 불러오지 못했어요. 새로고침 후 다시 시도해주세요.</p>
+              <p className="text-[13px] text-n-6">문항을 불러오지 못했어요. 새로고침 후 다시 시도해 주세요.</p>
             )}
           </div>
         )}

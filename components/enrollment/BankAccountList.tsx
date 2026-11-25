@@ -21,7 +21,7 @@ export default async function BankAccountList() {
           </span>
         </div>
       ))}
-      <p className="text-[12px] text-n-6">위 계좌 중 하나를 골라 본인 이름으로 입금해주세요.</p>
+      <p className="text-[12px] text-n-6">위 계좌 중 하나를 골라 본인 이름으로 입금해 주세요.</p>
     </div>
   );
 }

@@ -139,10 +139,10 @@ test('사진 업로드: fileName=photo, 감지한 contentType, base64 본문으�
   });
 });
 
-test('사진 업로드 실패 → 기존 실패 문구', async () => {
+test('사진 업로드 실패 → 사진 저장 실패 문구(photo-failed)', async () => {
   failAt = '/v1/storage/member-photos';
   expect(await uploadMemberPhoto(jpeg(16))).toEqual({ error: 'failed' });
-  expect(await run(updateContactInfo(form({ photo: jpeg(16) })))).toBe('REDIRECT:/my?settingsError=failed');
+  expect(await run(updateContactInfo(form({ photo: jpeg(16) })))).toBe('REDIRECT:/my?settingsError=photo-failed');
 });
 
 test('서명 URL·삭제: 성공 값과 실패 시 null/false', async () => {

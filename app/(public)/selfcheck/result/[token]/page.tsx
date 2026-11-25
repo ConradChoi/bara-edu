@@ -34,7 +34,7 @@ export default async function DiagnosisResultPage({
     return (
       <div className="mx-auto flex max-w-[420px] flex-col items-center gap-3 px-6 py-16 text-center">
         <p className="text-[15px] font-semibold text-n-9">결과를 찾을 수 없어요</p>
-        <p className="text-[12.5px] text-n-6">링크가 정확한지 확인해주세요.</p>
+        <p className="text-[12.5px] text-n-6">링크가 정확한지 확인해 주세요.</p>
         <Link href="/selfcheck" className="mt-2 rounded-pill bg-pink px-5 py-2 text-[13px] font-semibold text-white">
           새로 진단받기
         </Link>
@@ -56,7 +56,7 @@ export default async function DiagnosisResultPage({
       <div className="mx-auto flex max-w-[420px] flex-col gap-4 px-6 py-10">
         <ResultSummaryCard summary={summary} tierLabel={tierLabel} />
         <div className="rounded-lg border border-warning bg-warning/10 px-4 py-3.5 text-[12.5px] font-medium text-warning">
-          이 진단 결과는 이미 다른 계정에 연결되어 있어요. 본인의 결과가 맞다면 고객센터로 문의해주세요.
+          이 진단 결과는 이미 다른 계정에 연결되어 있어요. 본인의 결과가 맞다면 고객센터로 문의해 주세요.
         </div>
       </div>
     );

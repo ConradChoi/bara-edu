@@ -20,11 +20,12 @@ const SETTINGS_SUCCESS_MESSAGE: Record<string, string> = {
 };
 
 const SETTINGS_ERROR_MESSAGE: Record<string, string> = {
-  'password-validation': '새 비밀번호는 8자 이상이어야 하고, 확인란과 일치해야 해요.',
+  'password-validation': '새 비밀번호는 8자 이상 200자 이하여야 하고, 확인란과 일치해야 해요.',
   'current-password-wrong': '현재 비밀번호가 일치하지 않아요.',
   'photo-too-large': '사진 용량은 5MB 이하여야 해요.',
-  'photo-invalid': '지원하지 않는 이미지 형식이에요 (JPEG/PNG/WebP만 가능).',
-  failed: '처리 중 문제가 발생했어요. 잠시 후 다시 시도해주세요.',
+  'photo-invalid': '사진은 JPG, PNG, WebP 파일만 올릴 수 있어요. GIF는 올릴 수 없어요.',
+  'photo-failed': '사진을 저장하는 곳에 문제가 생겨 올리지 못했어요. 잠시 후 다시 시도해 주세요.',
+  failed: '처리 중 문제가 발생했어요. 잠시 후 다시 시도해 주세요.',
 };
 
 export const metadata: Metadata = { title: '마이페이지 | 바라 평생교육원' };
@@ -122,7 +123,7 @@ export default async function MyPage({
       )}
       {withdrawError === 'validation' && (
         <div className="mt-4 rounded-md border border-danger bg-danger/10 px-3.5 py-3">
-          <p className="text-[13px] font-semibold text-danger">탈퇴 사유를 선택해주세요.</p>
+          <p className="text-[13px] font-semibold text-danger">탈퇴 사유를 선택해 주세요.</p>
         </div>
       )}
       {settingsSuccess && SETTINGS_SUCCESS_MESSAGE[settingsSuccess] && (
@@ -341,7 +342,7 @@ function EditInfoSection({
             <dd className="text-n-9">{phone ?? '-'}</dd>
           </div>
         </dl>
-        <p className="text-[11.5px] text-n-5">이름·이메일·휴대전화 변경은 고객센터로 문의해주세요.</p>
+        <p className="text-[11.5px] text-n-5">이름·이메일·휴대전화 변경은 고객센터로 문의해 주세요.</p>
       </div>
 
       <form action={updateContactInfo} encType="multipart/form-data" className="flex flex-col gap-4 rounded-lg border border-n-3 p-4">
@@ -361,7 +362,7 @@ function EditInfoSection({
           <input
             type="file"
             name="photo"
-            accept="image/*"
+            accept="image/jpeg,image/png,image/webp"
             className="text-[12.5px] text-n-7 file:mr-3 file:rounded-pill file:border file:border-n-3 file:bg-n-0 file:px-3 file:py-1.5 file:text-[12px] file:font-medium"
           />
         </label>

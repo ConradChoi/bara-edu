@@ -21,7 +21,7 @@ const SUCCESS_MESSAGE: Record<string, string> = {
 };
 const ERROR_MESSAGE: Record<string, string> = {
   'already-issued': '이미 발급된 수료증이에요.',
-  'note-required': '사유를 입력해주세요.',
+  'note-required': '사유를 입력해 주세요.',
   failed: '처리 중 문제가 발생했어요.',
 };
 
@@ -224,7 +224,7 @@ export default async function AdminCertificatesPage({
           <textarea
             name="note"
             required
-            placeholder="사유를 입력해주세요 (예: 오프라인 보강 인정)"
+            placeholder="사유를 입력해 주세요 (예: 오프라인 보강 인정)"
             className="min-h-[64px] rounded-md border border-n-3 bg-n-0 p-2.5 text-[13px]"
           />
           <button type="submit" className="h-10 self-start rounded-pill bg-pink px-4 text-[13px] font-semibold text-white">

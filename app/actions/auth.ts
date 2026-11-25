@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation';
 import * as auth from '@/lib/db/auth';
 import { siteConfig } from '@/data/site-config';
 import { getSiteOrigin } from '@/lib/site-origin';
+import { LIMITS, MSG_RATE_LIMITED, MSG_UNAVAILABLE, isApiEmail } from '@/lib/form-messages';
 
 // source: 'login'은 인증 전 계정으로 로그인한 경우다 — 메일을 새로 보내지 않았으므로 "메일을 보냈어요" 문구를 쓰면 안 된다.
 export type AuthFormState = { error: string } | { pendingConfirmation: true; email: string; source?: 'login' } | undefined;
@@ -43,15 +44,25 @@ export async function signup(
   const password = (formData.get('password') as string | null) ?? '';
   const phone = (formData.get('phone') as string | null)?.trim() || null;
 
+  // API가 400으로 거절하는 한도(이름 100자, 이메일 규칙, 비밀번호 200자, 연락처 30자)는 먼저 검사해 칸별로 안내한다.
   if (name.length < 2) return { error: '이름을 2자 이상 입력해 주세요' };
-  if (!EMAIL_RE.test(email)) return { error: '올바른 이메일 형식이 아니에요' };
+  if (name.length > LIMITS.name) return { error: `이름은 ${LIMITS.name}자 이하로 입력해 주세요` };
+  if (!EMAIL_RE.test(email) || !isApiEmail(email)) return { error: '올바른 이메일 형식이 아니에요' };
   if (password.length < 8) return { error: '비밀번호는 8자 이상이어야 해요' };
+  if (password.length > LIMITS.password) return { error: `비밀번호는 ${LIMITS.password}자 이하로 입력해 주세요` };
+  if (phone && phone.length > LIMITS.phone) return { error: `연락처는 ${LIMITS.phone}자 이하로 입력해 주세요` };
   if (formData.get('agreeTerms') !== 'on' || formData.get('agreePrivacy') !== 'on') {
     return { error: '이용약관과 개인정보 수집·이용에 모두 동의해야 가입할 수 있어요' };
   }
 
   const r = await auth.signUp({ email, password, name, phone }, await getSiteOrigin());
-  if (!r.ok) return { error: '가입 중 문제가 발생했어요. 잠시 후 다시 시도해 주세요' };
+  if (!r.ok) {
+    if (r.reason === 'rate_limited') return { error: MSG_RATE_LIMITED };
+    if (r.reason === 'unavailable') return { error: MSG_UNAVAILABLE };
+    // 위 칸별 검사를 통과하고도 400이면 남은 원인은 이메일 주소다(API가 어느 칸인지는 알려 주지 않는다).
+    if (r.reason === 'validation') return { error: '입력한 내용을 다시 확인해 주세요. 이메일 주소를 특히 살펴봐 주세요' };
+    return { error: '가입 중 문제가 발생했어요. 잠시 후 다시 시도해 주세요' };
+  }
   // 신규·이미 가입·미인증 모두 같은 응답이다(이메일 열거 방지, 대표 결정 2026-11-25). 메일 종류는 API가 나눠 보낸다.
   // 가입 직후에는 세션이 없다 — 메일의 /auth/confirm 링크를 눌러야 세션이 생긴다.
   return { pendingConfirmation: true, email };
@@ -65,9 +76,11 @@ export async function resendConfirmation(
   formData: FormData
 ): Promise<AuthFormState> {
   const email = (formData.get('email') as string | null)?.trim() ?? '';
-  if (!EMAIL_RE.test(email)) return { error: '올바른 이메일 형식이 아니에요' };
+  if (!EMAIL_RE.test(email) || !isApiEmail(email)) return { error: '올바른 이메일 형식이 아니에요' };
 
-  if (!(await auth.resend(email, await getSiteOrigin()))) {
+  const sent = await auth.resend(email, await getSiteOrigin());
+  if (!sent.ok) {
+    if (sent.reason === 'rate_limited') return { error: MSG_RATE_LIMITED };
     return { error: `메일을 보내지 못했어요. 잠시 후 다시 시도해 주세요. 계속 안 되면 전화로 문의해 주세요. ${siteConfig.phone}` };
   }
 
@@ -83,11 +96,16 @@ export async function login(
   const redirectTo = safeRedirect(formData.get('redirect') as string | null);
 
   if (!email || !password) return { error: '이메일과 비밀번호를 입력해 주세요' };
+  // API가 400으로 거절할 값은 보내지 않는다 — 어차피 맞는 계정일 수 없다.
+  if (!isApiEmail(email)) return { error: '올바른 이메일 형식이 아니에요' };
+  if (password.length > LIMITS.password) return { error: '이메일 또는 비밀번호가 올바르지 않아요' };
 
   const r = await auth.login(email, password);
   if (!r.ok) {
     if (r.reason === 'email_not_confirmed') return { pendingConfirmation: true, email, source: 'login' };
     if (r.reason === 'invalid_credentials') return { error: '이메일 또는 비밀번호가 올바르지 않아요' };
+    if (r.reason === 'rate_limited') return { error: MSG_RATE_LIMITED };
+    if (r.reason === 'unavailable') return { error: MSG_UNAVAILABLE };
     return { error: '잠시 후 다시 시도해 주세요' };
   }
 
@@ -109,6 +127,7 @@ export async function resetPassword(
   const confirm = (formData.get('confirm') as string | null) ?? '';
 
   if (password.length < 8) return { error: '비밀번호는 8자 이상이어야 해요' };
+  if (password.length > LIMITS.password) return { error: `비밀번호는 ${LIMITS.password}자 이하로 입력해 주세요` };
   if (password !== confirm) return { error: '비밀번호가 일치하지 않아요' };
 
   if (!token || !(await auth.resetPassword(token, password))) {

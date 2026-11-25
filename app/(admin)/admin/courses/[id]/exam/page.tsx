@@ -78,7 +78,7 @@ export default async function AdminCourseExamPage({
 
       {unresolvedCount > 0 && (
         <div className="rounded-md border border-warning bg-warning/10 px-3.5 py-3 text-[13px] font-medium text-warning">
-          정답이 설정되지 않은 문항이 {unresolvedCount}개 있어요. 문제은행에서 정답을 먼저 설정해주세요.
+          정답이 설정되지 않은 문항이 {unresolvedCount}개 있어요. 문제은행에서 정답을 먼저 설정해 주세요.
         </div>
       )}
 

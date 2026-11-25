@@ -35,7 +35,7 @@ export async function generateMetadata({
 const ERROR_MESSAGE: Record<string, string> = {
   failed: '처리 중 문제가 발생했어요.',
   'quiz-failed': '퀴즈 제출에 실패했어요.',
-  'assignment-validation': '과제 내용을 입력해주세요.',
+  'assignment-validation': '과제 내용을 입력해 주세요.',
   'certificate-failed': '아직 수료증을 발급받을 수 없어요.',
 };
 

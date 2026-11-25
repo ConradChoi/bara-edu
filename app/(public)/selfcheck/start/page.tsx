@@ -5,9 +5,9 @@ import { createClient } from '@/lib/db/server';
 export const metadata: Metadata = { title: '도형심리 역량진단 | 바라 평생교육원' };
 
 const ERROR_MESSAGE: Record<string, string> = {
-  validation: '필수 항목을 확인해주세요.',
+  validation: '필수 항목을 확인해 주세요.',
   incomplete: '아직 응답하지 않은 문항이 있어요.',
-  'submit-failed': '제출에 실패했어요. 잠시 후 다시 시도해주세요.',
+  'submit-failed': '제출에 실패했어요. 잠시 후 다시 시도해 주세요.',
 };
 
 // F-DIAG-3/4/5. 로그인 상태면 profiles에서 이름/휴대전화/이메일을 프리필한다(수정 가능).

@@ -5,7 +5,7 @@ import { getApprovedSeatsTaken } from '@/lib/supabase/queries';
 import { createClient } from '@/lib/db/server';
 import { uploadMemberPhoto } from '@/lib/db/storage';
 
-const PHOTO_ERROR = { 'too-large': 'photo-too-large', invalid: 'photo-invalid', failed: 'conflict' } as const;
+const PHOTO_ERROR = { 'too-large': 'photo-too-large', invalid: 'photo-invalid', failed: 'photo-failed' } as const;
 const PAYMENT_WINDOW_MS = 3 * 24 * 60 * 60 * 1000; // flows.md Q2: 입금 기한 3일
 
 // 신청 확인 화면(/courses/[slug]/apply)에서 "신청 확정" 클릭 시 호출된다.

@@ -21,7 +21,7 @@ const SUCCESS_MESSAGE: Record<string, string> = {
   deleted: '강좌를 삭제했어요.',
 };
 const ERROR_MESSAGE: Record<string, string> = {
-  'has-history': '신청·수료 이력이 있는 강좌는 삭제할 수 없어요. 대신 비활성화해주세요.',
+  'has-history': '신청·수료 이력이 있는 강좌는 삭제할 수 없어요. 대신 비활성화해 주세요.',
   failed: '처리 중 문제가 발생했어요.',
 };
 
@@ -128,7 +128,7 @@ export default async function AdminCoursesPage({
                       confirmLabel="삭제"
                       tone="danger"
                       disabled={c.enrollmentCount > 0 || c.certificateCount > 0}
-                      disabledReason={`신청 ${c.enrollmentCount}건, 수료 ${c.certificateCount}건이 있어 삭제할 수 없어요. 대신 비활성화해주세요.`}
+                      disabledReason={`신청 ${c.enrollmentCount}건, 수료 ${c.certificateCount}건이 있어 삭제할 수 없어요. 대신 비활성화해 주세요.`}
                       action={deleteCourse.bind(null, c.id)}
                     />
                   </div>

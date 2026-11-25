@@ -12,7 +12,7 @@ export default function ResetPasswordForm({ token }: { token?: string }) {
   if (!token) {
     return (
       <div className="flex flex-col gap-3">
-        <p className="text-[13px] text-danger">링크가 올바르지 않아요. 재설정 이메일을 다시 요청해주세요.</p>
+        <p className="text-[13px] text-danger">링크가 올바르지 않아요. 재설정 이메일을 다시 요청해 주세요.</p>
         <Link href="/sign-in" className="text-[12.5px] font-medium text-pink">
           로그인 화면으로
         </Link>

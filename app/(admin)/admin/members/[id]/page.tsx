@@ -51,7 +51,7 @@ export default async function AdminMemberDetailPage({
       )}
       {error === 'failed' && (
         <div className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger">
-          처리 중 문제가 발생했어요. 잠시 후 다시 시도해주세요.
+          처리 중 문제가 발생했어요. 잠시 후 다시 시도해 주세요.
         </div>
       )}
 
