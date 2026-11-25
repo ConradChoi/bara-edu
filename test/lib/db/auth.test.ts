@@ -162,6 +162,54 @@ test('verifyEmail 성공 → 쿠키 쓰기, 실패 → 쿠키 안 씀', async ()
   expect(store.set).toHaveBeenCalledTimes(1);
 });
 
+test('checkSignupLink: GET, 토큰은 헤더로(URL에 없음), 상태를 그대로 돌려주고 쿠키·세션은 건드리지 않는다', async () => {
+  const ready = { state: 'ready', email: 'a@b.kr', requestedAt: '2026-11-25T00:00:00.000Z', expiresAt: '2026-11-26T00:00:00.000Z', attemptsLeft: 5 };
+  fetchMock.mockResolvedValueOnce(json(200, ready));
+  expect(await auth.checkSignupLink('tok-1')).toEqual({ ok: true, link: ready });
+  expect(lastCall().url).toBe('http://api.local/v1/auth/signup-link/check');
+  expect(lastCall().init.method).toBe('GET');
+  expect(lastCall().init.headers['x-bara-signup-token']).toBe('tok-1');
+  expect(lastCall().init.body).toBeUndefined();
+  expect(store.set).not.toHaveBeenCalled();
+  fetchMock.mockResolvedValueOnce(json(200, { state: 'locked' }));
+  expect(await auth.checkSignupLink('tok-1')).toEqual({ ok: true, link: { state: 'locked' } });
+  fetchMock.mockResolvedValueOnce(apiError(429, 'rate_limited', 'x'));
+  expect(await auth.checkSignupLink('tok-1')).toEqual({ ok: false, reason: 'rate_limited' });
+  fetchMock.mockRejectedValueOnce(new Error('down'));
+  expect(await auth.checkSignupLink('tok-1')).toEqual({ ok: false, reason: 'unavailable' });
+  expect(store.set).not.toHaveBeenCalled();
+});
+
+test('completeSignup: 성공 → 쿠키 쓰기, 비밀번호는 본문으로만', async () => {
+  fetchMock.mockResolvedValueOnce(json(200, { sessionToken: 'tok', expiresAt: '2026-12-21T00:00:00.000Z' }));
+  expect(await auth.completeSignup('t1', 'pw-1234 ')).toEqual({ ok: true });
+  expect(lastCall().url).toBe('http://api.local/v1/auth/signup-link/complete');
+  expect(lastCall().body).toEqual({ token: 't1', password: 'pw-1234 ' });
+  expect(store.set).toHaveBeenCalledTimes(1);
+});
+
+test('completeSignup: 오류를 사유별로 나누고 쿠키는 쓰지 않는다 (attemptsLeft 포함)', async () => {
+  const withLeft = json(403, { error: { code: 'forbidden', message: 'wrong_password', attemptsLeft: 3 } });
+  fetchMock.mockResolvedValueOnce(withLeft);
+  expect(await auth.completeSignup('t', 'x')).toEqual({ ok: false, reason: 'wrong_password', attemptsLeft: 3 });
+  const cases: Array<[Response, unknown]> = [
+    [apiError(409, 'conflict', 'link_locked'), { ok: false, reason: 'link_locked' }],
+    [apiError(409, 'conflict', 'link_expired'), { ok: false, reason: 'link_expired' }],
+    [apiError(409, 'conflict', 'link_done'), { ok: false, reason: 'link_done' }],
+    [apiError(400, 'validation', 'invalid_token'), { ok: false, reason: 'invalid_token' }],
+    [json(400, { error: { code: 'validation', message: 'x', field: 'password' } }), { ok: false, reason: 'validation', field: 'password' }],
+    [apiError(429, 'rate_limited', 'x'), { ok: false, reason: 'rate_limited' }],
+    [apiError(500, 'internal', 'x'), { ok: false, reason: 'failed' }],
+  ];
+  for (const [res, expected] of cases) {
+    fetchMock.mockResolvedValueOnce(res);
+    expect(await auth.completeSignup('t', 'x')).toEqual(expected);
+  }
+  fetchMock.mockRejectedValueOnce(new Error('down'));
+  expect(await auth.completeSignup('t', 'x')).toEqual({ ok: false, reason: 'unavailable' });
+  expect(store.set).not.toHaveBeenCalled();
+});
+
 test('logout: 세션으로 API 호출 후 쿠키 삭제(API 실패해도 삭제)', async () => {
   store.get.mockReturnValue({ value: 'tok' });
   fetchMock.mockRejectedValueOnce(new Error('down'));
