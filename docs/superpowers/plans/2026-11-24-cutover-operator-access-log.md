@@ -1,4 +1,4 @@
-# 서버 전환 운영자 접근 기록 (2026-11-23 ~ 11-24)
+# 서버 전환 운영자 접근 기록 (2026-11-23 ~ 11-25)
 
 런북 10번 "운영자 접근 기록". 이관·DB 관리자 작업마다 누가·언제·무엇을 했는지 남긴다.
 
@@ -21,6 +21,10 @@
 | 11-24 13:09 | ylia-pg-01 | 조회 | `bara_edu*` DB 목록·접속 수·크기 |
 | 11-24 13:10 | ylia-pg-01 | 변경 | `bara_edu_staging` 삭제(리허설 복사본, 실제 회원 이메일 포함 — 리허설 당일 삭제) |
 | 11-24 13:10 | WAS `~/bara-edu-ops` | 삭제 | `admin.env`(마스터 URL)·`migrate.env`(Supabase DB URL·서비스 키)·`app-db.env`·`supabase-ca.crt` 삭제 |
+| 11-25 17:1x | `bara_edu`(앱 계정 `bara_edu_app`, WAS `api.env`) | 조회 | R24: 퀴즈 함수 2개의 소유자 확인(`pg_proc`) |
+| 11-25 17:17 | `bara_edu`(앱 계정 → `set local role bara_edu_service`, 읽기 전용 트랜잭션) | 조회 | R24 배포 전 점검: 겹친 퀴즈 회차 0건, 정답 없는 문항 0건(문항·제출 모두 0건) |
+| 11-25 17:17 | `bara_edu`(앱 계정 → `set local role bara_edu_service`) | 변경 | R24 패치 `api/db/patches/2026-11-25-r24.sql` 적용: `get_quiz_for_lesson`·`submit_quiz_attempt` create or replace(데이터 변경 없음) |
+| 11-25 17:18 | WAS `bara-edu-api` | 변경 | API 릴리스 `98ac9b9` 설치·재시작(healthz 200) |
 
 ## 같은 날 함께 정리한 것
 
