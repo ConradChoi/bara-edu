@@ -28,7 +28,7 @@ export function safeErrSerializer(err: ErrLike): SafeErr {
   return out;
 }
 
-const SECRET_HEADERS = ['x-bara-service-key', 'x-bara-session'];
+const SECRET_HEADERS = ['x-bara-service-key', 'x-bara-session', 'x-bara-signup-token'];
 
 export function loggerOptions(opts: LogOptions | undefined): FastifyServerOptions['logger'] {
   if (!opts) return false;

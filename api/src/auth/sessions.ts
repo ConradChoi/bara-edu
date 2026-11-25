@@ -4,16 +4,18 @@ import { withService, type Tx } from '../db/context.js';
 
 const sha256 = (token: string) => createHash('sha256').update(token).digest('hex');
 
-export async function createSession(pool: pg.Pool, userId: string, ttlDays: number): Promise<{ token: string; expiresAt: Date }> {
+export async function createSessionIn(tx: Tx, userId: string, ttlDays: number): Promise<{ token: string; expiresAt: Date }> {
   const token = randomBytes(32).toString('base64url');
-  const r = await withService(pool, (tx) =>
-    tx.query<{ expires_at: Date }>(
-      `insert into auth.sessions (token_hash, user_id, expires_at)
-       values ($1, $2, now() + make_interval(days => $3::int)) returning expires_at`,
-      [sha256(token), userId, ttlDays],
-    ),
+  const r = await tx.query<{ expires_at: Date }>(
+    `insert into auth.sessions (token_hash, user_id, expires_at)
+     values ($1, $2, now() + make_interval(days => $3::int)) returning expires_at`,
+    [sha256(token), userId, ttlDays],
   );
   return { token, expiresAt: r.rows[0].expires_at };
+}
+
+export function createSession(pool: pg.Pool, userId: string, ttlDays: number): Promise<{ token: string; expiresAt: Date }> {
+  return withService(pool, (tx) => createSessionIn(tx, userId, ttlDays));
 }
 
 export async function resolveSession(pool: pg.Pool, token: string, ttlDays: number): Promise<{ userId: string; expiresAt: Date; renewed: boolean } | null> {

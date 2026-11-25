@@ -81,3 +81,11 @@ test('탈퇴 후 사진 삭제가 실패하면 로그에 userId와 오류 이름
   expect(JSON.parse(line!)).toMatchObject({ userId: id, errorName: 'S3Down' });
   expect(out.join('')).not.toContain(email);
 });
+
+test('가입 링크 확인 요청의 토큰 헤더(x-bara-signup-token)는 로그에 남지 않는다', async () => {
+  const token = 'signup-link-secret-token-0123456789';
+  const res = await app.inject({ method: 'GET', url: '/v1/auth/signup-link/check', headers: { 'x-bara-service-key': KEY, 'x-bara-signup-token': token } });
+  expect(res.json()).toEqual({ state: 'invalid' });
+  expect(lines.join('\n')).not.toContain(token);
+  expect(lines.some((l) => l.includes('/v1/auth/signup-link/check'))).toBe(true); // 요청 로그는 남되 토큰만 없다
+});

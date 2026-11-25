@@ -7,7 +7,8 @@ import { revokeAllSessions, revokeSession } from './sessions.js';
 import type { MailMessage } from '../mail/mailer.js';
 import { WITHDRAWAL_REASON_KEYS } from './withdraw-reasons.js';
 import { withdrawAccount } from './withdraw.js';
-import { changePassword, confirmEmailAsAdmin, listConfirmations, login, requestReset, resendConfirmation, resetPassword, sendResetAsAdmin, signup, verifyEmail } from './service.js';
+import { changePassword, confirmEmailAsAdmin, listConfirmations, login, requestReset, resendConfirmation, resetPassword, sendResetAsAdmin, signup } from './service.js';
+import { checkSignupLink, completeSignup } from './signup-link.js';
 
 type SessionRow = {
   id: string;
@@ -27,7 +28,8 @@ const signupBody = z.object({
   origin: z.string(),
 });
 const resendBody = z.object({ email, origin: z.string() });
-const verifyBody = z.object({ token: z.string().min(1).max(200) });
+const completeBody = z.object({ token: z.string().min(1).max(200), password: z.string().min(1).max(200) });
+const linkToken = z.string().min(1).max(200);
 
 const loginBody = z.object({ email, password: z.string().min(1).max(200) });
 const changeBody = z.object({ currentPassword: z.string().min(1).max(200), newPassword: z.string().min(8).max(200) });
@@ -90,13 +92,34 @@ export function registerAuthRoutes(app: FastifyInstance): void {
     return { status: 'pending_confirmation' };
   });
 
-  app.post('/v1/auth/verify-email', async (req, reply) => {
-    const body = verifyBody.safeParse(req.body);
-    if (!body.success) return sendError(reply, 'validation', 'invalid_token');
+  // 읽기 전용(토큰 사용·실패 횟수·세션·메일 변화 없음). 토큰은 접근 로그에 남지 않도록 쿼리가 아닌 헤더로 받는다.
+  app.get('/v1/auth/signup-link/check', async (req, reply) => {
+    if (await ipLimited(req, 'signup-link-check', 60, 900)) return tooMany(reply);
+    const token = linkToken.safeParse(req.headers['x-bara-signup-token']);
+    if (!token.success) return { state: 'invalid' };
+    return checkSignupLink(app.deps.pool, token.data);
+  });
+
+  app.post('/v1/auth/signup-link/complete', async (req, reply) => {
+    const body = completeBody.safeParse(req.body);
+    if (!body.success) return sendError(reply, 'validation', INVALID, fieldOf(body.error));
+    if (await ipLimited(req, 'signup-link-complete', 30, 900)) return tooMany(reply);
     const { pool, config } = app.deps;
-    const r = await verifyEmail(pool, config.sessionTtlDays, body.data.token);
-    if (!r) return sendError(reply, 'validation', 'invalid_token');
-    return { sessionToken: r.sessionToken, expiresAt: r.expiresAt };
+    const r = await completeSignup(pool, config.sessionTtlDays, body.data.token, body.data.password);
+    switch (r.kind) {
+      case 'ok':
+        return { sessionToken: r.sessionToken, expiresAt: r.expiresAt };
+      case 'wrong_password':
+        return sendError(reply, 'forbidden', 'wrong_password', undefined, { attemptsLeft: r.attemptsLeft });
+      case 'locked':
+        return sendError(reply, 'conflict', 'link_locked');
+      case 'expired':
+        return sendError(reply, 'conflict', 'link_expired');
+      case 'done':
+        return sendError(reply, 'conflict', 'link_done');
+      case 'invalid':
+        return sendError(reply, 'validation', 'invalid_token');
+    }
   });
 
   app.post('/v1/auth/login', async (req, reply) => {
@@ -169,7 +192,9 @@ export function registerAuthRoutes(app: FastifyInstance): void {
     if (!(await requireAdmin(req, reply))) return reply;
     const params = idParam.safeParse(req.params);
     if (!params.success) return sendError(reply, 'validation', INVALID);
-    if (!(await confirmEmailAsAdmin(app.deps.pool, params.data.id))) return sendError(reply, 'not_found', '회원을 찾을 수 없습니다.');
+    const r = await confirmEmailAsAdmin(app.deps.pool, params.data.id);
+    if (r === 'not_found') return sendError(reply, 'not_found', '회원을 찾을 수 없습니다.');
+    if (r === 'password_not_set') return sendError(reply, 'conflict', 'password_not_set');
     return { ok: true };
   });
 

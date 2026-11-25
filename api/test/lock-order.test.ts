@@ -10,9 +10,9 @@ import { issueEmailToken } from '../src/auth/tokens.js';
 import { hashPassword } from '../src/auth/passwords.js';
 import { setupTestDb } from './helpers/db.js';
 
-// 락 순서: 이메일 토큰 -> 사용자(auth.users) -> profiles. verify-email·reset-password는 토큰을 먼저 갱신한 뒤 사용자를 갱신하므로,
+// 락 순서: 이메일 토큰 -> 사용자(auth.users) -> profiles. 가입 확정(complete)·reset-password는 토큰을 먼저 갱신한 뒤 사용자를 갱신하므로,
 // 재가입 덮어쓰기·탈퇴·비밀번호 변경도 같은 순서로 잡아야 AB-BA 데드락(40P01 -> 500)이 나지 않는다.
-// 테스트는 verify-email의 "토큰 갱신 -> (잠깐 멈춤) -> 사용자 갱신"을 별도 연결의 트랜잭션으로 흉내 낸다.
+// 테스트는 가입 확정의 "토큰 갱신 -> (잠깐 멈춤) -> 사용자 갱신"을 별도 연결의 트랜잭션으로 흉내 낸다.
 
 const KEY = 'k'.repeat(32);
 const ORIGIN = 'https://bara-edu.kr';
@@ -134,5 +134,41 @@ test('탈퇴는 프로필 행을 먼저 잠근 뒤 진행 중 수강을 확인�
   } finally {
     await c.query('rollback').catch(() => {});
     c.release();
+  }
+});
+
+test('가입 확정과 같은 계정의 재가입(시도 추가·정리)이 동시에 와도 데드락(500) 없이 끝난다', async () => {
+  for (let round = 0; round < 6; round++) {
+    const email = `lockc2-${++n}@bara-edu.kr`;
+    await post('/v1/auth/signup', { email, password: 'firstpw123', name: '본인', origin: ORIGIN });
+    await new Promise<void>((r) => setImmediate(r)); // 메일은 응답 뒤에 큐에서 나간다
+    const token = new URL(mailer.sent.at(-1)!.link).searchParams.get('token')!;
+    await q('truncate auth.rate_events');
+    const rs = await Promise.all([
+      post('/v1/auth/signup-link/complete', { token, password: 'firstpw123' }),
+      post('/v1/auth/signup', { email, password: 'secondpw12', name: '두번째', origin: ORIGIN }),
+      post('/v1/auth/resend', { email, origin: ORIGIN }),
+    ]);
+    for (const r of rs) expect(r.statusCode, r.body).toBeLessThan(500);
+    expect(rs[0].statusCode, rs[0].body).toBe(200);
+  }
+});
+
+test('가입 확정과 같은 계정의 탈퇴·재설정이 동시에 와도 데드락(500) 없이 끝난다', async () => {
+  for (let round = 0; round < 4; round++) {
+    const email = `lockc3-${++n}@bara-edu.kr`;
+    await post('/v1/auth/signup', { email, password: 'firstpw123', name: '본인', origin: ORIGIN });
+    await new Promise<void>((r) => setImmediate(r)); // 메일은 응답 뒤에 큐에서 나간다
+    const token = new URL(mailer.sent.at(-1)!.link).searchParams.get('token')!;
+    const id = (await q('select id from auth.users where email = $1', [email]))[0].id as string;
+    const recovery = await issueEmailToken(ctx.pool, id, 'recovery');
+    const rs = await Promise.all([
+      post('/v1/auth/signup-link/complete', { token, password: 'firstpw123' }),
+      post('/v1/auth/reset-password', { token: recovery, newPassword: 'resetpw1234' }),
+    ]);
+    for (const r of rs) expect(r.statusCode, r.body).toBeLessThan(500);
+    // 어느 쪽이 먼저든 계정은 인증되고 시도는 남지 않는다
+    expect((await q('select email_confirmed_at from auth.users where id = $1', [id]))[0].email_confirmed_at).not.toBeNull();
+    expect(await q('select 1 from auth.signup_attempts where user_id = $1', [id])).toHaveLength(0);
   }
 });
