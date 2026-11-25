@@ -2308,7 +2308,7 @@ begin
       utm_source = null, utm_medium = null, utm_campaign = null
   where user_id is null
     and created_at < now() - interval '90 days'
-    and respondent_name is not null;
+    and (respondent_name is not null or phone is not null or email is not null);
   get diagnostics v_updated_count = row_count;
   return v_updated_count;
 end;
