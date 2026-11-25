@@ -1,6 +1,7 @@
 'use server';
 
 import { redirect } from 'next/navigation';
+import { updateDiagnosisLeadApi, type UpdateLeadResult } from '@/lib/db/admin-diagnosis';
 import { createRevealToken } from '@/lib/supabase/admin-pii-reveal';
 import { requireAdminClient } from '@/lib/supabase/require-admin';
 
@@ -59,52 +60,38 @@ export async function hideDiagnosisLeadContact() {
   redirect('/admin/selfcheck/leads');
 }
 
-// 상태 전환은 admin-enrollments.ts와 동일한 "이전 상태 일치" 조건부 update 패턴 —
-// 두 관리자가 동시에 처리해도 한쪽만 성공하고 나머지는 "이미 처리됨"으로 안내한다.
+// 상태 전환·메모 수정은 API가 변경과 접속 기록('수정')을 한 트랜잭션으로 처리한다 — 여기서 logAdminAccess를 부르지 않는다.
+// 기록이 실패하면 API가 변경을 롤백하고(log_failed) 화면에는 실패 배너만 보인다.
+// 두 관리자가 동시에 처리해도 한쪽만 성공하고 나머지는 "이미 처리됨"으로 안내한다(이전 상태 일치 조건).
+const LEADS = '/admin/selfcheck/leads';
+const ERROR_KEY: Record<string, string> = {
+  already_processed: 'already-processed',
+  reason_required: 'reason-required',
+  memo_has_pii: 'memo-pii',
+  log_failed: 'log-failed',
+};
+
+function finish(r: UpdateLeadResult, success: string): never {
+  if (r.ok) redirect(`${LEADS}?success=${success}`);
+  if (r.reason === 'unauthenticated') redirect('/sign-in');
+  redirect(`${LEADS}?error=${ERROR_KEY[r.reason] ?? 'failed'}`);
+}
+
 export async function markLeadContacted(leadId: string, formData: FormData) {
   const note = (formData.get('note') as string | null)?.trim() || null;
-  const supabase = await requireAdminClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  const { data, error } = await supabase
-    .from('diagnosis_leads')
-    .update({ status: 'contacted', handled_by: user?.id, handled_at: new Date().toISOString(), admin_note: note })
-    .eq('id', leadId)
-    .eq('status', 'new')
-    .select();
-
-  if (error) redirect('/admin/selfcheck/leads?error=failed');
-  if (!data || data.length === 0) redirect('/admin/selfcheck/leads?error=already-processed');
-  redirect('/admin/selfcheck/leads?success=contacted');
+  await requireAdminClient();
+  finish(await updateDiagnosisLeadApi({ leadId, change: 'contacted', note }), 'contacted');
 }
 
 export async function closeLead(leadId: string, fromStatus: 'new' | 'contacted', formData: FormData) {
   const reason = (formData.get('reason') as string | null)?.trim();
-  if (!reason) redirect('/admin/selfcheck/leads?error=reason-required');
-
-  const supabase = await requireAdminClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  const { data, error } = await supabase
-    .from('diagnosis_leads')
-    .update({ status: 'closed', handled_by: user?.id, handled_at: new Date().toISOString(), admin_note: reason })
-    .eq('id', leadId)
-    .eq('status', fromStatus)
-    .select();
-
-  if (error) redirect('/admin/selfcheck/leads?error=failed');
-  if (!data || data.length === 0) redirect('/admin/selfcheck/leads?error=already-processed');
-  redirect('/admin/selfcheck/leads?success=closed');
+  if (!reason) redirect(`${LEADS}?error=reason-required`);
+  await requireAdminClient();
+  finish(await updateDiagnosisLeadApi({ leadId, change: 'closed', fromStatus, note: reason }), 'closed');
 }
 
 export async function updateLeadNote(leadId: string, formData: FormData) {
   const note = (formData.get('note') as string | null)?.trim() || null;
-  const supabase = await requireAdminClient();
-  const { error } = await supabase.from('diagnosis_leads').update({ admin_note: note }).eq('id', leadId);
-  if (error) redirect('/admin/selfcheck/leads?error=failed');
-  redirect('/admin/selfcheck/leads?success=note-updated');
+  await requireAdminClient();
+  finish(await updateDiagnosisLeadApi({ leadId, change: 'note', note }), 'note-updated');
 }
