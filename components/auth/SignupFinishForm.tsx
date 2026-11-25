@@ -100,8 +100,10 @@ export default function SignupFinishForm({ token, email, requestedLabel, remaini
         {/* 비밀번호 관리자가 이메일과 짝지을 수 있게 둔다. display:none이면 무시되므로 sr-only. */}
         <input type="email" name="username" autoComplete="username" defaultValue={email} readOnly tabIndex={-1} aria-hidden="true" className="sr-only" />
 
+        {/* role="alert": Enter로 제출하면 입력 칸이 이미 포커스 상태라 focus()가 포커스 이벤트를 만들지 않아 aria-describedby만으로는 새 오류가 읽히지 않을 수 있다.
+            버튼으로 제출해 포커스가 옮겨 오는 경우에는 알림과 설명이 한 번씩 겹쳐 읽힐 수 있지만, 못 읽히는 것보다 낫다(2026-11-26 QA 접근성). */}
         {wrong && (
-          <div id="confirm-password-error" className={`${NOTICE} mb-3 flex-col`}>
+          <div id="confirm-password-error" role="alert" className={`${NOTICE} mb-3 flex-col`}>
             <div className="flex gap-3">
               <AlertIcon className="mt-0.5 size-6 shrink-0 text-danger" />
               <p className="font-semibold">비밀번호가 맞지 않아요.</p>

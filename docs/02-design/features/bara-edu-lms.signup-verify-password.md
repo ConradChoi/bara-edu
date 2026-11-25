@@ -606,7 +606,7 @@ p   본인이 가입을 요청하지 않았다면 이 화면을 닫아 주세요
 - 오류 박스를 **입력 칸 위**에 둔다. 이유: 모바일에서 키보드가 올라오면 칸 아래의 글이 가려진다. 칸 위에 있으면 포커스 이동 후에도 화면 안에 남는다. 정의서 2.3과 같다.
 - 횟수 줄: 숫자를 `text-lg font-bold text-n-9`로 강조하고, 옆에 **점 5개**(`aria-hidden`, `size-3 rounded-pill`, 사용한 횟수 = `bg-n-9`, 남은 횟수 = `border-2 border-n-9 bg-n-0`). 점은 시각 보조일 뿐이고 숫자 문구가 정보 본체다(색만으로 전달하지 않음, 모양(채움/비움)도 다름). `attemptsLeft`가 1이면 문구에 "마지막이에요" 취지가 들어가도록 ux-writer에 요청하고, 박스는 같은 모양 그대로 둔다(위협적으로 보이지 않게 색·크기를 키우지 않음).
 - 칸은 비우고(`defaultValue` 없음), **보기/숨기기 상태는 유지**(서버 렌더 시 `shown` 초기값을 클라이언트 상태에서 이어받는다. JS 없는 경우는 숨김으로 돌아가도 된다).
-- 포커스: 렌더 직후 칸으로(`useEffect`에서 `inputRef.current?.focus()`). 칸은 `aria-invalid="true"`, `aria-describedby="confirm-password-hint confirm-password-error"`. 포커스가 칸에 가는 순간 스크린리더가 라벨 + 오류 박스를 함께 읽으므로 오류 박스에 **`role="alert"`를 달지 않는다**(이중 낭독 방지).
+- 포커스: 렌더 직후 칸으로(`useEffect`에서 `inputRef.current?.focus()`). 칸은 `aria-invalid="true"`, `aria-describedby="confirm-password-hint confirm-password-error"`. ~~포커스가 칸에 가는 순간 스크린리더가 라벨 + 오류 박스를 함께 읽으므로 오류 박스에 `role="alert"`를 달지 않는다(이중 낭독 방지).~~ **2026-11-26 변경(QA 접근성): 오류 박스에 `role="alert"`를 단다.** Enter로 제출하면 입력 칸이 이미 포커스 상태여서 `focus()`가 포커스 이벤트를 만들지 않아 `aria-describedby`만으로는 새 오류가 읽히지 않을 수 있다. 버튼으로 제출한 경우에는 알림과 설명이 한 번씩 겹쳐 읽히지만, 오류가 아예 안 읽히는 것보다 낫다고 판단했다.
 - 스크롤: 포커스 이동 후 오류 박스가 화면에 보이도록 `scrollIntoView({ block: 'center' })`가 아니라, 브라우저 기본 포커스 스크롤에 맡기고 박스를 칸 바로 위에 붙여(`mb-3`) 같이 보이게 한다(인앱 브라우저의 스크롤 점프 회피).
 
 ##### 3회째 불일치부터 "기억나지 않아요" 자동 펼침
