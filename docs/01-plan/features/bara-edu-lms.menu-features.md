@@ -110,7 +110,7 @@ graph TD
 | F-MY-2 | 수강중 탭 | 진도율 표시 + 강의실 입장 | 진도율 바, 클릭 시 `/learn/[courseId]` | Must | `progress` |
 | F-MY-3 | 완료 탭 | 완료한 강좌 목록 | 진도 100% 강좌 | Should | `progress` |
 | F-MY-4 | 수료증 탭 | 수료증 목록/다운로드 | 발급된 PDF/이미지 | Must | `certificates` |
-| F-MY-5 | 공통 | 계정 정보 수정 | 이름/연락처 수정 | Should | `profiles` |
+| F-MY-5 | 공통 | 계정 정보 수정 | 이름·이메일·휴대전화는 읽기 전용, 주소·사진만 본인이 수정(`updateContactInfo`). 이름·휴대전화 변경은 고객센터 전화 → 관리자가 F-ADMM-7로 수정. 안내 문구는 "이름과 휴대전화를 바꾸려면 고객센터로 전화해 주세요. 가입한 이메일 주소를 말씀해 주시면 바로 도와 드려요." + 전화(tel: 링크)·운영시간(`data/site-config.ts`) (2026-11-26) | Should | `profiles` |
 | F-MY-6 | 설정 | 회원 탈퇴 | 진행 중(입금대기/수강중) 강좌 있으면 차단 안내. 승인 시 소프트 삭제(status='withdrawn') + 이름/연락처 즉시 익명화, 거래·결제 관련 기록은 법정기간 보관 후 파기(security-officer 검토 필요). 같은 이메일 재가입 허용. 처리 순서 (2026-11-23 서버 이전 반영): 학습 이력·진단 PII 정리 → 계정 익명화 → profiles 갱신 → 사진 삭제 → 모든 기기 로그아웃 → 쿠키 삭제(앞 3단계 중 하나라도 실패하면 중단·재시도 가능, 뒤 단계 실패는 탈퇴를 막지 않음) | Must | `profiles`, `enrollments` |
 
 ### 2.4 (user) 강의실 `/learn/[courseId]`
@@ -193,6 +193,7 @@ graph TD
 | F-ADMM-4 | 상세 패널 | 주소·자격증 사진 조회 | 사진은 매 조회마다 60초 만료 서명 URL로 열람(공개 URL 아님, 2026-08-28 추가). 저장소는 비공개 S3 버킷 (2026-11-23 서버 이전 반영) | Must | `profiles`, S3 사진 버킷 |
 | F-ADMM-5 | 상세 패널 | 이메일 인증 상태·인증완료 처리 | 회원 상세에 이메일 인증 상태 배지(인증완료/가입 마무리 전). 가입 마무리 전 회원은 비밀번호가 없어 관리자가 대신 인증할 수 없다 → "인증완료 처리" 버튼 대신 안내 박스와 [비밀번호 재설정 메일 발송](링크를 쓰면 인증도 함께 완료). API 409 `password_not_set`는 "비밀번호가 없는 계정은 인증 처리를 할 수 없어요" 안내 (2026-11-25 개편) | Should | bara-edu API(`/v1/admin/users/:id/confirm-email`·`confirmations`) |
 | F-ADMM-6 | 상세 패널 | 비밀번호 재설정 메일 발송 | 관리자가 회원에게 재설정 메일 발송 → 회원은 F-AUTH-4 링크로 새 비밀번호 설정 (2026-11-23 서버 이전 반영) | Should | bara-edu API(`/v1/admin/users/:id/send-reset`) |
+| F-ADMM-7 | 상세 패널 | 이름·연락처 수정 + 정보 수정 이력 | 기본 정보 카드에서 보기→편집→확인→결과(`MemberProfileEditor`). 고치는 이유 필수(기본값 없음, 기타는 메모 필수), 본인 확인(가입 이메일) 체크 필수. 확인 단계에 변경 전후 값·수료 이력(종이 수료증)·입금 대기 경고. 수정 불가: 탈퇴·운영자 계정·가입 마무리 전·인증 상태 불명·이메일 없음(사유를 글자로 표시). 동시 편집(stale)은 현재 값으로 다시 채움. 저장하면 회원 가입 이메일로 변경 안내 메일(값 없음). 이력은 최근 5건(값 없음), [더 보기]는 서버 액션으로 목록만 조회. 접속 기록(`정보수정`)은 API가 같은 트랜잭션에서 기록. 정의서 `bara-edu-lms.admin-profile-edit.md` (2026-11-26) | Must | `profiles`, `admin_access_logs`, bara-edu API(`admin.updateMemberProfile`, `admin.listMemberProfileEdits`) |
 | F-ADMM-3 | 목록 | 탈퇴 회원 조회 | status='withdrawn' 필터, 개인식별정보는 이미 익명화된 상태로 표시 | Should | `profiles` |
 
 ### 2.8 (admin) 신청·입금 관리 `/admin/enrollments`
