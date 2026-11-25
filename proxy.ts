@@ -14,6 +14,19 @@ function toSignIn(request: NextRequest, withRedirect: boolean): NextResponse {
   return NextResponse.redirect(url);
 }
 
+// API에 닿지 못한 보호 경로 요청: 평문 대신 /service-unavailable 화면으로 rewrite하고 상태는 503을 유지한다.
+// 주소창은 원래 주소(/my 등)라 새로고침이 곧 재시도다. 세션 쿠키는 건드리지 않는다 — 연결 불가는 세션 만료가 아니다.
+// 정적 화면이라 API를 다시 부르지 않는다(app/service-unavailable). Retry-After는 backend와 협의 전 초안값 30초.
+function toServiceUnavailable(request: NextRequest): NextResponse {
+  const url = request.nextUrl.clone();
+  url.pathname = '/service-unavailable';
+  url.search = '';
+  return NextResponse.rewrite(url, {
+    status: 503,
+    headers: { 'Retry-After': '30', 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex' },
+  });
+}
+
 // forwards the request without the cookie too, so pages rendered after this don't look it up again
 function withoutSessionCookie(request: NextRequest, redirectTo: NextResponse | null): NextResponse {
   request.cookies.delete(SESSION_COOKIE);
@@ -61,10 +74,7 @@ export async function proxy(request: NextRequest) {
   }
   if (!r.ok) {
     if (!isProtected) return NextResponse.next();
-    return new NextResponse('서비스에 일시적으로 연결할 수 없어요.', {
-      status: 503,
-      headers: { 'content-type': 'text/plain; charset=utf-8' },
-    });
+    return toServiceUnavailable(request);
   }
 
   const profile = r.data.profile;

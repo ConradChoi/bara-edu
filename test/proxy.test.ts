@@ -28,12 +28,22 @@ const location = (res: Response) => {
   return l ? new URL(l).pathname + new URL(l).search : null;
 };
 const passedThrough = (res: Response) => res.headers.get('x-middleware-next') === '1';
+const setCookie = (res: Response) => res.headers.get('set-cookie') ?? '';
+const rewrittenTo = (res: Response) => {
+  const l = res.headers.get('x-middleware-rewrite');
+  return l ? new URL(l).pathname : null;
+};
 const cookieDeleted = (res: Response) => /bara_session=;.*Expires=Thu, 01 Jan 1970/i.test(res.headers.get('set-cookie') ?? '');
 
 beforeEach(() => {
   fetchMock.mockReset();
   vi.stubGlobal('fetch', fetchMock);
   process.env.BARA_API_URL = 'http://api.local';
+});
+
+test('proxy: /service-unavailable 자체는 보호 경로가 아니라 세션 조회 없이 통과', async () => {
+  expect(passedThrough(await proxy(request('/service-unavailable')))).toBe(true);
+  expect(fetchMock).not.toHaveBeenCalled();
 });
 
 test('proxy: 공개 경로는 쿠키 없어도 통과', async () => {
@@ -101,7 +111,14 @@ test('proxy: API 503 → 보호 경로는 /sign-in으로 보내지 않고 쿠키
   const res = await proxy(request('/my', 'tok'));
   expect(res.status).toBe(503);
   expect(location(res)).toBeNull();
+  expect(rewrittenTo(res)).toBe('/service-unavailable'); // 평문이 아니라 오류 화면으로 rewrite
+  expect(res.headers.get('retry-after')).toBe('30');
+  expect(res.headers.get('cache-control')).toBe('no-store');
+  expect(res.headers.get('x-robots-tag')).toBe('noindex');
   expect(cookieDeleted(res)).toBe(false);
+  expect(setCookie(res)).toBe(''); // 세션 쿠키를 지우지도 다시 쓰지도 않는다
+  expect(await proxy(request('/learn/c1/lessons/l1', 'tok'))).toHaveProperty('status', 503);
+  expect(rewrittenTo(await proxy(request('/admin/members', 'tok')))).toBe('/service-unavailable');
   const pub = await proxy(request('/courses', 'tok'));
   expect(passedThrough(pub)).toBe(true);
   expect(cookieDeleted(pub)).toBe(false);
@@ -111,6 +128,7 @@ test('proxy: 서비스 키 오류(401 unauthorized_service)는 세션 만료가 
   fetchMock.mockImplementation(async () => json(401, { error: { code: 'unauthorized_service', message: 'x' } }));
   const res = await proxy(request('/my', 'tok'));
   expect(res.status).toBe(503);
+  expect(rewrittenTo(res)).toBe('/service-unavailable');
   expect(location(res)).toBeNull();
   expect(cookieDeleted(res)).toBe(false);
   const pub = await proxy(request('/', 'tok'));
@@ -126,8 +144,6 @@ test('proxy: 위조된 XFF 맨 앞 값 대신 cloudfront-viewer-address를 API�
   await proxy(req);
   expect(fetchMock.mock.calls[0][1].headers['x-bara-client-ip']).toBe('203.0.113.7');
 });
-
-const setCookie = (res: Response) => res.headers.get('set-cookie') ?? '';
 
 test('proxy: 유효한 세션이면 API가 준 expiresAt으로 쿠키를 다시 쓴다 (httpOnly, lax, path=/)', async () => {
   fetchMock.mockResolvedValueOnce(
