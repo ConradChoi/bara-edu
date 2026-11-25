@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import type pg from 'pg';
 import { withService } from '../db/context.js';
 import { hashPassword } from './passwords.js';
-import { invalidateEmailTokensIn, lockUserTokensIn } from './tokens.js';
+import { invalidateEmailTokensIn, lockUserSignupIn } from './tokens.js';
 import { revokeAllSessionsIn } from './sessions.js';
 
 // 학습 이력 파기 대상(회원 본인 행만). 거래(enrollments)·수료(certificates)는 법정 보존이라 지우지 않는다.
@@ -36,8 +36,8 @@ export async function withdrawAccount(pool: pg.Pool, userId: string, input: With
   const hash = await hashPassword(randomBytes(32).toString('base64url'));
   const anonymizedEmail = `withdrawn+${userId}@deleted.invalid`;
   return withService(pool, async (tx) => {
-    // 락 순서: 이메일 토큰 -> 사용자 -> profiles (verifyEmail·resetPassword와 같은 방향)
-    await lockUserTokensIn(tx, userId);
+    // 락 순서: 이메일 토큰 -> 가입 시도 -> 사용자 -> profiles (가입 확정·resetPassword와 같은 방향)
+    await lockUserSignupIn(tx, userId);
     // 같은 회원의 동시 탈퇴 요청을 직렬화한다
     const locked = await tx.query('select 1 from auth.users where id = $1 for update', [userId]);
     if (locked.rowCount === 0) return 'not_found';
@@ -56,6 +56,7 @@ export async function withdrawAccount(pool: pg.Pool, userId: string, input: With
       [userId, anonymizedEmail, hash],
     );
     await invalidateEmailTokensIn(tx, userId);
+    await tx.query('delete from auth.signup_attempts where user_id = $1', [userId]); // 이름·연락처·비밀번호 해시 파기
 
     // profiles.email은 auth.users.email의 복제본이라 같은 값으로 맞춘다
     await tx.query(

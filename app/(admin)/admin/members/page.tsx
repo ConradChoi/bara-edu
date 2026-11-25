@@ -81,7 +81,7 @@ export default async function AdminMembersPage({
                     <span className="text-n-5">확인불가</span>
                   ) : (
                     <StatusBadge tone={m.emailConfirmed ? 'success' : 'warning'}>
-                      {m.emailConfirmed ? '인증완료' : '미인증'}
+                      {m.emailConfirmed ? '인증완료' : '가입 마무리 전'}
                     </StatusBadge>
                   )}
                 </td>

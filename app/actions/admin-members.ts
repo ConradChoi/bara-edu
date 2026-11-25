@@ -20,8 +20,8 @@ export async function confirmMemberEmail(memberId: string) {
   if (!member?.email) redirect(`/admin/members/${memberId}?error=failed`);
 
   // API 연결 실패로 예외가 나도 액션 전체가 죽지 않고 기존 실패 배너로 끝낸다(withdraw()와 동일).
-  const confirmed = await adminConfirmEmail(memberId).catch(() => false);
-  if (!confirmed) redirect(`/admin/members/${memberId}?error=failed`);
+  const confirmed = await adminConfirmEmail(memberId).catch(() => ({ ok: false, reason: 'failed' }) as const);
+  if (!confirmed.ok) redirect(`/admin/members/${memberId}?error=${confirmed.reason === 'password_not_set' ? 'password_not_set' : 'failed'}`);
 
   await logAdminAccess(supabase, memberId, '수정', '이메일 인증 수동 완료 처리');
   redirect(`/admin/members/${memberId}?success=email-confirmed`);

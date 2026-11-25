@@ -110,7 +110,8 @@ DB 연결 풀: 연결 대기 5초 제한, 유휴 연결이 끊기면 고정 문�
 | GET | `/healthz` | 상태 확인(키 불필요) |
 | POST | `/v1/auth/signup` | 회원가입 |
 | POST | `/v1/auth/resend` | 인증 메일 재발송 |
-| POST | `/v1/auth/verify-email` | 이메일 인증 후 세션 발급 |
+| GET | `/v1/auth/signup-link/check` | 가입 링크 상태 조회(읽기 전용, 토큰은 헤더 `x-bara-signup-token`) |
+| POST | `/v1/auth/signup-link/complete` | 가입 확정(링크 토큰 + 가입 때 비밀번호) 후 세션 발급. 옛 `verify-email`은 삭제됨 |
 | POST | `/v1/auth/login` | 로그인 |
 | POST | `/v1/auth/logout` | 로그아웃(세션 필요) |
 | POST | `/v1/auth/logout-all` | 내 모든 세션 폐기, 현재 세션 포함(세션 필요) |

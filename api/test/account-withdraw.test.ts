@@ -225,7 +225,7 @@ test('탈퇴 후 남아 있던 confirm·recovery 토큰으로 세션·비밀번�
   const recovery = await issueEmailToken(ctx.pool, a.id, 'recovery');
   expect((await withdraw(a.token)).statusCode).toBe(200);
   const post = (url: string, payload: object) => app.inject({ method: 'POST', url, headers: { 'x-bara-service-key': KEY }, payload });
-  expect((await post('/v1/auth/verify-email', { token: confirm })).statusCode).toBe(400);
+  expect((await post('/v1/auth/signup-link/complete', { token: confirm, password: 'hijacked123' })).statusCode).toBe(400); // 탈퇴 계정의 링크는 invalid
   expect((await post('/v1/auth/reset-password', { token: recovery, newPassword: 'hijacked123' })).statusCode).toBe(400);
   expect((await post('/v1/auth/login', { email: `withdrawn+${a.id}@deleted.invalid`, password: 'hijacked123' })).statusCode).toBe(401);
 });
@@ -236,4 +236,11 @@ test('탈퇴: 고정 목록의 모든 사유 key를 받는다', async () => {
     expect((await withdraw(a.token, { reason: key })).statusCode, key).toBe(200);
     expect((await q('select withdrawal_reason from profiles where id=$1', [a.id]))[0].withdrawal_reason).toBe(key);
   }
+});
+
+test('탈퇴하면 그 계정의 가입 시도(이름·연락처·비밀번호 해시)도 지운다', async () => {
+  const a = await newUser('att1');
+  await q("insert into auth.signup_attempts (user_id, password_hash, name, phone) values ($1, 'h', '이름', '010-0000-0000')", [a.id]);
+  expect((await withdraw(a.token)).statusCode).toBe(200);
+  expect(await q('select 1 from auth.signup_attempts where user_id = $1', [a.id])).toHaveLength(0);
 });

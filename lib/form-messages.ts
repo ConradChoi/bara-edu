@@ -27,3 +27,7 @@ export const FIELD_MESSAGES: Record<FormField, string> = {
 export function formField(v: string | undefined): FormField | undefined {
   return v === 'email' || v === 'password' || v === 'name' || v === 'phone' ? v : undefined;
 }
+
+// 화면(클라이언트)의 불일치 안내 문구. 서버가 돌려줄 때는 칸이 비워져 돌아오므로 "다시"를 넣는다(디자인 스펙 V-1.2).
+export const MSG_PASSWORD_MISMATCH_CLIENT = '비밀번호가 서로 달라요. 두 칸에 같은 비밀번호를 입력해 주세요.';
+export const MSG_PASSWORD_MISMATCH = '비밀번호가 서로 달라요. 두 칸에 같은 비밀번호를 다시 입력해 주세요.';

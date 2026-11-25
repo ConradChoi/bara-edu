@@ -547,3 +547,13 @@ test('이메일 미인증 계정도 그대로 이관(email_confirmed_at null)', 
 - [~] **테스트 공백(B5)**: 수강신청 액션, `lib/db/storage.ts`, 인증 액션, `/auth/confirm` 라우트, RPC 4종(`submit_quiz_attempt`·`get_quiz_for_lesson`·`claim_diagnosis`·`get_diagnosis_summary`) 테스트 추가. 강의실·시험·관리자 액션은 남음.
 
 대표님이 미리 주셔야 하는 것: 운영 Supabase DB 접속 정보(스키마 대조·이관용), Supabase 서비스 키(사진 이관용). SES 샌드박스 해제 결과(2026-11-20 신청).
+
+## 가입 마무리(비밀번호 재확인) 배포·롤백 (2026-11-26, `feat/signup-verify-password`)
+
+계약: `docs/02-design/features/bara-edu-lms.signup-verify-password.api.md`. 아직 머지·배포 전(qa-reviewer·privacy-security-officer 점검 반영 후 배포).
+
+- **배포 순서**: 패치 `api/db/patches/2026-11-25-signup-attempts.sql` -> API -> 앱. 가입이 적은 시간에 API와 앱을 연속 배포한다(API 후 앱 전에는 옛 앱의 `/auth/confirm`이 실패한다. 앱 배포 뒤 같은 링크를 다시 열면 토큰이 소모되지 않았으므로 정상 화면이 뜬다).
+- **롤백 절차(QA B1)**: 옛 `verify-email`은 토큰만으로 인증하므로, API를 옛 버전으로 되돌리면 새 방식 링크로 **인증 완료 + 비밀번호 NULL** 계정이 생길 수 있다. 순서는 **앱 -> API**, 패치 SQL은 되돌리지 않는다(추가만 했다). 롤백 후 `select id, email from auth.users where email_confirmed_at is not null and encrypted_password is null;`을 점검해 해당 회원에게 관리자 재설정 메일을 보낸다. 롤백 동안 옛 정리 함수는 시도를 지우지 않으므로 시도(이름·연락처·해시)는 계정 삭제(첫 가입 후 7일)까지 남는다.
+- **패치 재적용(QA B3)**: 패치 적용 뒤 API 배포 전에 옛 API가 받은 가입(비밀번호가 `auth.users`에 있고 토큰에 `attempt_id` 없음)은 이행되지 않는다. **API 배포 직후 같은 패치를 한 번 더 적용**한다(`begin; set local role bara_edu_service; <파일>; commit;`). 이행 문장이 멱등이라 두 번 적용해도 새 방식 데이터와 인증된 회원은 그대로다(테스트로 확인). 배포 전후 `select count(*) from auth.users where email_confirmed_at is null;`을 확인한다.
+- **위험 감수(대표 결정 2026-11-26)**: 재가입 반복으로 피해자의 가입 링크가 밀려나는 가입 방해(QA B4, 개인정보 C-2·C-3)는 이번 배포에서 감수하고 이후 개선한다. 피해자는 전화 문의 후 관리자 재설정 메일로 복구한다(이메일만 확인). 상세는 정의서 `bara-edu-lms.signup-verify-password.md`의 "위험 감수 기록".
+- **후속 과제(다음 배포)**: 관리자 회원 상세에 이름·연락처 수정 기능(접속 기록 포함). 이번에는 구현하지 않는다.

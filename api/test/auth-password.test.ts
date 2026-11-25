@@ -166,7 +166,8 @@ test('새 비밀번호 7자 → 400, 토큰은 소모되지 않아 이후 재시
   expect((await login(email, 'brandnew123')).statusCode).toBe(200);
 });
 
-const verifyStatus = async (token: string) => (await post('/v1/auth/verify-email', { token })).statusCode;
+// 가입 링크로는 세션을 얻을 수 없다: 이미 인증된 계정의 링크는 409 link_done(비밀번호가 맞아도 로그인시키지 않음)
+const verifyStatus = async (token: string) => (await post('/v1/auth/signup-link/complete', { token, password: 'password1' })).statusCode;
 const resetStatus = async (token: string) => (await post('/v1/auth/reset-password', { token, newPassword: 'hijacked123' })).statusCode;
 
 test('change-password 후 남아 있던 confirm·recovery 토큰은 쓸 수 없다', async () => {
@@ -176,7 +177,7 @@ test('change-password 후 남아 있던 confirm·recovery 토큰은 쓸 수 없�
   const recovery = await issueEmailToken(ctx.pool, id, 'recovery');
   const s = await sessionOf(email);
   expect((await post('/v1/auth/change-password', { currentPassword: 'password1', newPassword: 'newpassword1' }, { 'x-bara-session': s })).statusCode).toBe(200);
-  expect(await verifyStatus(confirm)).toBe(400);
+  expect(await verifyStatus(confirm)).toBe(409);
   expect(await resetStatus(recovery)).toBe(400);
   expect((await login(email, 'newpassword1')).statusCode).toBe(200);
 });
@@ -188,6 +189,6 @@ test('reset-password 성공 시 그 회원의 다른 recovery·confirm 토큰도
   const confirm = await issueEmailToken(ctx.pool, id, 'confirm');
   expect((await post('/v1/auth/reset-password', { token: used, newPassword: 'brandnew123' })).statusCode).toBe(200);
   expect(await resetStatus(otherRecovery)).toBe(400);
-  expect(await verifyStatus(confirm)).toBe(400);
+  expect(await verifyStatus(confirm)).toBe(409);
   expect((await login(email, 'brandnew123')).statusCode).toBe(200);
 });

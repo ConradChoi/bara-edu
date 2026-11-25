@@ -65,6 +65,13 @@ test('인증 완료 처리 실패 → 기존 실패 문구', async () => {
   expect(await run(confirmMemberEmail(MEMBER))).toBe(`REDIRECT:/admin/members/${MEMBER}?error=failed`);
 });
 
+test('인증 완료 처리: API 409 password_not_set → 전용 안내(?error=password_not_set), 일반 실패와 구분', async () => {
+  overrides.set(`/v1/admin/users/${MEMBER}/confirm-email`, { ok: false, status: 409, error: { code: 'conflict', message: 'password_not_set' } });
+  expect(await run(confirmMemberEmail(MEMBER))).toBe(`REDIRECT:/admin/members/${MEMBER}?error=password_not_set`);
+  overrides.set(`/v1/admin/users/${MEMBER}/confirm-email`, { ok: false, status: 409, error: { code: 'conflict', message: 'other' } });
+  expect(await run(confirmMemberEmail(MEMBER))).toBe(`REDIRECT:/admin/members/${MEMBER}?error=failed`);
+});
+
 test('재설정 메일: send-reset에 요청 origin을 보낸다', async () => {
   expect(await run(sendPasswordResetEmail(MEMBER))).toBe(`REDIRECT:/admin/members/${MEMBER}?success=reset-email-sent`);
   expect(to(`/v1/admin/users/${MEMBER}/send-reset`)[0].init).toMatchObject({

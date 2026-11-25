@@ -56,11 +56,43 @@ export async function resend(email: string, origin: string): Promise<ResendResul
   return r.ok ? { ok: true } : { ok: false, reason: failReason(r), ...fieldOf(r) };
 }
 
-export async function verifyEmail(token: string): Promise<boolean> {
-  const r = await apiFetch<Issued>('/v1/auth/verify-email', { method: 'POST', body: { token } });
-  if (!r.ok) return false;
-  await writeSession(r.data.sessionToken, r.data.expiresAt);
-  return true;
+// 가입 링크(/auth/confirm?token=)의 상태. API `GET /v1/auth/signup-link/check` — 읽기 전용이라 토큰·실패 횟수·세션·쿠키를 바꾸지 않는다.
+// 계약: docs/02-design/features/bara-edu-lms.signup-verify-password.api.md
+export type SignupLinkCheck =
+  | { state: 'ready'; email: string; requestedAt: string; expiresAt: string; attemptsLeft: number }
+  | { state: 'done' | 'expired' | 'locked' | 'invalid' };
+export type CheckSignupLinkResult = { ok: true; link: SignupLinkCheck } | { ok: false; reason: 'rate_limited' | 'unavailable' | 'failed' };
+
+// 토큰은 쿼리스트링이 아닌 헤더로 보낸다(API 접근 로그에 토큰이 남지 않게)
+export async function checkSignupLink(token: string): Promise<CheckSignupLinkResult> {
+  const r = await apiFetch<SignupLinkCheck>('/v1/auth/signup-link/check', { method: 'GET', headers: { 'x-bara-signup-token': token } });
+  if (r.ok) return { ok: true, link: r.data };
+  return { ok: false, reason: r.status === 429 ? 'rate_limited' : r.status === 503 ? 'unavailable' : 'failed' };
+}
+
+export type CompleteSignupResult =
+  | { ok: true }
+  | { ok: false; reason: 'wrong_password'; attemptsLeft: number }
+  | { ok: false; reason: 'link_locked' | 'link_expired' | 'link_done' | 'invalid_token' | 'rate_limited' | 'unavailable' | 'failed' }
+  | { ok: false; reason: 'validation'; field?: FormField };
+
+// 가입 확정: 링크 토큰 + 가입 때 입력한 비밀번호. 성공하면 세션 쿠키를 쓴다(자동 로그인).
+// 비밀번호는 로그·URL에 남기지 않는다(호출한 Server Action이 메모리로만 다룬다).
+export async function completeSignup(token: string, password: string): Promise<CompleteSignupResult> {
+  const r = await apiFetch<Issued>('/v1/auth/signup-link/complete', { method: 'POST', body: { token, password } });
+  if (r.ok) {
+    await writeSession(r.data.sessionToken, r.data.expiresAt);
+    return { ok: true };
+  }
+  if (r.status === 403 && r.error.message === 'wrong_password') return { ok: false, reason: 'wrong_password', attemptsLeft: r.error.attemptsLeft ?? 0 };
+  if (r.status === 409) {
+    const m = r.error.message;
+    if (m === 'link_locked' || m === 'link_expired' || m === 'link_done') return { ok: false, reason: m };
+  }
+  if (r.status === 400) {
+    return r.error.message === 'invalid_token' ? { ok: false, reason: 'invalid_token' } : { ok: false, reason: 'validation', ...fieldOf(r) };
+  }
+  return { ok: false, reason: r.status === 429 ? 'rate_limited' : r.status === 503 ? 'unavailable' : 'failed' };
 }
 
 export async function login(email: string, password: string): Promise<LoginResult> {
@@ -122,9 +154,14 @@ export async function withdrawAccount(reason: string, detail: string | null): Pr
   return { ok: false, reason: isDeadSession(r) ? 'unauthenticated' : 'failed' };
 }
 
-export async function adminConfirmEmail(userId: string): Promise<boolean> {
+// 409 password_not_set: 가입을 마무리하지 않아 비밀번호가 없는 계정은 관리자도 대신 인증할 수 없다(대표 결정 5).
+export type AdminConfirmResult = { ok: true } | { ok: false; reason: 'password_not_set' | 'failed' };
+
+export async function adminConfirmEmail(userId: string): Promise<AdminConfirmResult> {
   const r = await apiFetch(`/v1/admin/users/${encodeURIComponent(userId)}/confirm-email`, { method: 'POST', session: await readSession() });
-  return r.ok;
+  if (r.ok) return { ok: true };
+  if (r.status === 409 && r.error.message === 'password_not_set') return { ok: false, reason: 'password_not_set' };
+  return { ok: false, reason: 'failed' };
 }
 
 export async function adminSendReset(userId: string, origin: string): Promise<boolean> {

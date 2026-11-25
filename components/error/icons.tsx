@@ -69,3 +69,36 @@ export const InfoIcon = (p: SVGProps<SVGSVGElement>) => (
     <path d="M12 8h.01" />
   </Svg>
 );
+
+export const LockIcon = (p: SVGProps<SVGSVGElement>) => (
+  <Svg {...p}>
+    <rect width="18" height="11" x="3" y="11" rx="2" ry="2" />
+    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+  </Svg>
+);
+
+export const ClockIcon = (p: SVGProps<SVGSVGElement>) => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="10" />
+    <path d="M12 6v6l4 2" />
+  </Svg>
+);
+
+export const CircleCheckIcon = (p: SVGProps<SVGSVGElement>) => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="10" />
+    <path d="m9 12 2 2 4-4" />
+  </Svg>
+);
+
+export const ChevronDownIcon = (p: SVGProps<SVGSVGElement>) => (
+  <Svg {...p}>
+    <path d="m6 9 6 6 6-6" />
+  </Svg>
+);
+
+export const CheckIcon = (p: SVGProps<SVGSVGElement>) => (
+  <Svg {...p}>
+    <path d="M20 6 9 17l-5-5" />
+  </Svg>
+);

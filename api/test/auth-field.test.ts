@@ -86,6 +86,6 @@ test('field는 400 validation에만 붙고, 다른 오류 응답 형태는 그�
   const unauth = await post('/v1/auth/change-password', { currentPassword: 'x', newPassword: 'longenough1' });
   expect(unauth.statusCode).toBe(401);
   expect(unauth.json()).toEqual({ error: { code: 'unauthenticated', message: '로그인이 필요합니다.' } });
-  const tok = await post('/v1/auth/verify-email', { token: 'nope' });
+  const tok = await post('/v1/auth/signup-link/complete', { token: 'nope', password: 'x' });
   expect(tok.json()).toEqual({ error: { code: 'validation', message: 'invalid_token' } });
 });

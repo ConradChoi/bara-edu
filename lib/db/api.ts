@@ -4,7 +4,8 @@ import { clientIpFrom } from './client-ip';
 import { getServiceKey } from './service-key';
 
 // field: 400 validation에서 문제가 된 입력 칸(email, password, name, phone, currentPassword, token, origin, reason)
-export type ApiError = { code: string; message: string; sqlstate?: string; field?: string };
+// attemptsLeft: 403 wrong_password(가입 링크 비밀번호 불일치)에서 남은 비교 횟수
+export type ApiError = { code: string; message: string; sqlstate?: string; field?: string; attemptsLeft?: number };
 export type ApiResult<T> = { ok: true; data: T } | { ok: false; status: number; error: ApiError };
 
 const TIMEOUT_MS = 10_000;
@@ -28,17 +29,18 @@ function parseError(body: unknown): ApiError | null {
     message: e.message,
     ...(e.sqlstate ? { sqlstate: e.sqlstate } : {}),
     ...(typeof e.field === 'string' ? { field: e.field } : {}),
+    ...(typeof e.attemptsLeft === 'number' ? { attemptsLeft: e.attemptsLeft } : {}),
   };
 }
 
 export async function apiFetch<T>(
   path: string,
-  init: { method?: 'GET' | 'POST'; body?: unknown; session?: string | null; clientIp?: string | null },
+  init: { method?: 'GET' | 'POST'; body?: unknown; session?: string | null; clientIp?: string | null; headers?: Record<string, string> },
 ): Promise<ApiResult<T>> {
   const base = process.env.BARA_API_URL;
   if (!base) throw new Error('BARA_API_URL is not set');
 
-  const reqHeaders: Record<string, string> = {};
+  const reqHeaders: Record<string, string> = { ...init.headers };
   if (init.session) reqHeaders['x-bara-session'] = init.session;
   // proxy passes the IP itself: next/headers isn't available there
   const ip = init.clientIp !== undefined ? init.clientIp : await clientIp();
