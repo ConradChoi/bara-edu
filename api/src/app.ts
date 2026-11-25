@@ -10,6 +10,7 @@ import { keyMatches, registerGuard } from './http/guard.js';
 import { loggerOptions, type LogOptions } from './http/logging.js';
 import { bankAccountsList } from './ops/bank-accounts.js';
 import { enrollmentsApply } from './ops/enrollments.js';
+import { enrollmentsApprove } from './ops/enrollments-approve.js';
 import { profilesGetMine } from './ops/profiles.js';
 import { registerOps, type Op } from './ops/registry.js';
 import { registerOpRoutes } from './ops/routes.js';
@@ -36,7 +37,7 @@ export function buildApp(deps: AppDeps, extraOps: Op[] = []): FastifyInstance {
   registerGuard(app);
   app.get('/healthz', async () => ({ ok: true }));
   registerAuthRoutes(app);
-  registerOpRoutes(app, registerOps([profilesGetMine, bankAccountsList, enrollmentsApply, ...extraOps]));
+  registerOpRoutes(app, registerOps([profilesGetMine, bankAccountsList, enrollmentsApply, enrollmentsApprove, ...extraOps]));
   registerStorageRoutes(app);
   registerQueryRoutes(app, lazyCatalog(deps.pool));
   registerRpcRoutes(app, lazyRpcCatalog(deps.pool));
