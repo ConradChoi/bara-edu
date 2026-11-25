@@ -116,7 +116,7 @@ export default function SignupFinishForm({ token, email, requestedLabel, remaini
                 ))}
               </span>
             </p>
-            <ul className="flex list-disc flex-col gap-1 pl-14 pr-1 text-base leading-[1.7] text-n-7">
+            <ul className="flex list-disc flex-col gap-1 pl-10 pr-1 text-base leading-[1.7] text-n-7">
               <li>가입할 때 정한 비밀번호가 맞는지 확인해 주세요. 한/영 키와 Caps Lock이 켜져 있는지도 살펴봐 주세요.</li>
               <li>다른 인증 메일을 받았다면 그 메일의 링크도 열어 보세요.</li>
               {wrong.attemptsLeft <= 2 && <li>비밀번호가 기억나지 않으면 아래에서 다시 가입할 수 있어요.</li>}
@@ -195,7 +195,7 @@ export default function SignupFinishForm({ token, email, requestedLabel, remaini
             처음부터 다시 가입하기
           </Link>
           <p className="text-base leading-[1.7] text-n-7 break-keep">다시 가입이 어려우면 전화로 문의해 주세요.</p>
-          <a href={`tel:${digits}`} className={SECONDARY_BTN}>
+          <a href={`tel:${digits}`} className={`${SECONDARY_BTN} !px-4 !text-base`}>
             <PhoneIcon className="size-6" />
             전화 문의 {siteConfig.phone}
           </a>

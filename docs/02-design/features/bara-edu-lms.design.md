@@ -616,7 +616,7 @@ export default function SignupTrendChart({ data }: { data: DailySignupPoint[] })
 
 ```tsx
 <StatusBadge tone={isConfirmed ? 'success' : 'warning'}>
-  {isConfirmed ? '인증완료' : '미인증'}
+  {isConfirmed ? '인증완료' : '가입 마무리 전'}
 </StatusBadge>
 ```
 
@@ -632,7 +632,7 @@ export default function SignupTrendChart({ data }: { data: DailySignupPoint[] })
   <td>{new Date(m.createdAt).toLocaleString('ko-KR')}</td>
   <td>
     <StatusBadge tone={m.emailConfirmed ? 'success' : 'warning'}>
-      {m.emailConfirmed ? '인증완료' : '미인증'}
+      {m.emailConfirmed ? '인증완료' : '가입 마무리 전'}
     </StatusBadge>
   </td>
 </tr>
@@ -1432,7 +1432,7 @@ export default function CourseForm({ categories, action, defaultValues, submitLa
 | API 429(요청이 많음) | 가입·재전송·로그인 액션이 상태별로 문구를 나눈다 | "요청이 많아요. 잠시 후 다시 시도해 주세요" | ☐ |
 | API 400(입력 한도) | 앱이 API 한도(이름 100자·이메일 규칙/254자·비밀번호 200자·연락처 30자)를 먼저 검사해 칸별로 안내. API가 어느 칸인지는 알려 주지 않아 그래도 400이면 "이메일 주소를 특히 살펴봐 주세요" | 칸별 문구 | ☐ |
 | 사진 업로드 실패(`failed`) | 신청·정보수정 화면 모두 `photo-failed`로 분리(예전엔 신청 화면에서 conflict로 보임). 사진은 JPG/PNG/WebP만, GIF 불가 안내 | "사진을 저장하는 곳에 문제가 생겨 올리지 못했어요. 잠시 후 다시 시도해 주세요" | ☐ |
-| 인증 메일 링크 무효(`/sign-in?confirmError=1`) | 로그인 폼 위에 안내 + 재전송 폼. 메일 스캐너가 링크를 먼저 열어 토큰이 소진돼도 계정은 인증된 상태일 수 있다 | "이미 인증했다면 아래에서 바로 로그인해 주세요" | ☐ |
+| 인증 링크 무효·만료·잠김·이미 확정(`/auth/confirm`, 2026-11-25 개편: 옛 `confirmError`는 삭제) | 링크를 여는 GET은 읽기 전용이라 메일 스캐너가 먼저 열어도 토큰이 소진되지 않는다. 상태별 화면(ready/locked/만료·무효/done/연결 오류/429), 확정은 비밀번호 POST(server action)에서만. 토큰은 hidden 입력 한 곳에만 두고 `referrer: no-referrer`·noindex | "이 링크는 쓸 수 없어요" 등 `signup-verify-password-copy.md` 4장 | ☐ |
 | `?redirect=` 오픈 리다이렉트 | 로그인 액션 `safeRedirect`가 제어문자(탭·개행·NUL·C1)·공백·역슬래시가 하나라도 있거나 `/`로 시작하지 않거나 `//`·`://`가 있거나 URL 파서로 본 출처가 다르면 `/my`로 대체. 2048자 초과도 거부 | — | ☐ |
 | 무통장입금 기한 만료 | 자동 만료, 재신청 가능 | "입금기한 만료" 배지 + 재신청 CTA | ✅ 03 신청내역-만료 |
 | 신청 이력 있는 강좌 비활성화 시도 | 확인 다이얼로그 | "이미 신청 N건이 있어요" | ✅ 07 하단 주석 |
@@ -1509,7 +1509,7 @@ export default function CourseForm({ categories, action, defaultValues, submitLa
 - **가입 응답(이메일 열거 방지)**: `/v1/auth/signup`은 가입 여부와 관계없이 같은 응답(`pending_confirmation`)을 준다. 신규·미인증 기존 계정에는 인증 메일, 이미 인증한 계정에는 "이미 가입된 이메일이에요" 안내 메일(로그인 링크 `{origin}/sign-in`)을 보낸다. 화면은 항상 "`{email}`로 안내 메일을 보냈어요" (문구: `bara-edu-lms.signup-enumeration-copy.md`). 메일 본문에는 문의 전화(`siteConfig.phone`)와 운영시간(`siteConfig.supportHours`)이 들어간다.
 - **회원 탈퇴**: 앱은 `POST /v1/account/withdraw` 한 번만 호출한다. API가 한 트랜잭션에서 진행 중 수강 검사(입금 기한이 남은 입금대기, 또는 미수료 승인 강좌 → `409 active_enrollment`), 학습 이력·진단 PII 파기, `auth.users`·`profiles` 익명화, 전체 세션 삭제를 처리한다. 사진(`<uid>/photo`) 삭제는 커밋 뒤이며 실패해도 탈퇴는 성공이다. 거래·수료 기록은 보존한다.
 - **세션 쿠키**: API 세션은 만료까지 남은 기간이 절반 아래가 되면 30일로 연장된다. `proxy.ts`는 `/v1/auth/session` 응답의 `renewed`가 true일 때만(그 요청에서 실제로 연장됐을 때) `expiresAt`으로 브라우저 쿠키(`bara_session`: httpOnly, secure(prod), sameSite lax, path /)의 만료를 갱신해 둘이 어긋나지 않게 한다. 쿠키를 쓰거나 지우는 응답은 `Cache-Control: private, no-store`(CDN에 토큰이 캐시되지 않게).
-- **미인증 계정 재가입(마지막 가입자가 이긴다)**: 미인증 기존 계정으로 가입하면 비밀번호·이름·연락처를 새 값으로 덮어쓰고 기존 토큰·세션을 지운 뒤 인증 메일을 다시 보낸다(메일 제한에 걸리면 덮어쓰기도 하지 않는다). 인증된 계정은 덮어쓰지 않는다. 선점을 막는 장치가 아니라 "나중에 가입한 사람의 비밀번호가 남는" 구조다 — 본인이 먼저 가입한 뒤 남이 재가입하면 남의 비밀번호로 인증될 수 있다. 근본 해결인 "인증할 때 가입 비밀번호 재확인"은 대표 승인, 화면 기획 후 다음 배포.
+- **가입 인증 때 비밀번호 확인(2026-11-25)**: 가입은 "가입 시도"(비밀번호 해시·이름·연락처·실패 횟수·잠금, 7일 보관)를 만들고, 인증 링크는 시도 하나에 묶인다. 재가입은 시도만 추가한다(덮어쓰기 없음). 링크를 열면 `/auth/confirm`이 `GET /v1/auth/signup-link/check`(읽기 전용, 토큰은 헤더)로 상태를 보여 주고, 가입 때 정한 비밀번호를 입력해 `POST /v1/auth/signup-link/complete`(server action `finishSignup`)가 일치하면 확정·세션 발급한다. 5회 불일치는 그 시도를 영구 잠금. 가입 폼에는 "비밀번호 확인" 칸과 두 칸이 함께 움직이는 [보기] 토글이 있고 서버 action도 한 번 더 비교한다. 설계: `bara-edu-lms.signup-verify-password.md`(디자인 스펙 V-0~V-10), 계약: `...password.api.md`.
 - **수강신청·승인**: 앱이 중복·모집 상태·정원을 사진 업로드 전에 사전 확인하고, 최종 검증·기록은 `enrollments.apply`(강좌 행 잠금, 한 트랜잭션)가 한다. 정원은 승인 건수 기준이며 관리자 승인도 `enrollments.approve`가 강좌 행을 잠그고 정원이 차면 거절한다("정원이 찼어요. 강좌 정원을 먼저 늘려 주세요."). 락 순서는 이메일 토큰 → 사용자 → profiles, 신청은 profiles를 FOR SHARE로 읽고 탈퇴는 profiles를 먼저 잠근다.
 - **안내 메일·사진 파기**: `already_registered` 메일은 주소당 24시간 1통. 탈퇴 후 사진 삭제가 실패하면 userId를 로그에 남기고 스케줄러가 매일 최근 7일 탈퇴 회원의 사진을 다시 지운다.
 - **관리자 퀴즈 화면**: 정답이 없는 문항은 학습자에게 보이지 않는다는 안내와 문항 표시.
