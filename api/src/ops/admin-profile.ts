@@ -23,13 +23,15 @@ const PHONE_CHARS_RE = /^[0-9\s\-+()]+$/;
 // 아래 중 하나라도 맞으면 memo_has_pii. 날짜(2026-11-26, 숫자 8개)는 허용된다.
 export const MEMO_STRIP_RE = /[\s\-.()]/g; // 이걸 모두 지운 문자열에서 숫자가 9개 이상 이어지면 거절(전화·계좌·주민번호)
 export const MEMO_DIGITS_RE = /\d{9,}/;
+// 날짜(2026-11-26, 2026.11.26, 2026/11/26)와 시각(14:12)은 숫자를 이어 붙이기 전에 구분 기호로 바꾼다 — '2026-11-26 14:12' 같은 흔한 메모가 9자리로 붙어 거절되지 않게(QA 2026-11-26).
+export const MEMO_DATETIME_RE = /(?<!\d)(?:\d{4}[-./]\d{1,2}[-./]\d{1,2}|\d{1,2}:\d{2})(?!\d)/g;
 export const MEMO_INTL_PHONE_RE = /\+\s*82/; // +82로 시작하는 국제 형식
 export const MEMO_RRN_RE = /\d{6}\s*-?\s*[1-8]\d{6}/; // 주민번호 형태(위 규칙과 겹쳐도 명시)
 export const MEMO_EMAIL_RE = /[^\s@]\s*@\s*[^\s@]|\S\s*[(\[]\s*at\s*[)\]]\s*\S/i; // @ 앞뒤 공백 허용, (at)·[at]
 
 export function memoHasPii(memo: string): boolean {
   const m = memo.normalize('NFKC');
-  return CONTROL_RE.test(m) || MEMO_DIGITS_RE.test(m.replace(MEMO_STRIP_RE, '')) || MEMO_INTL_PHONE_RE.test(m) || MEMO_RRN_RE.test(m) || MEMO_EMAIL_RE.test(m);
+  return CONTROL_RE.test(m) || MEMO_DIGITS_RE.test(m.replace(MEMO_DATETIME_RE, '#').replace(MEMO_STRIP_RE, '')) || MEMO_INTL_PHONE_RE.test(m) || MEMO_RRN_RE.test(m) || MEMO_EMAIL_RE.test(m);
 }
 
 // 가입(auth/routes.ts signupBody: 이름 trim 2~100자)과 같은 규칙에 제어 문자·예약 이름 거절, 연속 공백 정리를 더했다.

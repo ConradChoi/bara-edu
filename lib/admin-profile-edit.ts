@@ -55,6 +55,7 @@ const digitCount = (s: string) => (s.match(/\d/g) ?? []).length;
 // 서버(api/src/ops/admin-profile.ts memo_has_pii)와 판정 결과가 같아야 한다. 날짜(2026-11-26)는 허용한다.
 const MEMO_CONTROL = /[\p{Cc}\p{Zl}\p{Zp}\p{Cs}]/u;
 const MEMO_DIGIT_RUN = /\d{9,}/;
+const MEMO_DATETIME = /(?<!\d)(?:\d{4}[-./]\d{1,2}[-./]\d{1,2}|\d{1,2}:\d{2})(?!\d)/g; // 서버 MEMO_DATETIME_RE와 같게
 const MEMO_INTL = /\+\s*82/;
 const MEMO_RRN = /\d{6}\s*-?\s*[1-8]\d{6}/;
 const MEMO_EMAIL = /[^\s@]\s*@\s*[^\s@]|\S\s*[(\[]\s*at\s*[)\]]\s*\S/i; // 서버 api/src/ops/admin-profile.ts MEMO_EMAIL_RE와 같게
@@ -62,7 +63,7 @@ const MEMO_EMAIL = /[^\s@]\s*@\s*[^\s@]|\S\s*[(\[]\s*at\s*[)\]]\s*\S/i; // 서�
 export function memoHasPii(memo: string): boolean {
   const n = memo.normalize('NFKC');
   if (MEMO_CONTROL.test(n) || MEMO_INTL.test(n) || MEMO_RRN.test(n) || MEMO_EMAIL.test(n)) return true;
-  return MEMO_DIGIT_RUN.test(n.replace(/[\s\-.()]/g, ''));
+  return MEMO_DIGIT_RUN.test(n.replace(MEMO_DATETIME, '#').replace(/[\s\-.()]/g, ''));
 }
 
 export const MSG = {

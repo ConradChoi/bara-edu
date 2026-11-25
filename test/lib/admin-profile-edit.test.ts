@@ -40,6 +40,13 @@ describe('validateForm', () => {
     expect(validateForm(filled({ memo: '이모지 \ud83d' }), base).errors.memo).toBe(MSG.memoPii); // 짝 없는 서로게이트
     // 날짜는 허용(서버 규칙과 동일)
     expect(validateForm(filled({ memo: '2026-11-26 전화로 요청' }), base).errors.memo).toBeUndefined();
+    // 날짜·시각을 함께 써도 허용, 날짜 뒤 전화번호는 거절(QA 2026-11-26)
+    for (const memo of ['2026-11-26 14:12', '2026.11.26 14:12', '2026/11/26 09:30 통화', '2026-11-26 2시', '접수 2026-11-26 3건']) {
+      expect(validateForm(filled({ memo }), base).errors.memo, memo).toBeUndefined();
+    }
+    for (const memo of ['2026-11-26 010-1234-5678', '14:12 01012345678']) {
+      expect(validateForm(filled({ memo }), base).errors.memo, memo).toBe(MSG.memoPii);
+    }
   });
 
   test('본인 확인 체크가 없으면 오류', () => {
