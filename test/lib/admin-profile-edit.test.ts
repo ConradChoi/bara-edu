@@ -31,6 +31,9 @@ describe('validateForm', () => {
   test('메모에 전화번호·이메일 형태가 있으면 거절한다', () => {
     expect(validateForm(filled({ memo: '010 1234 5678' }), base).errors.memo).toBe(MSG.memoPii);
     expect(validateForm(filled({ memo: 'a@b.kr 입니다' }), base).errors.memo).toBe(MSG.memoPii);
+    expect(validateForm(filled({ memo: '01012345678' }), base).errors.memo).toBe(MSG.memoPii);
+    // 날짜는 허용(서버 규칙과 동일)
+    expect(validateForm(filled({ memo: '2026-11-26 전화로 요청' }), base).errors.memo).toBeUndefined();
   });
 
   test('본인 확인 체크가 없으면 오류', () => {

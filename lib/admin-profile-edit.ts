@@ -43,7 +43,7 @@ export type SaveOutcome =
 
 const len = (s: string) => [...s].length;
 
-export const normalizeName = (s: string) => s.trim().replace(/ {2,}/g, ' ');
+export const normalizeName = (s: string) => s.trim().replace(/\s{2,}/g, ' ');
 export const normalizePhone = (s: string): string | null => {
   const t = s.trim();
   return t === '' ? null : t;
@@ -52,9 +52,10 @@ export const normalizePhone = (s: string): string | null => {
 const CONTROL = /\p{Cc}/u;
 const PHONE_CHARS = /^[0-9\s\-+()]+$/;
 const digitCount = (s: string) => (s.match(/\d/g) ?? []).length;
-// 서버(memo_has_pii)와 같은 규칙: 공백·-·. 사이를 포함해 숫자 7개 이상, 또는 이메일 형태
-const MEMO_DIGITS = /\d(?:[\s.\-]*\d){6,}/;
-const MEMO_EMAIL = /[^\s@]+@[^\s@]+/;
+// 서버(api/src/ops/admin-profile.ts memo_has_pii)와 같은 규칙. 날짜(2026-11-26)는 허용한다.
+const MEMO_PHONE_LIKE = /(?<!\d)0\d{1,2}[\s.\-]\d{3,4}[\s.\-]\d{4}(?!\d)|\d{10,}/;
+const MEMO_EMAIL = /\S@\S/;
+const MEMO_CONTROL = /[\p{Cc}\p{Zl}\p{Zp}]/u;
 
 export const MSG = {
   nameLength: '이름은 2자 이상 100자 이하로 입력해 주세요.',
@@ -100,7 +101,7 @@ export function validateMemo(memo: string, reason: EditReason | ''): string | un
   const t = memo.trim();
   if (reason === 'other' && len(t) < LIMITS.memoMin) return MSG.memoRequired;
   if (len(t) > LIMITS.memoMax) return MSG.memoLength;
-  if (t && (MEMO_DIGITS.test(t) || MEMO_EMAIL.test(t))) return MSG.memoPii;
+  if (t && (MEMO_CONTROL.test(t) || MEMO_PHONE_LIKE.test(t) || MEMO_EMAIL.test(t))) return MSG.memoPii;
   return undefined;
 }
 
