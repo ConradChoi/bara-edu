@@ -8,7 +8,7 @@
 
 | 항목 | 결정 | 이유 |
 |---|---|---|
-| 변경 안내 메일의 `link` | **필수 유지**. `MailMessage` 모양은 그대로 두고 `link = {사이트 주소}/sign-in`(로그인 화면)을 넣는다 | 메일 타입·SES 본문 조립을 건드리지 않는다. 회원이 본인 계정 상태를 바로 확인하러 갈 수 있는 링크라 쓸모도 있다. 사이트 주소는 클라이언트가 보내지 않고 API 설정(`SITE_ORIGINS`의 첫 값)을 쓴다 |
+| 변경 안내 메일의 `link` | **링크 없음**(2026-11-26 변경: 처음엔 필수로 두고 로그인 링크를 넣기로 했으나, 사기 메일처럼 보이지 않게 하고 받는 사람이 전화로 연락하게 하려고 뺐다). `MailMessage`는 `profile_changed`만 `link` 없이 `fields`·`at`을 쓰고, 나머지 템플릿은 `link` 필수 그대로 | 확정 문구(`bara-edu-lms.admin-profile-edit-copy.md` 6장)에 링크가 없다. 그래서 사이트 주소 설정도 쓰지 않는다 |
 | 접속 기록 `action` | **`정보수정`** (기존 `조회`·`수정`과 같은 한글 관례, `수정`과 구분) | 이력 조회가 `detail` 파싱 없이 action으로 걸러낸다 |
 | 접속 기록과 변경 | **같은 트랜잭션**. 기록 insert가 실패하면 변경 전체 롤백, `503 log_failed` | 마스킹 해제 원칙과 같다 |
 
@@ -44,7 +44,7 @@
 | `phone` | 선택. 문자열 또는 `null`(비움). 앞뒤 공백 제거 후 빈 문자열도 비움. 7~30자, 허용 문자 숫자·공백·`-`·`+`·`(`·`)`, 숫자 7개 이상. `*`가 있으면 `phone_masked` |
 | `expected` | **필수.** 보낸 필드 각각의 편집 시작 시점 값(`name`: 문자열, `phone`: 문자열 또는 `null`). 보낸 필드의 expected 키가 없으면 `field: "expected"` |
 | `reason` | `member_request` \| `typo_fix` \| `signup_attempt_value` \| `other` |
-| `memo` | 선택. 최대 100자, 한 줄. `other`면 5~100자 필수. 숫자 7개 이상(공백·`-`·`.` 사이 포함)이나 이메일 형태는 `memo_has_pii` |
+| `memo` | 선택. 최대 100자, 한 줄. `other`면 5~100자 필수. 전화번호 형태(0으로 시작해 2~3자리·3~4자리·4자리를 공백·`-`·`.`로 이은 것, 또는 구분 없이 10자리 이상 이어진 숫자)나 이메일 형태, 줄바꿈은 `memo_has_pii`. 날짜(`2026-11-26`)는 허용 |
 | `identityChecked` | `true`만 허용 |
 
 기존에 저장된 값이 위 규칙을 못 지켜도, 요청 값이 현재 값과 글자까지 같으면(바꾸지 않는 칸) 그 칸은 검증하지 않는다.
@@ -70,7 +70,7 @@
 
 처리 순서(한 트랜잭션): 관리자 확인 -> 입력 검증(사유·메모·본인 확인) -> 락 `auth.users`(없으면 `not_found`) -> `profiles` -> 상태 검사(`not_found`, `target_is_admin`, `withdrawn`, `not_confirmed`, `no_email`) -> 이름·전화 검증 -> 현재 값 비교(요청 = 현재면 `unchanged`, `expected` ≠ 현재면 `stale`) -> `profiles`의 바뀐 컬럼만 update + `auth.users.raw_user_meta_data`의 `name`/`phone` 키만 갱신(다른 키 보존, 전화를 비우면 `phone` 키 삭제) -> `admin_access_logs` insert(`admin_id` = 호출 관리자, `target_user_id`, `action='정보수정'`, `detail`, `ip_address`) -> 커밋 -> 메일. 락 순서는 기존 규칙(토큰 -> 시도 -> 사용자 -> profiles)을 따른다(`lockUserSignupIn` 재사용).
 
-메일(`profile_changed`): 가입 이메일(`profiles.email`)로. 제목 `[바라 평생교육원] 회원 정보가 수정됐어요`. 항목명(이름, 연락처)과 시각(KST)만, 값은 없다. 고객센터 전화·운영시간은 기존 푸터 블록을 쓴다.
+메일(`profile_changed`): 가입 이메일(`profiles.email`)로. 제목 `[바라 평생교육원] 회원 정보가 바뀌었어요`. 바뀐 항목(이름, 휴대전화)과 바뀐 시각(KST, `2026년 11월 26일 오후 2시 12분`)만, 값은 없다. 링크·비밀번호 변경 권유 없음. 고객센터 전화·운영시간은 기존 푸터 블록을 쓴다.
 
 ## 4. `POST /v1/op/admin.listMemberProfileEdits`
 
