@@ -160,14 +160,59 @@ test('submit_quiz_attempt: 다른 회원의 기록과 섞이지 않는다 (user�
   expect(await attempts('racer2')).toEqual([]);
 });
 
-test('submit_quiz_attempt: 같은 회원이 동시에 제출해도 모두 기록된다 (attempt_no 중복 여부는 관찰만)', async () => {
-  const rs = await Promise.all(Array.from({ length: 6 }, () => rpc('submit_quiz_attempt', { p_lesson_id: lessonId, p_selected_option_ids: [Q[0].ok] }, 'racer2')));
+test('submit_quiz_attempt: 같은 회원이 동시에 제출해도 attempt_no가 겹치지 않는다 (1..N)', async () => {
+  const rs = await Promise.all(Array.from({ length: 8 }, () => rpc('submit_quiz_attempt', { p_lesson_id: lessonId, p_selected_option_ids: [Q[0].ok] }, 'racer2')));
   expect(rs.every((r) => r.statusCode === 200)).toBe(true);
-  const got = await attempts('racer2');
-  expect(got).toHaveLength(6);
-  // 알려진 버그(수정하지 않고 보고만 함): max(attempt_no)+1을 잠금·unique 없이 계산해 동시 제출 시 attempt_no가 겹친다
-  // (관찰 예: 1,2,3,4,4,4). 고쳐지면 아래 줄을 expect(new Set(...).size).toBe(6)로 바꿔 주세요.
-  expect(new Set(got.map((a) => a.attempt_no)).size).toBeLessThanOrEqual(6);
+  expect((await attempts('racer2')).map((a) => a.attempt_no)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+  expect(rs.map((r) => r.json().data[0].attempt_no).sort()).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+});
+
+test('submit_quiz_attempt: 다른 회원끼리 동시에 제출해도 서로 막지 않고 각자 1번부터', async () => {
+  const before = (await attempts('learner')).length;
+  const [a, b] = await Promise.all([
+    rpc('submit_quiz_attempt', { p_lesson_id: lessonId, p_selected_option_ids: [Q[0].ok] }, 'racer1'),
+    rpc('submit_quiz_attempt', { p_lesson_id: lessonId, p_selected_option_ids: [Q[0].ok] }, 'learner'),
+  ]);
+  expect(a.json().data[0].attempt_no).toBe(2);
+  expect(b.json().data[0].attempt_no).toBe(before + 1);
+});
+
+test('submit_quiz_attempt: 한 문항에서 선택지를 둘 이상 보내면 거부하고 기록하지 않는다', async () => {
+  const before = (await attempts('learner')).length;
+  const r = await rpc('submit_quiz_attempt', { p_lesson_id: lessonId, p_selected_option_ids: [Q[0].ok, Q[0].bad, Q[1].ok] }, 'learner');
+  expect(r.statusCode).toBe(400);
+  expect(r.json().error.message).toBe('multiple options selected for one question');
+  expect((await attempts('learner')).length).toBe(before);
+  // 같은 선택지를 중복해서 보내는 것은 한 개로 본다
+  const dup = await rpc('submit_quiz_attempt', { p_lesson_id: lessonId, p_selected_option_ids: [Q[0].ok, Q[0].ok] }, 'learner');
+  expect(dup.statusCode).toBe(200);
+  expect(dup.json().data[0]).toMatchObject({ correct_count: 1, total_questions: 2 });
+});
+
+test('정답이 설정되지 않은 문항은 채점 대상이 아니다: 퀴즈 조회·total_questions·results에서 일관되게 빠진다', async () => {
+  const lesson = (await q("insert into lessons (course_id, title) values ($1,'3강') returning id", [courseId]))[0].id;
+  const mk = async (text: string, order: number, withCorrect: boolean) => {
+    const qid = (await q('insert into quiz_questions (lesson_id, question, "order") values ($1,$2,$3) returning id', [lesson, text, order]))[0].id;
+    const ok = (await q('insert into quiz_options (question_id, label, is_correct, "order") values ($1,$2,$3,1) returning id', [qid, '가', withCorrect]))[0].id;
+    await q("insert into quiz_options (question_id, label, is_correct, \"order\") values ($1,'나',false,2)", [qid]);
+    return { qid, ok };
+  };
+  const graded = await mk('채점됨', 1, true);
+  await mk('정답 미설정', 2, false);
+  const shown = (await rpc('get_quiz_for_lesson', { p_lesson_id: lesson }, 'learner')).json().data as { question: string }[];
+  expect([...new Set(shown.map((x) => x.question))]).toEqual(['채점됨']);
+  const r = await rpc('submit_quiz_attempt', { p_lesson_id: lesson, p_selected_option_ids: [graded.ok] }, 'learner');
+  expect(r.json().data[0]).toMatchObject({ score: 100, correct_count: 1, total_questions: 1 });
+  expect(r.json().data[0].results).toHaveLength(1);
+});
+
+test('채점 가능한 문항이 하나도 없는 강의는 quiz not found for lesson', async () => {
+  const lesson = (await q("insert into lessons (course_id, title) values ($1,'4강') returning id", [courseId]))[0].id;
+  const qid = (await q("insert into quiz_questions (lesson_id, question) values ($1,'정답 없음') returning id", [lesson]))[0].id;
+  await q("insert into quiz_options (question_id, label) values ($1,'가')", [qid]);
+  const r = await rpc('submit_quiz_attempt', { p_lesson_id: lesson, p_selected_option_ids: [] }, 'learner');
+  expect(r.json().error.message).toBe('quiz not found for lesson');
+  expect((await rpc('get_quiz_for_lesson', { p_lesson_id: lesson }, 'learner')).json()).toEqual({ data: [] });
 });
 
 // ---------------------------------------------------------------- 진단: claim_diagnosis / get_diagnosis_summary
