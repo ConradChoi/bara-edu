@@ -3,7 +3,7 @@ import { withService } from '../db/context.js';
 import type { MailMessage } from '../mail/mailer.js';
 import { hashPassword, verifyPassword } from './passwords.js';
 import { hit, release, reserve } from './rate-limit.js';
-import { consumeEmailTokenIn, invalidateEmailTokensIn, issueEmailToken } from './tokens.js';
+import { consumeEmailTokenIn, invalidateEmailTokensIn, issueEmailToken, lockUserTokensIn } from './tokens.js';
 import { createSession, revokeAllSessionsIn, revokeOtherSessionsIn } from './sessions.js';
 
 type SignupInput = { email: string; password: string; name: string; phone?: string | null; origin: string };
@@ -52,6 +52,7 @@ export async function signup(pool: pg.Pool, deliver: MailDeliver, input: SignupI
   // 본인이 60초 동안 인증할 수 없고, 무효화만 하면 링크 없이 계정이 잠긴다. 그래서 제한에 걸리면 아무것도 바꾸지 않는다.
   if (!((await hit(pool, 'resend-60s', input.email, 1, 60)) && (await hit(pool, 'resend-1h', input.email, 4, 3600)))) return 'pending_confirmation';
   const claimed = await withService(pool, async (tx) => {
+    await lockUserTokensIn(tx, user.id); // 락 순서: 토큰 -> 사용자 (verifyEmail과 같은 순서)
     // 인증 처리와 겹치지 않게 행을 잠그고, 그 사이 인증됐다면 덮어쓰지 않는다
     const u = await tx.query<{ id: string }>('select id from auth.users where id = $1 and email_confirmed_at is null for update', [user.id]);
     if (u.rowCount === 0) return false;
@@ -129,6 +130,7 @@ export async function changePassword(pool: pg.Pool, userId: string, currentToken
   if ((await verifyPassword(currentPassword, r.rows[0].encrypted_password)) !== 'ok') return false;
   const newHash = await hashPassword(newPassword);
   await withService(pool, async (tx) => {
+    await lockUserTokensIn(tx, userId); // 락 순서: 토큰 -> 사용자
     await tx.query('update auth.users set encrypted_password = $2, updated_at = now() where id = $1', [userId, newHash]);
     await revokeOtherSessionsIn(tx, userId, currentToken);
     await invalidateEmailTokensIn(tx, userId);

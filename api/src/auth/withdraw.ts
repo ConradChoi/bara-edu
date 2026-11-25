@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import type pg from 'pg';
 import { withService } from '../db/context.js';
 import { hashPassword } from './passwords.js';
-import { invalidateEmailTokensIn } from './tokens.js';
+import { invalidateEmailTokensIn, lockUserTokensIn } from './tokens.js';
 import { revokeAllSessionsIn } from './sessions.js';
 
 // 학습 이력 파기 대상(회원 본인 행만). 거래(enrollments)·수료(certificates)는 법정 보존이라 지우지 않는다.
@@ -36,9 +36,15 @@ export async function withdrawAccount(pool: pg.Pool, userId: string, input: With
   const hash = await hashPassword(randomBytes(32).toString('base64url'));
   const anonymizedEmail = `withdrawn+${userId}@deleted.invalid`;
   return withService(pool, async (tx) => {
+    // 락 순서: 이메일 토큰 -> 사용자 -> profiles (verifyEmail·resetPassword와 같은 방향)
+    await lockUserTokensIn(tx, userId);
     // 같은 회원의 동시 탈퇴 요청을 직렬화한다
     const locked = await tx.query('select 1 from auth.users where id = $1 for update', [userId]);
     if (locked.rowCount === 0) return 'not_found';
+
+    // 프로필 행을 잠가 둔다: enrollments.apply가 profiles를 FOR SHARE로 읽으므로, 이미 신청이 진행 중이면 그 커밋을 기다린 뒤
+    // 아래 진행 중 수강 확인에 그 신청이 보이고, 반대로 탈퇴가 먼저면 신청이 탈퇴 후 상태(inactive)를 본다.
+    await tx.query('select 1 from profiles where id = $1 for update', [userId]);
 
     if ((await tx.query<{ blocked: boolean }>(ACTIVE_ENROLLMENT_SQL, [userId])).rows[0].blocked) return 'active_enrollment';
 

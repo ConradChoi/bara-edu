@@ -14,7 +14,8 @@ export const enrollmentsApply = defineOp({
   async run({ tx, userId }, { courseId }): Promise<{ result: ApplyResult }> {
     if (!userId) throw new Error('session required');
 
-    const p = await tx.query<{ status: string }>('select status from profiles where id = $1', [userId]);
+    // FOR SHARE: 탈퇴(profiles 갱신)와 직렬화한다 — 탈퇴가 진행 중이면 기다렸다가 탈퇴 후 상태를 본다
+    const p = await tx.query<{ status: string }>('select status from profiles where id = $1 for share', [userId]);
     if (p.rows[0]?.status !== 'active') return { result: 'inactive' };
 
     const c = await tx.query<{ status: string; seats: number }>('select status, seats from courses where id = $1 for update', [courseId]);
