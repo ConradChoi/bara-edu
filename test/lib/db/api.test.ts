@@ -34,7 +34,7 @@ const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 
 test('apiFetch가 키·세션·클라이언트 IP 헤더를 붙인다', async () => {
-  headerValues['x-forwarded-for'] = ' 203.0.113.7 , 10.0.0.1';
+  headerValues['x-forwarded-for'] = '6.6.6.6, 203.0.113.7 , 130.176.1.1';
   fetchMock.mockResolvedValue(json(200, { hello: 1 }));
   const r = await apiFetch<{ hello: number }>('/v1/x', { method: 'POST', body: { a: 1 }, session: 'tok' });
   expect(r).toEqual({ ok: true, data: { hello: 1 } });
@@ -58,6 +58,14 @@ test('세션·IP가 없으면 해당 헤더를 보내지 않는다 (headers() �
   headersThrows = true;
   await apiFetch('/v1/x', { session: null });
   expect(fetchMock.mock.calls[1][1].headers['x-bara-client-ip']).toBeUndefined();
+});
+
+test('위조된 XFF 맨 앞 값은 무시하고 cloudfront-viewer-address를 우선한다', async () => {
+  headerValues['x-forwarded-for'] = '6.6.6.6, 203.0.113.9, 130.176.1.1';
+  headerValues['cloudfront-viewer-address'] = '203.0.113.7:4444';
+  fetchMock.mockResolvedValue(json(200, {}));
+  await apiFetch('/v1/x', {});
+  expect(fetchMock.mock.calls[0][1].headers['x-bara-client-ip']).toBe('203.0.113.7');
 });
 
 test('clientIp를 넘기면 headers()를 쓰지 않고 그 값을 보낸다 (null이면 생략)', async () => {

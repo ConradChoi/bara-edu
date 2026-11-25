@@ -21,7 +21,7 @@ const session = (profile: { role: string; status: string } | null) =>
 
 const request = (path: string, token?: string) =>
   new NextRequest(`https://bara-edu.kr${path}`, {
-    headers: { 'x-forwarded-for': '203.0.113.7, 10.0.0.1', ...(token ? { cookie: `bara_session=${token}` } : {}) },
+    headers: { 'x-forwarded-for': '6.6.6.6, 203.0.113.7, 130.176.1.1', ...(token ? { cookie: `bara_session=${token}` } : {}) },
   });
 const location = (res: Response) => {
   const l = res.headers.get('location');
@@ -116,4 +116,13 @@ test('proxy: 서비스 키 오류(401 unauthorized_service)는 세션 만료가 
   const pub = await proxy(request('/', 'tok'));
   expect(passedThrough(pub)).toBe(true);
   expect(cookieDeleted(pub)).toBe(false);
+});
+
+test('proxy: 위조된 XFF 맨 앞 값 대신 cloudfront-viewer-address를 API에 넘긴다', async () => {
+  fetchMock.mockResolvedValue(session({ role: 'user', status: 'active' }));
+  const req = new NextRequest('https://bara-edu.kr/my', {
+    headers: { 'x-forwarded-for': '6.6.6.6, 203.0.113.9, 130.176.1.1', 'cloudfront-viewer-address': '203.0.113.7:5555', cookie: 'bara_session=t' },
+  });
+  await proxy(req);
+  expect(fetchMock.mock.calls[0][1].headers['x-bara-client-ip']).toBe('203.0.113.7');
 });

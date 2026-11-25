@@ -1,5 +1,6 @@
 import 'server-only';
 import { headers } from 'next/headers';
+import { clientIpFrom } from './client-ip';
 import { getServiceKey } from './service-key';
 
 export type ApiError = { code: string; message: string; sqlstate?: string };
@@ -11,8 +12,8 @@ const INTERNAL: ApiError = { code: 'internal', message: '요청을 처리하지 
 
 async function clientIp(): Promise<string | null> {
   try {
-    const first = (await headers()).get('x-forwarded-for')?.split(',')[0]?.trim();
-    return first || null;
+    const h = await headers();
+    return clientIpFrom((n) => h.get(n));
   } catch {
     return null;
   }
