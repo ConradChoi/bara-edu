@@ -1422,7 +1422,18 @@ export default function CourseForm({ categories, action, defaultValues, submitLa
 | Admin 권한 없는 계정의 Admin 라우트 접근 | 403 → 홈 리다이렉트 | (관리자 아님 안내) | ☐ |
 | 동시 입금 승인 처리 충돌 | 낙관적 락 또는 상태 재확인 | "이미 처리된 신청이에요" | ✅ 06 하단 Toast 주석 |
 | 강좌 0개 (빈 강좌 목록) | — | "조건에 맞는 강좌가 없어요" | ✅ 02a-empty |
-| 잘못된 slug 접근 | Next.js 404 | 404 페이지 | ✅ 12 |
+| 잘못된 slug 접근 / 정의되지 않은 주소 | `notFound()` → 그룹별 `not-found.tsx`, 그룹 밖은 `app/not-found.tsx`(HTTP 404, noindex). 상세: [오류 화면 정의서](./bara-edu-lms.error-pages.md) | "찾으시는 페이지가 없어요" + 홈/강좌/전화(번호+운영시간). 추천 카드 없음 | ✅ 12 → 구현 완료 |
+| 관리자 화면의 없는 id | `app/(admin)/not-found.tsx` | AdminShell 안 "찾을 수 없는 항목이에요" + 관리자 홈으로, 전화 없음 | ☐ |
+| 사용자 화면 렌더링 예외 | `(public)/error.tsx`, `(user)/error.tsx`(그룹 헤더·푸터 유지). `unstable_retry()`(Next 16.2)로 재시도, 재시도 2회 실패 후 3회째부터 홈이 주 버튼·전화 강조(sessionStorage, 5분). 신청/시험 경로는 "저장됐는지 내 강좌에서 확인" 안내. **문의번호(digest)는 사용자 화면에 노출하지 않는다**(대표 결정 2026-11-25) | "화면을 불러오지 못했어요" + 다시 시도/홈/전화 | ☐ |
+| 관리자 화면 렌더링 예외 | `(admin)/error.tsx` — AdminShell 유지, 발생 경로·시각(KST)·문의번호(digest)·"오류 정보 복사". 문의번호는 **관리자 화면에만** 보인다. 오류 메시지는 개발 환경에서만 | "이 화면에서 오류가 발생했어요" | ☐ |
+| 그룹 레이아웃이 던진 예외, `(auth)` 그룹 예외 | `app/error.tsx` — 간이 헤더(`ErrorHeader`)+`FooterBody`. `(auth)`는 별도 error.tsx를 두지 않는다(API 장애 시 레이아웃의 세션·푸터 조회가 먼저 실패해 어차피 이 폴백으로 오고, 440px 열 안에 오류 화면을 넣는 것보다 낫다) | 사용자용과 같은 화면 | ☐ |
+| 루트 레이아웃 예외 | `app/global-error.tsx` — 자체 `<html>`, 전부 인라인 스타일, 외부 CSS·폰트·컴포넌트 import 없음(`siteConfig`만). 3회째부터 "다시 시도하기" 숨김 | "지금은 화면을 열 수 없어요" | ☐ |
+| 보호 경로(`/my`·`/learn`·`/admin`) + API 연결 불가 | proxy가 `/service-unavailable`로 **rewrite + 503**(`Retry-After: 30`, `Cache-Control: no-store`, `X-Robots-Tag: noindex`). 주소는 그대로라 새로고침이 재시도. **세션 쿠키는 삭제·갱신하지 않는다**. 이 페이지는 API·세션을 부르지 않는 루트 정적 페이지이고 푸터도 조회 없는 `FooterBody`를 쓴다(`Footer`는 환불정책 조회 + `FooterBody`) | "지금 연결이 원활하지 않아요" + 다시 시도/홈/전화 | ☐ |
+| API 429(요청이 많음) | 가입·재전송·로그인 액션이 상태별로 문구를 나눈다 | "요청이 많아요. 잠시 후 다시 시도해 주세요" | ☐ |
+| API 400(입력 한도) | 앱이 API 한도(이름 100자·이메일 규칙/254자·비밀번호 200자·연락처 30자)를 먼저 검사해 칸별로 안내. API가 어느 칸인지는 알려 주지 않아 그래도 400이면 "이메일 주소를 특히 살펴봐 주세요" | 칸별 문구 | ☐ |
+| 사진 업로드 실패(`failed`) | 신청·정보수정 화면 모두 `photo-failed`로 분리(예전엔 신청 화면에서 conflict로 보임). 사진은 JPG/PNG/WebP만, GIF 불가 안내 | "사진을 저장하는 곳에 문제가 생겨 올리지 못했어요. 잠시 후 다시 시도해 주세요" | ☐ |
+| 인증 메일 링크 무효(`/sign-in?confirmError=1`) | 로그인 폼 위에 안내 + 재전송 폼. 메일 스캐너가 링크를 먼저 열어 토큰이 소진돼도 계정은 인증된 상태일 수 있다 | "이미 인증했다면 아래에서 바로 로그인해 주세요" | ☐ |
+| `?redirect=` 오픈 리다이렉트 | 로그인 액션 `safeRedirect`가 제어문자(탭·개행·NUL·C1)·공백·역슬래시가 하나라도 있거나 `/`로 시작하지 않거나 `//`·`://`가 있거나 URL 파서로 본 출처가 다르면 `/my`로 대체. 2048자 초과도 거부 | — | ☐ |
 | 무통장입금 기한 만료 | 자동 만료, 재신청 가능 | "입금기한 만료" 배지 + 재신청 CTA | ✅ 03 신청내역-만료 |
 | 신청 이력 있는 강좌 비활성화 시도 | 확인 다이얼로그 | "이미 신청 N건이 있어요" | ✅ 07 하단 주석 |
 | Admin 대시보드 "최근 가입자" 0건(오픈 초기) | — | "아직 가입한 회원이 없어요" 빈 상태 문구(`AdminTable` 기존 "검색 결과가 없어요" 톤과 동일) | ☐ |
@@ -1510,3 +1521,4 @@ export default function CourseForm({ categories, action, defaultValues, submitLa
 | 1.2 | 2026-09-09 | Admin 대시보드에 회원 가입 지표(F-ADM-2~5) 화면 정의 추가 — 카드 그룹 분리(신청·수료 / 회원가입, 미인증 카드는 비클릭), 배치 순서(가입 추이→최근 가입자를 카드 바로 아래로, 2단 배치는 기각), `SignupTrendChart`(라이브러리 없는 flex+인라인 style 막대, 라벨 5일 간격), 인증상태 배지는 `components/admin/StatusBadge.tsx`(success/warning) 재사용, 최근 가입자 행 클릭은 stretched-link 패턴. Error Handling 표에 관련 엣지케이스 4건 추가. Figma 05 Admin 대시보드 페이지 반영은 ui-ux-designer 후속 작업(F7 재검토 필요) | Service Planner |
 | 1.3 | 2026-09-09 | 4.6절 자격시험(Course Exam) 기능 설계 추가(F-ADMCAT-4/F-ADMC-7~9/F-LRN-7~10/F-ADMCE-1·4·5) — 데이터 모델 4테이블+3필드 확장, 카테고리 관리 자격증 플래그 토글, `CourseForm`을 `'use client'`로 전환하고 `CategoryPicker`에 `onLevel1Change` 콜백을 추가해 카테고리 실시간 연동(시험 설정 3필드는 CourseForm에 위치), 시험 문제 저작 화면(`/admin/courses/[id]/exam`, 퀴즈 저작 패턴 재사용+순서변경 추가), `CurriculumSidebar` 자격시험 섹션을 교재 섹션 다음 맨 아래 배치, `/learn/[courseId]/exam` 5개 상태(LOCKED/NOT_READY/AVAILABLE/PASSED/EXHAUSTED) 문구·CTA 정의, 수료증 발급 게이팅에 시험 합격 조건 추가, `/admin/certificates`에 "수료 보류 학습자"·"시험 응시 현황" 2섹션 신규(신규 라우트 없음). Error Handling 표에 엣지케이스 8건 추가. 열린 질문 6건(사이드바 잠금 클릭 가능 여부, Lock 아이콘 필요 여부, 리셋 사유 폼 형태, 보기 개수 고정 여부, flows.md 동기화 등)은 PO/ui-ux-designer/developer 확인 필요 | Service Planner |
 | 1.4 | 2026-11-25 | 6.1절 추가 — R24 서버 전환 후속(클라이언트 IP 규칙, 가입 응답 통일, 탈퇴 단일 트랜잭션 API, 세션 쿠키 슬라이딩) | AI Team |
+| 1.5 | 2026-11-25 | 5절 Error Handling 갱신 — 오류 화면 구현(404·사용자/관리자 error·global-error·503 rewrite), 문의번호는 관리자 화면에만, 전화 안내에 운영시간 병기, 429·400·사진 업로드 실패 문구 분리, 오픈 리다이렉트 방어 강화. 정의서: bara-edu-lms.error-pages.md | AI Team |
