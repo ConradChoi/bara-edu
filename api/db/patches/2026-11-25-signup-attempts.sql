@@ -10,6 +10,8 @@
 -- 적용: 한 트랜잭션 안에서 스키마 소유자 역할로 전환한 뒤 실행한다(파일에는 역할 전환을 넣지 않는다 — 패치 형식 테스트).
 --       begin; set local role bara_edu_service; <이 파일>; commit;
 -- 배포 순서: 이 패치 -> API -> 앱 (이 패치는 옛 API·옛 앱과도 호환된다: 새 테이블과 nullable 컬럼만 추가)
+--       패치와 API 배포 사이에 옛 API가 받은 가입(비밀번호가 users에 있고 토큰에 attempt_id가 없음)은 이 패치의 이행 문장(4번)으로만 정리된다.
+--       그래서 API 배포 직후 이 파일을 한 번 더 적용한다(멱등이라 안전, 새 방식의 시도·토큰·인증된 회원은 건드리지 않는다).
 
 create table if not exists auth.signup_attempts (
   id uuid primary key default gen_random_uuid(),
@@ -26,10 +28,6 @@ create index if not exists signup_attempts_user_created_idx on auth.signup_attem
 create index if not exists signup_attempts_expires_idx on auth.signup_attempts (expires_at);
 
 -- 시도가 지워져도 토큰 행은 남긴다(used_at이 채워진 토큰은 check에서 'done'으로 보이게). 새 방식의 confirm 토큰만 attempt_id를 가진다.
-alter table auth.email_tokens add column if not exists attempt_id uuid references auth.signup_attempts on delete set null;
-create index if not exists email_tokens_attempt_idx on auth.email_tokens (attempt_id);
-create index if not exists email_tokens_user_idx on auth.email_tokens (user_id);
-
 alter table auth.email_tokens add column if not exists attempt_id uuid references auth.signup_attempts on delete set null;
 create index if not exists email_tokens_attempt_idx on auth.email_tokens (attempt_id);
 create index if not exists email_tokens_user_idx on auth.email_tokens (user_id);

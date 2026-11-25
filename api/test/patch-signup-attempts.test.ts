@@ -113,6 +113,33 @@ test('패치를 다시 실행해도 새 방식의 시도·토큰·비밀번호 �
   expect(await q('select 1 from auth.signup_attempts where id = $1', [att])).toHaveLength(1);
 });
 
+test('패치와 API 배포 사이에 옛 API가 받은 가입은 API 배포 직후 두 번째 적용으로 이행된다 (새 방식 데이터·인증된 회원은 그대로)', async () => {
+  await run(); // 1차 적용(API 배포 전)
+  // 옛 API가 받은 가입: 비밀번호가 users에 있고, 토큰에 attempt_id가 없다
+  const legacy = (await q("insert into auth.users (email, encrypted_password) values ('window-legacy@x.kr', 'oldhash') returning id"))[0].id;
+  await q("insert into auth.email_tokens (token_hash, user_id, purpose, expires_at) values ('t-window', $1, 'confirm', now() + interval '1 hour')", [legacy]);
+  // 새 API가 받은 가입과 인증된 회원
+  const fresh = (await q("insert into auth.users (email) values ('window-new@x.kr') returning id"))[0].id;
+  const att = (await q("insert into auth.signup_attempts (user_id, password_hash, name) values ($1, 'h', 'n') returning id", [fresh]))[0].id;
+  await q("insert into auth.email_tokens (token_hash, user_id, purpose, expires_at, attempt_id) values ('t-window-new', $1, 'confirm', now() + interval '1 hour', $2)", [fresh, att]);
+  const ok = (await q("insert into auth.users (email, encrypted_password, email_confirmed_at) values ('window-ok@x.kr', 'okhash', now()) returning id"))[0].id;
+  await q("insert into auth.email_tokens (token_hash, user_id, purpose, expires_at) values ('t-window-ok', $1, 'confirm', now() + interval '1 hour')", [ok]);
+
+  await run(); // API 배포 직후 2차 적용
+  await run(); // 한 번 더 실행해도 같다
+  expect((await q('select encrypted_password from auth.users where id = $1', [legacy]))[0].encrypted_password).toBeNull();
+  expect(await q("select 1 from auth.email_tokens where token_hash = 't-window'")).toHaveLength(0);
+  expect(await q("select 1 from auth.email_tokens where token_hash = 't-window-new' and attempt_id = $1", [att])).toHaveLength(1);
+  expect((await q('select encrypted_password from auth.users where id = $1', [ok]))[0].encrypted_password).toBe('okhash');
+  expect(await q("select 1 from auth.email_tokens where token_hash = 't-window-ok'")).toHaveLength(1);
+});
+
+test('패치 파일의 add column·인덱스 구문은 한 번씩만 있다', () => {
+  for (const re of [/add column if not exists attempt_id/g, /create index if not exists email_tokens_attempt_idx/g, /create index if not exists email_tokens_user_idx/g, /create table if not exists auth\.signup_attempts/g]) {
+    expect(patch.match(re), String(re)).toHaveLength(1);
+  }
+});
+
 test('purge_unverified_signups: 만료된 시도만 지우고 토큰 행은 남긴다 (attempt_id만 비워짐)', async () => {
   const id = (await q("insert into auth.users (email) values ('purge-att@x.kr') returning id"))[0].id;
   const live = (await q("insert into auth.signup_attempts (user_id, password_hash, name) values ($1, 'h', 'n') returning id", [id]))[0].id;
