@@ -1,6 +1,8 @@
 # bara-edu-lms 오류 화면 정의서 (Error Pages)
 
-> 작성: service-planner / 2026-11-25 / 상태: Draft (PO 확인 질문 6건 대기)
+> 작성: service-planner / 2026-11-25 / 상태: 구현 완료(2026-11-25, frontend-developer) — 대표 결정 반영, qa-reviewer 리뷰 대기
+> 구현 결정(대표): 문의번호(digest)는 관리자 화면에만 · 전화 안내에 운영시간(`siteConfig.supportHours`) 병기 · 한국어만 · 404 추천 카드 없음. Q1·Q2·Q5·Q6은 이 결정으로 종결.
+> 구현 메모: `(auth)` 그룹 오류는 `app/error.tsx`가 받는다(의도된 동작). 503은 `NextResponse.rewrite(url, { status: 503, headers })`가 이 Next 버전(16.2.7)에서 동작함을 `next start`로 확인(상태 503, 주소 유지, no-store가 페이지의 s-maxage를 덮어씀). 재시도 횟수는 정상 복구를 감지할 수 없어 5분 TTL로 만료한다.
 > 다음 단계: ux-writer(최종 문구) -> ui-ux-designer(디자인 스펙, Figma) -> frontend-developer 구현 -> qa-reviewer
 > 상위 문서: `bara-edu-lms.design.md` (5. Error Handling, 2.2 라우트 그룹, 4.0 디자인 토큰)
 > 이 문서의 **모든 문구는 초안**이다. 최종 문구, 어투, 외국어 병기 여부는 ux-writer가 정한다. 문구 확정 전까지 아래 따옴표 문구는 "의도 전달용 예시"로만 쓴다.

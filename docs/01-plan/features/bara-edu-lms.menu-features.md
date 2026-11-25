@@ -257,6 +257,19 @@ graph TD
 | 주요 비목표 | PBA Radar 연동 · 자격/강사 자격 자동판정 · 임상 진단 표현 · 강사과정 판매 페이지 · 차트 라이브러리 도입 |
 | 선행 게이트 | ~~열린 질문 Q1~Q3 종결~~(2026-09-14 완료) → service-planner/ui-ux-designer 단계 진행 중. 개인정보처리방침 개정(privacy-security-officer)은 구현 단계에서 별도 수행 |
 
+### 2.14 오류 화면 (2026-11-25 구현 — 정의서: [bara-edu-lms.error-pages.md](../../02-design/features/bara-edu-lms.error-pages.md))
+
+| 기능 ID | 화면 | 파일 | 내용 | 우선순위 |
+|---|---|---|---|:---:|
+| F-ERR-1 | 404 | `app/not-found.tsx`, `(public)/(user)/(admin)/not-found.tsx` | HTTP 404·noindex. 홈/강좌 보러가기/전화(번호+운영시간). 강좌 경로는 "없거나 지금은 신청을 받지 않아요" 변형. 추천 카드 없음 | Must |
+| F-ERR-2 | 사용자 오류 | `(public)/error.tsx`, `(user)/error.tsx`, `app/error.tsx` | 다시 시도/홈/전화. 재시도 3회째부터 홈 우선·전화 강조. 신청·시험 경로는 저장 확인 안내. 문의번호 미노출 | Must |
+| F-ERR-3 | 관리자 오류 | `(admin)/error.tsx`, `(admin)/not-found.tsx` | AdminShell 유지. 경로·시각·문의번호(digest) 표시 + 복사. 문의번호는 관리자 화면에만 | Must |
+| F-ERR-4 | 루트 실패 | `app/global-error.tsx` | 인라인 스타일 전용 최소 화면 | Must |
+| F-ERR-5 | 연결 불가 | `app/service-unavailable/page.tsx` + `proxy.ts` | 보호 경로에서 API에 닿지 못하면 rewrite + 503. 세션 쿠키 유지 | Must |
+| F-ERR-6 | 폼 오류 문구 | `app/actions/auth.ts`, `enrollment.ts`, `lib/form-messages.ts` | 429 전용 문구, 400 입력 한도 칸별 안내, 사진 저장 실패 분리, GIF 불가 안내 | Must |
+
+대표 결정(2026-11-25): 문의번호는 관리자 화면에만 · 전화 안내에 운영시간(`siteConfig.supportHours`) 병기 · 한국어만 · 404 추천 카드 없음.
+
 ---
 
 ## 3. Figma 작업 순서 (본 문서 확정 후)
