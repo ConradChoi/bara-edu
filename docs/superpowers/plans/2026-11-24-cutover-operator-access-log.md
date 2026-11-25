@@ -30,6 +30,10 @@
 | 11-25 21:56 | WAS `bara-edu-api` | 변경 | API 릴리스 `ef57636` 설치·재시작(healthz 200) |
 | 11-25 21:56 | `bara_edu`(동일) | 변경 | 같은 패치 재적용(API 배포 직후 절차, 이행 대상 0건) |
 | 11-26 06:43 | WAS `bara-edu-api` | 변경 | API 릴리스 `3ba761f` 설치·재시작(관리자 이름·연락처 수정, DB 패치 없음, healthz 200, 직전 릴리스 `ef57636` 보존) |
+| 11-26 08:07 | WAS `bara-edu-api` | 변경 | API 릴리스 `d02a4ae` 설치·재시작(개인정보 후속 3건, healthz 200, 직전 릴리스 `3ba761f` 보존) |
+| 11-26 08:10 | `bara_edu`(읽기 전용) | 조회 | 패치 전 확인 — 새로 파기 대상이 되는 비회원 진단 행 0건(월별 0), `diagnosis_leads` 소유자 `bara_edu_service`, 정책 select·update 2개. 건수만 조회 |
+| 11-26 08:11 | `bara_edu` | 변경 | 패치 `2026-11-26-privacy-followups.sql` 적용(`set local role bara_edu_service`) — `purge_unclaimed_diagnosis_pii` 조건 확대, `diagnosis_leads_admin_update` 정책 제거. COMMIT, 확인: 정책 select 1개만, 함수 갱신됨. 앱 배포(Amplify #68) 뒤 적용 |
+| 11-26 08:12 | `bara_edu`(읽기 전용) | 조회 | 리드 메모 개인정보 형태 점검 — 메모 있는 리드 0건, 해당 0건. 건수만 조회 |
 
 ## 같은 날 함께 정리한 것
 
