@@ -5,6 +5,7 @@ import { MemoryMailer } from '../src/mail/mailer.js';
 import { MemoryStorage } from '../src/storage/storage.js';
 import { loadConfig } from '../src/config.js';
 import { createSession } from '../src/auth/sessions.js';
+import { WITHDRAWAL_REASON_KEYS } from '../src/auth/withdraw-reasons.js';
 import { issueEmailToken } from '../src/auth/tokens.js';
 import { setupTestDb } from './helpers/db.js';
 
@@ -203,7 +204,7 @@ test('탈퇴 후 기존 이메일로 다시 가입할 수 있고, 기존 비밀�
 test('탈퇴: 입력 검증 — 세션 없음 401, 사유 누락·형식 오류·상세 과다 400, 아무것도 바뀌지 않음', async () => {
   const a = await newUser('valid1');
   expect((await withdraw(undefined)).statusCode).toBe(401);
-  for (const body of [{}, { reason: '' }, { reason: 'BAD REASON!' }, { reason: 'other', detail: 'x'.repeat(1001) }, { reason: 'other', userId: a.id }]) {
+  for (const body of [{}, { reason: '' }, { reason: 'BAD REASON!' }, { reason: 'made_up' }, { reason: 'no_longer_needed ' }, { reason: 'other', detail: 'x'.repeat(1001) }, { reason: 'other', userId: a.id }]) {
     const r = await withdraw(a.token, body);
     expect(r.statusCode, JSON.stringify(body)).toBe(400);
   }
@@ -227,4 +228,12 @@ test('탈퇴 후 남아 있던 confirm·recovery 토큰으로 세션·비밀번�
   expect((await post('/v1/auth/verify-email', { token: confirm })).statusCode).toBe(400);
   expect((await post('/v1/auth/reset-password', { token: recovery, newPassword: 'hijacked123' })).statusCode).toBe(400);
   expect((await post('/v1/auth/login', { email: `withdrawn+${a.id}@deleted.invalid`, password: 'hijacked123' })).statusCode).toBe(401);
+});
+
+test('탈퇴: 고정 목록의 모든 사유 key를 받는다', async () => {
+  for (const key of WITHDRAWAL_REASON_KEYS) {
+    const a = await newUser(`reason-${key}`);
+    expect((await withdraw(a.token, { reason: key })).statusCode, key).toBe(200);
+    expect((await q('select withdrawal_reason from profiles where id=$1', [a.id]))[0].withdrawal_reason).toBe(key);
+  }
 });

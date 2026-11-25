@@ -5,6 +5,7 @@ import { sendError } from '../http/errors.js';
 import { hit, normalizeEmail } from './rate-limit.js';
 import { revokeAllSessions, revokeSession } from './sessions.js';
 import type { MailMessage } from '../mail/mailer.js';
+import { WITHDRAWAL_REASON_KEYS } from './withdraw-reasons.js';
 import { withdrawAccount } from './withdraw.js';
 import { changePassword, confirmEmailAsAdmin, listConfirmations, login, requestReset, resendConfirmation, resetPassword, sendResetAsAdmin, signup, verifyEmail } from './service.js';
 
@@ -33,7 +34,7 @@ const changeBody = z.object({ currentPassword: z.string().min(1).max(200), newPa
 const resetBody = z.object({ token: z.string().min(1).max(200), newPassword: z.string().min(8).max(200) });
 
 const withdrawBody = z
-  .object({ reason: z.string().regex(/^[a-z_]{1,50}$/), detail: z.string().max(1000).nullish() })
+  .object({ reason: z.enum(WITHDRAWAL_REASON_KEYS), detail: z.string().max(1000).nullish() })
   .strict();
 const sendResetBody = z.object({ origin: z.string() });
 const idParam = z.object({ id: z.string().uuid() });
