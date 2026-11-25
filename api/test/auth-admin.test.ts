@@ -169,3 +169,49 @@ test('없는 회원 id → 404, UUID가 아닌 id → 400', async () => {
   expect(bad.json().error.code).toBe('validation');
 });
 
+
+// ---- 가입 마무리(2026-11-25): 미인증 계정은 비밀번호가 없다
+
+async function signedUpUnconfirmed() {
+  const email = `adm-new${++n}@bara-edu.kr`;
+  await call('POST', '/v1/auth/signup', { email, password: 'victimpass1', name: '본인', origin: ORIGIN });
+  const id = (await ctx.adminPool.query('select id from auth.users where email = $1', [email])).rows[0].id as string;
+  return { email, id, link: new URL(mailer.sent.at(-1)!.link).searchParams.get('token')! };
+}
+
+test('관리자 confirm-email: 비밀번호 없는 미인증 계정은 409 password_not_set, 아무것도 바꾸지 않는다', async () => {
+  const t = await signedUpUnconfirmed();
+  const admin = await adminSession();
+  const r = await call('POST', `/v1/admin/users/${t.id}/confirm-email`, undefined, admin);
+  expect(r.statusCode).toBe(409);
+  expect(r.json()).toEqual({ error: { code: 'conflict', message: 'password_not_set' } });
+  const [u] = (await ctx.adminPool.query('select email_confirmed_at, encrypted_password from auth.users where id = $1', [t.id])).rows;
+  expect(u).toEqual({ email_confirmed_at: null, encrypted_password: null });
+  expect((await ctx.adminPool.query('select 1 from auth.signup_attempts where user_id = $1', [t.id])).rowCount).toBe(1);
+});
+
+test('관리자 confirm-email: 이미 인증된 계정은 이전처럼 200(멱등), 인증 시각을 바꾸지 않는다', async () => {
+  const target = await addUser();
+  const before = (await ctx.adminPool.query('select email_confirmed_at from auth.users where id = $1', [target.id])).rows[0].email_confirmed_at;
+  const r = await call('POST', `/v1/admin/users/${target.id}/confirm-email`, undefined, await adminSession());
+  expect(r.statusCode).toBe(200);
+  expect((await ctx.adminPool.query('select email_confirmed_at from auth.users where id = $1', [target.id])).rows[0].email_confirmed_at).toEqual(before);
+});
+
+test('미인증 회원: 관리자가 재설정 메일을 보내고 회원이 링크로 비밀번호를 정하면 인증도 함께 끝난다 (가입 시도·가입 링크는 무효)', async () => {
+  const t = await signedUpUnconfirmed();
+  const admin = await adminSession();
+  mailer.sent.length = 0;
+  expect((await call('POST', `/v1/admin/users/${t.id}/send-reset`, { origin: ORIGIN }, admin)).statusCode).toBe(200);
+  const resetToken = new URL(mailer.sent.at(-1)!.link).searchParams.get('token')!;
+  expect((await call('POST', '/v1/auth/reset-password', { token: resetToken, newPassword: 'brandnewpw1' })).statusCode).toBe(200);
+  const [u] = (await ctx.adminPool.query('select email_confirmed_at, encrypted_password from auth.users where id = $1', [t.id])).rows;
+  expect(u.email_confirmed_at).not.toBeNull();
+  expect(u.encrypted_password).toMatch(/^\$2[aby]\$/);
+  expect((await ctx.adminPool.query('select 1 from auth.signup_attempts where user_id = $1', [t.id])).rowCount).toBe(0);
+  // 예전 가입 링크: 가입 때의 비밀번호가 맞아도 확정·로그인되지 않는다
+  const old = await call('POST', '/v1/auth/signup-link/complete', { token: t.link, password: 'victimpass1' });
+  expect(old.statusCode).toBe(409);
+  expect((await login(t.email, 'victimpass1')).statusCode).toBe(401);
+  expect((await login(t.email, 'brandnewpw1')).statusCode).toBe(200);
+});
