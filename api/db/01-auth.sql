@@ -28,6 +28,28 @@ create table if not exists auth.email_tokens (
   used_at timestamptz
 );
 
+-- 가입 시도: 가입 요청 1건 = 1행. 인증 링크(email_tokens.attempt_id)는 시도 하나에 묶이고, 비밀번호는 그 시도의 것으로만 확인한다.
+-- 미인증 계정의 auth.users.encrypted_password는 비워 둔다. 확정(complete)되면 그 계정의 시도는 모두 지운다.
+-- 이름·연락처·비밀번호 해시를 필요한 기간(7일)만 보관한다 — purge_unverified_signups가 만료분을 지운다.
+create table if not exists auth.signup_attempts (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users on delete cascade,
+  password_hash text not null,
+  name text not null,
+  phone text,
+  fail_count integer not null default 0 check (fail_count >= 0),
+  locked_at timestamptz,
+  created_at timestamptz not null default now(),
+  expires_at timestamptz not null default now() + interval '7 days'
+);
+create index if not exists signup_attempts_user_created_idx on auth.signup_attempts (user_id, created_at);
+create index if not exists signup_attempts_expires_idx on auth.signup_attempts (expires_at);
+
+-- 시도가 지워져도 토큰 행은 남긴다(used_at이 채워진 토큰은 check에서 'done'으로 보이게). 새 방식의 confirm 토큰만 attempt_id를 가진다.
+alter table auth.email_tokens add column if not exists attempt_id uuid references auth.signup_attempts on delete set null;
+create index if not exists email_tokens_attempt_idx on auth.email_tokens (attempt_id);
+create index if not exists email_tokens_user_idx on auth.email_tokens (user_id);
+
 create table if not exists auth.rate_events (
   id bigint generated always as identity primary key,
   bucket text not null,

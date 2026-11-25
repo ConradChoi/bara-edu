@@ -1728,6 +1728,9 @@ as $$
 declare
   v_deleted_count integer;
 begin
+  -- 가입 시도(이름·연락처·비밀번호 해시)는 만료(생성 후 7일)되면 계정과 무관하게 지운다. 연결된 토큰 행은 남고 attempt_id만 비워진다.
+  delete from auth.signup_attempts where expires_at < now();
+
   with target as (
     select p.id
     from profiles p
