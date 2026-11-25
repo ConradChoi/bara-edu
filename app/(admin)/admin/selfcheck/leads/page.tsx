@@ -22,7 +22,7 @@ const ERROR_MESSAGE: Record<string, string> = {
   failed: '처리 중 문제가 발생했어요.',
   'already-processed': '다른 관리자가 이미 처리했어요.',
   'reason-required': '종료 사유를 입력해 주세요.',
-  'memo-pii': '메모에 이름·연락처 같은 개인정보로 보이는 내용이 있어 저장하지 않았어요. 지우고 다시 저장해 주세요.',
+  'memo-pii': '전화번호·이메일·주민번호처럼 보이는 내용은 저장할 수 없어요. 그 부분을 지우고 다시 저장해 주세요.',
   'log-failed': '접속 기록을 남기지 못해 변경하지 않았어요. 잠시 후 다시 시도해 주세요.',
   'reveal-failed': '개인정보 보기 처리 중 오류가 발생했어요. 잠시 후 다시 시도해 주세요. 계속되면 관리자에게 문의해 주세요.',
 };
@@ -119,7 +119,7 @@ export default async function AdminDiagnosisLeadsPage({
                           description="통화 메모가 있으면 함께 남길 수 있어요."
                           confirmLabel="표시"
                           action={markLeadContacted.bind(null, lead.id)}
-                          reasonField={{ name: 'note', label: '메모 (선택)', placeholder: '통화 내용 등 (이름·연락처는 적지 마세요)', required: false, checkPii: true }}
+                          reasonField={{ name: 'note', label: '메모 (선택)', placeholder: '연락 내용만 적어 주세요. 이름·연락처는 적지 말아 주세요.', required: false, checkPii: true }}
                         />
                         <ConfirmDialog
                           triggerLabel="바로 종료"

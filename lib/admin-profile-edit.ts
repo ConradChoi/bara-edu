@@ -67,7 +67,7 @@ export function memoHasPii(memo: string): boolean {
 }
 
 // 강사과정 문의(리드) 메모: 여러 줄 입력이라 줄바꿈·탭을 공백으로 바꿔 검사한다(서버 api/src/ops/admin-diagnosis.ts와 같게). 길이 제한은 없다.
-export const LEAD_NOTE_PII_MESSAGE = '메모에는 이름·연락처·계좌 같은 개인정보를 적지 마세요. 숫자는 8자리 이하로 적어 주세요.';
+export const LEAD_NOTE_PII_MESSAGE = '전화번호·이메일·주민번호처럼 보이는 내용은 저장할 수 없어요. 그 부분을 지우고 다시 입력해 주세요.';
 export function leadNoteHasPii(note: string): boolean {
   return memoHasPii(note.replace(/\s+/g, ' '));
 }
@@ -80,7 +80,7 @@ export const MSG = {
   reason: '고치는 이유를 골라 주세요.',
   memoRequired: '기타를 고르면 메모를 5자 이상 적어 주세요.',
   memoLength: '메모는 100자 이하로 적어 주세요.',
-  memoPii: '메모에는 이름이나 전화번호를 적지 말아 주세요.',
+  memoPii: '전화번호·이메일처럼 보이는 내용은 적을 수 없어요.',
   verified: '본인 확인을 마친 뒤에 체크해 주세요.',
   none: '바뀐 내용이 없어요.',
 } as const;
