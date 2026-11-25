@@ -41,7 +41,8 @@ export async function signup(pool: pg.Pool, deliver: MailDeliver, input: SignupI
   if (!user || UNDELIVERABLE.test(input.email)) return 'pending_confirmation';
   if (user.email_confirmed_at) {
     // 같은 주소로 가입을 반복해 안내 메일을 쏟아내지 못하게 resend와 같은 간격으로 제한한다
-    if ((await hit(pool, 'already-60s', input.email, 1, 60)) && (await hit(pool, 'already-1h', input.email, 4, 3600))) {
+    // 하루 1통(가장 엄격한 것부터 확인): 특정 주소로 안내 메일을 쏟아내 SES 발신 평판을 해치는 것을 막는다
+    if ((await hit(pool, 'already-24h', input.email, 1, 86_400)) && (await hit(pool, 'already-60s', input.email, 1, 60)) && (await hit(pool, 'already-1h', input.email, 4, 3600))) {
       deliver({ to: input.email, template: 'already_registered', link: `${input.origin}/sign-in` });
     }
     return 'pending_confirmation';

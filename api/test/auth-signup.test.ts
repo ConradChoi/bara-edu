@@ -416,3 +416,34 @@ test('선점 방지: 이미 인증된 계정은 덮어쓰지 않고, 응답 형�
   expect(await stored(email)).toEqual(snapshot);
   expect((await login(email, 'ownerpw123')).statusCode).toBe(200);
 });
+
+test('이미 가입된 계정 안내 메일: 60초·1시간 제한이 풀려도 같은 주소에는 24시간에 1통', async () => {
+  const email = 'daily1@bara-edu.kr';
+  await signup({ email });
+  await post('/v1/auth/verify-email', { token: tokenOf(mailer.sent[0].link) });
+  mailer.sent.length = 0;
+  const infoMails = () => mailer.sent.filter((m) => m.template === 'already_registered').length;
+  const ageLimits = (hours: number) =>
+    ctx.adminPool.query("update auth.rate_events set created_at = created_at - make_interval(hours => $1::int) where bucket in ('already-60s','already-1h')", [hours]);
+
+  expect((await signup({ email })).json()).toEqual({ status: 'pending_confirmation' });
+  expect(infoMails()).toBe(1);
+  await ageLimits(2); // 60초·1시간 창은 지났지만 24시간 안
+  const second = await signup({ email });
+  expect(second.json()).toEqual({ status: 'pending_confirmation' });
+  expect(infoMails()).toBe(1);
+  await ctx.adminPool.query("update auth.rate_events set created_at = created_at - interval '25 hours' where bucket = 'already-24h'");
+  await signup({ email });
+  expect(infoMails()).toBe(2);
+});
+
+test('안내 메일 상한은 주소별이다 (다른 주소는 각각 1통)', async () => {
+  for (const email of ['daily2@bara-edu.kr', 'daily3@bara-edu.kr']) {
+    await signup({ email });
+    await post('/v1/auth/verify-email', { token: tokenOf(mailer.sent.at(-1)!.link) });
+  }
+  mailer.sent.length = 0;
+  await signup({ email: 'daily2@bara-edu.kr' });
+  await signup({ email: 'daily3@bara-edu.kr' });
+  expect(mailer.sent.filter((m) => m.template === 'already_registered').map((m) => m.to).sort()).toEqual(['daily2@bara-edu.kr', 'daily3@bara-edu.kr']);
+});
