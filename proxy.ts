@@ -33,6 +33,16 @@ export async function proxy(request: NextRequest) {
   const isAdminRoute = pathname.startsWith(ADMIN_ROUTE_PREFIX);
   const isProtected = isAdminRoute || USER_ROUTE_PREFIXES.some((p) => pathname.startsWith(p));
 
+  // TEMP(R24 IP 진단, 2026-11-25): 헤더 모양 확인 후 바로 삭제. ?ipdiag=1 요청만, IP 끝자리는 가림.
+  if (request.nextUrl.searchParams.get('ipdiag') === '1') {
+    const mask = (v: string) => v.trim().replace(/(\d+\.\d+\.\d+)\.\d+/g, '$1.x').replace(/^([0-9a-f]+:[0-9a-f]+:[0-9a-f]+):[0-9a-f:]+/i, '$1:x');
+    console.log('[ipdiag]', JSON.stringify({
+      xff: (request.headers.get('x-forwarded-for') ?? '').split(',').map(mask),
+      viewer: mask(request.headers.get('cloudfront-viewer-address') ?? ''),
+      realIp: mask(request.headers.get('x-real-ip') ?? ''),
+    }));
+  }
+
   const token = request.cookies.get(SESSION_COOKIE)?.value;
   if (!token) return isProtected ? toSignIn(request, true) : NextResponse.next();
 
