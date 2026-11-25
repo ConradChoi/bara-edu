@@ -6,8 +6,8 @@ import type { MailMessage } from '../mail/mailer.js';
 export type OpAccess = 'anon' | 'user' | 'service';
 
 // ip: 앱이 넘긴 x-bara-client-ip(없으면 null). queueMail: 트랜잭션이 커밋된 뒤에만 메일을 대기열에 넣는다(롤백되면 보내지 않는다, 실패해도 오퍼레이션 결과에 영향 없음).
-// siteOrigin: 메일 링크에 쓰는 이 사이트의 주소(API 설정, 클라이언트 입력 아님).
-export type OpContext = { tx: Tx; userId: string | null; ip: string | null; siteOrigin: string; queueMail(msg: MailMessage): void };
+// warn: 서버 경고 로그 한 줄(userId만 남김, 개인정보 없음). siteOrigin: 메일 링크에 쓰는 이 사이트의 주소(API 설정, 클라이언트 입력 아님).
+export type OpContext = { tx: Tx; userId: string | null; ip: string | null; siteOrigin: string; queueMail(msg: MailMessage): void; warn(event: string): void };
 
 // 오퍼레이션이 던지면 트랜잭션은 롤백되고 이 코드·메시지로 응답한다(예: 접속 기록 실패 -> 503).
 export class OpError extends Error {

@@ -1,3 +1,4 @@
+import { isIP } from 'node:net';
 import type { FastifyInstance } from 'fastify';
 import { withAnon, withService, withUser, type Tx } from '../db/context.js';
 import { sendError } from '../http/errors.js';
@@ -16,10 +17,11 @@ export function registerOpRoutes(app: FastifyInstance, registry: Registry): void
     if (!parsed.success) return sendError(reply, 'validation', '요청 형식이 올바르지 않습니다.');
     const { pool } = app.deps;
     const ipHeader = req.headers['x-bara-client-ip'];
-    const ip = (typeof ipHeader === 'string' ? ipHeader.trim().slice(0, 64) : '') || null;
+    const ipText = typeof ipHeader === 'string' ? ipHeader.trim() : '';
+    const ip = isIP(ipText) ? ipText : null; // IP 형식이 아니면 버린다(접속 기록에 임의 문자열이 들어가지 않게)
     const mails: MailMessage[] = [];
     const exec = (tx: Tx) =>
-      op.run({ tx, userId, ip, siteOrigin: app.deps.config.siteOrigins[0], queueMail: (m) => void mails.push(m) }, parsed.data);
+      op.run({ tx, userId, ip, siteOrigin: app.deps.config.siteOrigins[0], queueMail: (m) => void mails.push(m), warn: (event) => req.log.warn({ userId, op: op.name }, event) }, parsed.data);
     let data: unknown;
     try {
       if (op.access === 'service') data = await withService(pool, exec);
@@ -32,7 +34,7 @@ export function registerOpRoutes(app: FastifyInstance, registry: Registry): void
     // 커밋된 뒤에만 보낸다. 응답을 기다리지 않고, 실패는 기록만 한다(주소·내용은 남기지 않는다).
     for (const m of mails) {
       setImmediate(() => {
-        app.deps.mailer.send(m).catch((e: unknown) => req.log.error({ errorName: e instanceof Error ? e.name : 'unknown' }, 'op mail failed'));
+        app.deps.mailer.send(m).catch((e: unknown) => req.log.error({ template: m.template, errorName: e instanceof Error ? e.name : 'unknown' }, 'op mail failed'));
       });
     }
     return { data };

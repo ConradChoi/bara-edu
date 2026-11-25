@@ -144,6 +144,24 @@ test('메일 전송이 실패해도 변경은 성공이다', async () => {
   await failing.close();
 });
 
+test('메일 발송 실패 로그에는 template 이름이 들어가고 주소·내용은 없다', async () => {
+  const lines: string[] = [];
+  const failing = buildApp({
+    config: loadConfig({ DATABASE_URL: 'postgresql://x/x', BARA_SERVICE_KEY: KEY }), pool: ctx.pool, storage: new MemoryStorage(),
+    mailer: { send: async () => { throw new Error('ses down to x@y.z'); } },
+    logger: { level: 'info', stream: { write: (l: string) => void lines.push(l) } },
+  });
+  await failing.ready();
+  const m = await member();
+  await failing.inject({ method: 'POST', url: '/v1/op/admin.updateMemberProfile', headers: { 'x-bara-service-key': KEY, 'x-bara-session': adminToken }, payload: { params: base(m.id) } });
+  await tick();
+  const o = lines.map((l) => JSON.parse(l)).find((x) => x.msg === 'op mail failed');
+  expect(o).toMatchObject({ template: 'profile_changed', errorName: 'Error' });
+  expect(JSON.stringify(o)).not.toContain(m.email);
+  expect(JSON.stringify(o)).not.toContain('x@y.z');
+  await failing.close();
+});
+
 test('낙관적 잠금: expected가 다르면 stale과 현재 값, 아무것도 바뀌지 않고 기록·메일 없음', async () => {
   const m = await member();
   await q("update profiles set name = '다른관리자' where id = $1", [m.id]);
@@ -254,13 +272,55 @@ test('사유·메모·본인 확인 검증', async () => {
 });
 
 test('메모: 날짜는 허용, 전화번호 형태는 거절', async () => {
-  for (const ok of ['2026-11-26 요청', '2026.11.26 접수', '접수번호 123456789', '2026-11-26 14:12']) {
+  for (const ok of ['2026-11-26', '2026.11.26', '2026-11-26 요청', '접수번호 12345678', '전화로 요청하셔서 이름을 고쳤어요', '오기 정정']) {
     const m = await member();
     expect((await update(base(m.id, { memo: ok }))).result, ok).toBe('ok');
   }
-  for (const no of ['010-1234-5678', '010 1234 5678', '010.1234.5678', '02-123-4567', '031-1234-5678', '01012345678', '1234567890 번']) {
+  for (const no of ['010-1234-5678', '010 1234 5678', '010.1234.5678', '02-123-4567', '031-1234-5678', '01012345678', '1234567890 번', '900101-1234567', '+82 10-1234-5678', '+8210 1234 5678', '10-1234-5678', '０１０-１２３４-５６７８', '0 1 0 1 2 3 4 5 6 7 8', '110-123-456789', '(010) 1234 5678', 'abc @ naver.com', 'abc@naver.com', 'abc (at) naver.com', 'abc[at]naver.com', '짝\ud800없음']) {
     await invalid({ memo: no }, 'memo', 'memo_has_pii');
   }
+});
+
+test('바뀐 칸 판정: 기존 이름에 연속 공백이 있어도 phone만 보내면 이름은 후보가 아니다', async () => {
+  const m = await member({ name: '홍  길동' });
+  const d = await update({ memberId: m.id, phone: '010-5555-6666', expected: { phone: '010-1111-2222' }, reason: 'typo_fix', identityChecked: true });
+  expect(d).toMatchObject({ result: 'ok', changed: ['phone'], profile: { name: '홍  길동', phone: '010-5555-6666' } });
+  expect((await profile(m.id)).name).toBe('홍  길동');
+  const [row] = await logs(m.id);
+  expect(row.detail).toContain('fields=phone;');
+  // 이름을 현재 원문 그대로 같이 보내도(바꾸지 않음) 검증·변경 대상이 아니다
+  const d2 = await update({ memberId: m.id, name: '홍  길동', phone: '010-7777-8888', expected: { name: '홍  길동', phone: '010-5555-6666' }, reason: 'typo_fix', identityChecked: true });
+  expect(d2).toMatchObject({ result: 'ok', changed: ['phone'] });
+  expect((await profile(m.id)).name).toBe('홍  길동');
+});
+
+test('짝 없는 서로게이트 이름은 500이 아니라 name_control', async () => {
+  await invalid({ name: '홍\ud800길동' }, 'name', 'name_control');
+});
+
+test('비관리자 호출은 서버 경고 로그를 남기고(개인정보 없음) forbidden', async () => {
+  const lines: string[] = [];
+  const logged = buildApp({
+    config: loadConfig({ DATABASE_URL: 'postgresql://x/x', BARA_SERVICE_KEY: KEY }), pool: ctx.pool, mailer, storage: new MemoryStorage(),
+    logger: { level: 'info', stream: { write: (l: string) => void lines.push(l) } },
+  });
+  await logged.ready();
+  const m = await member();
+  const r = await logged.inject({ method: 'POST', url: '/v1/op/admin.updateMemberProfile', headers: { 'x-bara-service-key': KEY, 'x-bara-session': learnerToken }, payload: { params: base(m.id) } });
+  expect(r.json().data.result).toBe('forbidden');
+  const warn = lines.map((l) => JSON.parse(l)).find((o) => o.msg === 'admin.updateMemberProfile forbidden');
+  expect(warn).toMatchObject({ level: 40, op: 'admin.updateMemberProfile' });
+  expect(JSON.stringify(warn)).not.toContain('홍길');
+  await logged.close();
+});
+
+test('x-bara-client-ip가 IP 형식이 아니면 접속 기록 ip_address는 null', async () => {
+  const a = await member();
+  await update(base(a.id), adminToken, "1.2.3.4'; drop table x;--");
+  expect((await logs(a.id))[0].ip_address).toBeNull();
+  const b = await member();
+  await update(base(b.id), adminToken, '2001:db8::1');
+  expect((await logs(b.id))[0].ip_address).toBe('2001:db8::1');
 });
 
 test('메모의 구분자(; =)는 인코딩되어 detail 형식이 깨지지 않는다', async () => {

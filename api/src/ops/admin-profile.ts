@@ -15,11 +15,22 @@ type Fields = { name: string; phone: string | null };
 type Validation = { result: 'validation'; field: string; reason: string };
 const bad = (field: string, reason: string): Validation => ({ result: 'validation', field, reason });
 
-const CONTROL_RE = /[\p{Cc}\p{Zl}\p{Zp}]/u;
+// \p{Cs}: 짝 없는 서로게이트(DB 저장 때 500이 나므로 입력 단계에서 거절)
+const CONTROL_RE = /[\p{Cc}\p{Cs}\p{Zl}\p{Zp}]/u;
 const PHONE_CHARS_RE = /^[0-9\s\-+()]+$/;
-// 메모에 못 쓰는 전화번호 형태: 0으로 시작해 2~3자리 / 3~4자리 / 4자리를 공백·-·.로 이은 것, 구분 없이 10자리 이상 이어진 숫자. 날짜(2026-11-26)는 허용한다.
-const PHONE_LIKE_RE = /(?<!\d)0\d{1,2}[\s.\-]\d{3,4}[\s.\-]\d{4}(?!\d)|\d{10,}/;
-const EMAIL_LIKE_RE = /\S@\S/;
+
+// 메모 개인정보 규칙(frontend도 같은 정의를 쓴다). 검사 전에 memo.normalize('NFKC')로 전각 숫자 등을 바꾼다.
+// 아래 중 하나라도 맞으면 memo_has_pii. 날짜(2026-11-26, 숫자 8개)는 허용된다.
+export const MEMO_STRIP_RE = /[\s\-.()]/g; // 이걸 모두 지운 문자열에서 숫자가 9개 이상 이어지면 거절(전화·계좌·주민번호)
+export const MEMO_DIGITS_RE = /\d{9,}/;
+export const MEMO_INTL_PHONE_RE = /\+\s*82/; // +82로 시작하는 국제 형식
+export const MEMO_RRN_RE = /\d{6}\s*-?\s*[1-8]\d{6}/; // 주민번호 형태(위 규칙과 겹쳐도 명시)
+export const MEMO_EMAIL_RE = /[^\s@]\s*@\s*[^\s@]|\S\s*[(\[]\s*at\s*[)\]]\s*\S/i; // @ 앞뒤 공백 허용, (at)·[at]
+
+export function memoHasPii(memo: string): boolean {
+  const m = memo.normalize('NFKC');
+  return CONTROL_RE.test(m) || MEMO_DIGITS_RE.test(m.replace(MEMO_STRIP_RE, '')) || MEMO_INTL_PHONE_RE.test(m) || MEMO_RRN_RE.test(m) || MEMO_EMAIL_RE.test(m);
+}
 
 // 가입(auth/routes.ts signupBody: 이름 trim 2~100자)과 같은 규칙에 제어 문자·예약 이름 거절, 연속 공백 정리를 더했다.
 export function checkName(raw: string): { ok: true; value: string } | { ok: false; reason: string } {
@@ -47,7 +58,7 @@ function checkMeta(p: { reason?: string; memo?: string | null; identityChecked?:
   const memo = (p.memo ?? '').trim();
   if (p.reason === 'other' && [...memo].length < 5) return bad('memo', 'memo_required');
   if ([...memo].length > 100) return bad('memo', 'memo_length');
-  if (memo && (CONTROL_RE.test(memo) || PHONE_LIKE_RE.test(memo) || EMAIL_LIKE_RE.test(memo))) return bad('memo', 'memo_has_pii');
+  if (memo && memoHasPii(memo)) return bad('memo', 'memo_has_pii');
   return { memo: memo || null };
 }
 
@@ -81,8 +92,11 @@ export const adminUpdateMemberProfile = defineOp({
   name: 'admin.updateMemberProfile',
   access: 'service',
   params,
-  async run({ tx, userId, ip, queueMail }, p) {
-    if (!userId || !(await isAdmin(tx, userId))) return { result: 'forbidden' };
+  async run({ tx, userId, ip, queueMail, warn }, p) {
+    if (!userId || !(await isAdmin(tx, userId))) {
+      warn('admin.updateMemberProfile forbidden');
+      return { result: 'forbidden' };
+    }
 
     const meta = checkMeta(p);
     if ('result' in meta) return meta;
@@ -183,8 +197,11 @@ export const adminListMemberProfileEdits = defineOp({
   name: 'admin.listMemberProfileEdits',
   access: 'service',
   params: listParams,
-  async run({ tx, userId }, { memberId, limit }) {
-    if (!userId || !(await isAdmin(tx, userId))) return { result: 'forbidden' };
+  async run({ tx, userId, warn }, { memberId, limit }) {
+    if (!userId || !(await isAdmin(tx, userId))) {
+      warn('admin.listMemberProfileEdits forbidden');
+      return { result: 'forbidden' };
+    }
     const n = limit ?? 5;
     const r = await tx.query<{ created_at: Date; detail: string | null; admin_name: string | null; admin_status: string | null }>(
       `select l.created_at, l.detail, a.name as admin_name, a.status as admin_status
