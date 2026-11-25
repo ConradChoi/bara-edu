@@ -1448,6 +1448,10 @@ export default function CourseForm({ categories, action, defaultValues, submitLa
 | 카테고리를 자격증 → 일반으로 변경 후 강좌 저장 | 서버가 `requires_exam`/`exam_pass_score`/`exam_max_attempts`를 강제 정규화, 기존 문항·응시 기록은 삭제하지 않음(되돌리면 복구) | 강좌 수정 성공 토스트만, 별도 경고 없음(정책상 허용된 동작) | ☐ |
 | 자격시험 응시 횟수 리셋 시 사유 미입력 | 폼 검증 실패 | "사유를 입력해주세요." | ☐ |
 | `requires_exam=true` + 문항 0건 강좌 목록 노출 | — | 강좌 목록에 `시험 문제 미등록` 경고 배지(StatusBadge warning) | ☐ |
+| 회원 상세 이름·연락처 수정: 가입 마무리 전·탈퇴·운영자 계정 | 수정 버튼 `aria-disabled` + 이유를 글자로 표시(서버도 409로 거절) | "아직 가입을 마무리하지 않은 회원이에요. 가입을 마친 뒤에 고칠 수 있어요." 등 5종 | ☐ |
+| 회원 상세 수정 중 다른 관리자가 먼저 저장(stale) | 현재 값으로 폼을 다시 채우고 이유·메모는 유지, 본인 확인 체크 해제 | 경고 알림 "다른 관리자가 먼저 고쳤어요" + 내가 입력한 값 표시 | ☐ |
+| 회원 상세 수정 저장 실패(5xx·접속 기록 실패) | 입력값 유지, 확인 단계에 머무름, [다시 저장] | "입력한 내용은 그대로예요. 잠시 후 다시 시도해 주세요." | ☐ |
+| 회원 상세 수정 성공 + 안내 메일 접수 불확실 | 저장은 성공, 보조 경고 | "안내 메일을 보내지 못했을 수 있어요. 회원에게 전화로 한 번 알려 주세요." | ☐ |
 
 ---
 
@@ -1531,3 +1535,4 @@ export default function CourseForm({ categories, action, defaultValues, submitLa
 | 1.5 | 2026-11-25 | 5절 Error Handling 갱신 — 오류 화면 구현(404·사용자/관리자 error·global-error·503 rewrite), 문의번호는 관리자 화면에만, 전화 안내에 운영시간 병기, 429·400·사진 업로드 실패 문구 분리, 오픈 리다이렉트 방어 강화. 정의서: bara-edu-lms.error-pages.md | AI Team |
 | 1.6 | 2026-11-25 | 6.1절 보강 — 미인증 재가입 덮어쓰기, 수강신청 잠금 트랜잭션, 퀴즈 채점 규칙, auth 400 field, 탈퇴 사유 검증 | AI Team |
 | 1.7 | 2026-11-25 | 6.1절 정정·보강 — 미인증 재가입은 "마지막 가입자가 이긴다"(근본 해결은 인증 시 비밀번호 재확인, 다음 배포), 쿠키는 renewed일 때만·no-store, 승인 정원 확인, 락 순서, 안내 메일 24시간 상한, 사진 재정리 작업 | AI Team |
+| 1.8 | 2026-11-26 | 회원 상세 이름·연락처 수정 구현(F-ADMM-7) — `MemberProfileEditor`(같은 카드 안 보기→편집→확인), `Notice` 컴포넌트, `ConfirmDialog` `size`·`cancelLabel` 옵션, 서버 액션은 실패를 redirect가 아닌 값으로 반환해 입력 보존, 성공은 `revalidatePath`, 이력 [더 보기]는 서버 액션(조회 접속 기록 중복 방지), 마이페이지 이름·휴대전화 안내 문구 변경. Error Handling 표에 4건 추가 | AI Team |

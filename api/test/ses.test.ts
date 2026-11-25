@@ -77,3 +77,23 @@ test('운영시간이 비어 있으면 그 줄을 뺀다', async () => {
   expect(body.Text?.Data).not.toContain('운영시간');
   expect(body.Html?.Data).not.toContain('운영시간');
 });
+
+test('profile_changed 메일: 확정 문구, 링크 없음, 항목명·시각·고객센터 연락처, 값은 없다', async () => {
+  const { sent, client } = fakeClient();
+  await new SesMailer(client, FROM).send({ to: 'f@bara-edu.kr', template: 'profile_changed', fields: ['name', 'phone'], at: '2026년 11월 26일 오후 2시 12분' });
+  const simple = sent[0].Content!.Simple!;
+  expect(simple.Subject?.Data).toBe('[바라 평생교육원] 회원 정보가 바뀌었어요');
+  const text = simple.Body?.Text?.Data ?? '';
+  expect(text).toContain('회원님의 정보가 바뀌어서 알려 드려요.');
+  expect(text).toContain('바뀐 항목: 이름, 휴대전화');
+  expect(text).toContain('바뀐 시각: 2026년 11월 26일 오후 2시 12분');
+  expect(text).toContain('바뀐 내용은 개인정보를 지키기 위해 이 메일에 적지 않았어요.');
+  expect(text).toContain('본인이 요청하지 않았다면 전화로 알려 주세요.');
+  expect(text).toContain('전화: ');
+  expect(text).not.toContain('{');
+  expect(text).not.toContain('http');
+  expect(text.indexOf('본인이 요청하지 않았다면')).toBeLessThan(text.indexOf('전화: '));
+  expect(simple.Body?.Html?.Data).not.toContain('<a ');
+  await new SesMailer(client, FROM).send({ to: 'f@bara-edu.kr', template: 'profile_changed', fields: ['phone'], at: 'x' });
+  expect(sent[1].Content!.Simple!.Body?.Text?.Data).toContain('바뀐 항목: 휴대전화');
+});

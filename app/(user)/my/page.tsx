@@ -12,6 +12,7 @@ import { getMyDiagnosisResults } from '@/lib/supabase/diagnosis-queries';
 import { getMyEnrollments, type MyEnrollment } from '@/lib/supabase/queries';
 import { createClient } from '@/lib/db/server';
 import type { EnrollmentStatus } from '@/lib/types';
+import { siteConfig } from '@/data/site-config';
 import { DIAGNOSIS_TIER_LABELS, type DiagnosisTier } from '@/data/diagnosis/config';
 
 const SETTINGS_SUCCESS_MESSAGE: Record<string, string> = {
@@ -343,7 +344,13 @@ function EditInfoSection({
             <dd className="text-n-9">{phone ?? '-'}</dd>
           </div>
         </dl>
-        <p className="text-[11.5px] text-n-5">이름·이메일·휴대전화 변경은 고객센터로 문의해 주세요.</p>
+        <p className="text-[11.5px] text-n-5">
+          이름과 휴대전화를 바꾸려면 고객센터로 전화해 주세요. 가입한 이메일 주소를 말씀해 주시면 바로 도와 드려요. 전화{' '}
+          <a href={`tel:${siteConfig.phone.replace(/[^0-9+]/g, '')}`} className="underline">
+            {siteConfig.phone}
+          </a>{' '}
+          / 운영시간 {siteConfig.supportHours}
+        </p>
       </div>
 
       <form action={updateContactInfo} encType="multipart/form-data" className="flex flex-col gap-4 rounded-lg border border-n-3 p-4">

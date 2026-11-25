@@ -9,6 +9,9 @@ type ConfirmDialogProps = {
   description?: string;
   confirmLabel?: string;
   tone?: 'neutral' | 'danger';
+  // 'lg': 관리자 기준(버튼 48px, 글자 15px). 기본값은 기존과 같다.
+  size?: 'md' | 'lg';
+  cancelLabel?: string;
   disabled?: boolean;
   disabledReason?: string;
   action: (formData: FormData) => void | Promise<void>;
@@ -28,6 +31,8 @@ export default function ConfirmDialog({
   description,
   confirmLabel = '확인',
   tone = 'neutral',
+  size = 'md',
+  cancelLabel = '취소',
   disabled,
   disabledReason,
   action,
@@ -58,7 +63,7 @@ export default function ConfirmDialog({
         {triggerLabel}
       </button>
       <dialog ref={dialogRef} className="rounded-lg border border-n-3 p-0 shadow-lg backdrop:bg-n-9/40">
-        <form action={action} className="flex w-[320px] flex-col gap-4 p-5">
+        <form action={action} className={`flex flex-col gap-4 p-5 ${size === 'lg' ? 'w-[min(320px,calc(100vw-32px))]' : 'w-[320px]'}`}>
           <div className="flex flex-col gap-1">
             <h2 className="text-[15px] font-semibold text-n-9">{title}</h2>
             {description && <p className="text-[12.5px] text-n-6">{description}</p>}
@@ -78,14 +83,18 @@ export default function ConfirmDialog({
             <button
               type="button"
               onClick={() => dialogRef.current?.close()}
-              className="h-[38px] flex-1 rounded-pill border border-n-3 text-[13px] font-medium text-n-7"
+              className={
+                size === 'lg'
+                  ? 'min-h-12 flex-1 rounded-pill border border-n-3 text-[15px] font-medium text-n-8'
+                  : 'h-[38px] flex-1 rounded-pill border border-n-3 text-[13px] font-medium text-n-7'
+              }
             >
-              취소
+              {cancelLabel}
             </button>
             <button
               type="submit"
-              className={`h-[38px] flex-1 rounded-pill text-[13px] font-semibold text-white ${
-                tone === 'danger' ? 'bg-danger' : 'bg-pink'
+              className={`flex-1 rounded-pill font-semibold text-white ${size === 'lg' ? 'min-h-12 text-[15px]' : 'h-[38px] text-[13px]'} ${
+                tone === 'danger' ? 'bg-danger' : size === 'lg' ? 'bg-indigo' : 'bg-pink'
               }`}
             >
               {confirmLabel}

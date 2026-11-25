@@ -1,8 +1,11 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { sendPasswordResetEmail } from '@/app/actions/admin-members';
+import MemberProfileEditor from '@/components/admin/MemberProfileEditor';
+import ProfileEditHistory from '@/components/admin/ProfileEditHistory';
 import StatusBadge from '@/components/admin/StatusBadge';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
+import { listMemberProfileEditsApi } from '@/lib/db/admin-profile';
 import { getAdminMemberDetail, getCourseExamSubmissionHistory } from '@/lib/supabase/admin-queries';
 import type { EnrollmentStatus } from '@/lib/types';
 
@@ -34,6 +37,8 @@ export default async function AdminMemberDetailPage({
 
   const { profile, photoSignedUrl, emailConfirmed, enrollments, certificates } = detail;
   const examSubmissions = await getCourseExamSubmissionHistory({ userId: id });
+  // 정보 수정 이력(값 없음). 이 조회는 접속 기록을 남기지 않는다(위 상세 조회 기록에 포함).
+  const edits = await listMemberProfileEditsApi(id, 5);
 
   return (
     <div className="flex max-w-[640px] flex-col gap-6">
@@ -60,36 +65,21 @@ export default async function AdminMemberDetailPage({
         </div>
       )}
 
-      <dl className="grid grid-cols-2 gap-3 rounded-lg border border-n-3 bg-n-0 p-4 text-[13px]">
-        <div>
-          <dt className="text-n-5">이메일</dt>
-          <dd className="text-n-9">{profile.email ?? '-'}</dd>
-        </div>
-        <div>
-          <dt className="text-n-5">연락처</dt>
-          <dd className="text-n-9">{profile.phone ?? '-'}</dd>
-        </div>
-        <div>
-          <dt className="text-n-5">이메일 인증</dt>
-          <dd>
-            {emailConfirmed === null ? (
-              <span className="text-n-5">확인불가</span>
-            ) : (
-              <StatusBadge tone={emailConfirmed ? 'success' : 'warning'}>{emailConfirmed ? '인증완료' : '가입 마무리 전'}</StatusBadge>
-            )}
-          </dd>
-        </div>
-        <div className="col-span-2">
-          <dt className="text-n-5">주소</dt>
-          <dd className="text-n-9">{profile.address ?? '-'}</dd>
-        </div>
-        {profile.status === 'withdrawn' && (
-          <div>
-            <dt className="text-n-5">탈퇴일</dt>
-            <dd className="text-n-9">{profile.withdrawnAt ? new Date(profile.withdrawnAt).toLocaleDateString('ko-KR') : '-'}</dd>
-          </div>
-        )}
-      </dl>
+      <MemberProfileEditor
+        member={{
+          id: profile.id,
+          name: profile.name,
+          phone: profile.phone ?? null,
+          email: profile.email ?? null,
+          address: profile.address ?? null,
+          status: profile.status,
+          role: profile.role,
+          emailConfirmed,
+          withdrawnAtLabel: profile.withdrawnAt ? new Date(profile.withdrawnAt).toLocaleDateString('ko-KR') : null,
+        }}
+        pendingCount={enrollments.filter((e) => e.status === 'pending').length}
+        certificateCount={certificates.length}
+      />
 
       {profile.status === 'active' && profile.email && emailConfirmed === false && (
         // 가입을 마무리하지 않은 회원은 비밀번호가 없어 관리자가 대신 인증할 수 없다(대표 결정 5).
@@ -208,6 +198,15 @@ export default async function AdminMemberDetailPage({
           </ul>
         )}
       </section>
+
+      <ProfileEditHistory
+        key={edits.ok ? `${edits.items.length}-${edits.items[0]?.at ?? ''}` : 'failed'}
+        memberId={id}
+        initialItems={edits.ok ? edits.items : []}
+        initialHasMore={edits.ok ? edits.hasMore : false}
+        loadFailed={!edits.ok}
+        withdrawn={profile.status === 'withdrawn'}
+      />
     </div>
   );
 }

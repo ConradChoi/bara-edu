@@ -1,7 +1,9 @@
+import { isIP } from 'node:net';
 import type { FastifyInstance } from 'fastify';
 import { withAnon, withService, withUser, type Tx } from '../db/context.js';
 import { sendError } from '../http/errors.js';
-import type { Registry } from './registry.js';
+import type { MailMessage } from '../mail/mailer.js';
+import { OpError, type Registry } from './registry.js';
 
 export function registerOpRoutes(app: FastifyInstance, registry: Registry): void {
   app.post<{ Params: { name: string } }>('/v1/op/:name', async (req, reply) => {
@@ -14,11 +16,27 @@ export function registerOpRoutes(app: FastifyInstance, registry: Registry): void
     const parsed = op.params.safeParse(body.params ?? {});
     if (!parsed.success) return sendError(reply, 'validation', '요청 형식이 올바르지 않습니다.');
     const { pool } = app.deps;
-    const exec = (tx: Tx) => op.run({ tx, userId }, parsed.data);
+    const ipHeader = req.headers['x-bara-client-ip'];
+    const ipText = typeof ipHeader === 'string' ? ipHeader.trim() : '';
+    const ip = isIP(ipText) ? ipText : null; // IP 형식이 아니면 버린다(접속 기록에 임의 문자열이 들어가지 않게)
+    const mails: MailMessage[] = [];
+    const exec = (tx: Tx) =>
+      op.run({ tx, userId, ip, siteOrigin: app.deps.config.siteOrigins[0], queueMail: (m) => void mails.push(m), warn: (event) => req.log.warn({ userId, op: op.name }, event) }, parsed.data);
     let data: unknown;
-    if (op.access === 'service') data = await withService(pool, exec);
-    else if (userId) data = await withUser(pool, userId, exec);
-    else data = await withAnon(pool, exec);
+    try {
+      if (op.access === 'service') data = await withService(pool, exec);
+      else if (userId) data = await withUser(pool, userId, exec);
+      else data = await withAnon(pool, exec);
+    } catch (err) {
+      if (err instanceof OpError) return sendError(reply, err.code, err.message);
+      throw err;
+    }
+    // 커밋된 뒤에만 보낸다. 응답을 기다리지 않고, 실패는 기록만 한다(주소·내용은 남기지 않는다).
+    for (const m of mails) {
+      setImmediate(() => {
+        app.deps.mailer.send(m).catch((e: unknown) => req.log.error({ template: m.template, errorName: e instanceof Error ? e.name : 'unknown' }, 'op mail failed'));
+      });
+    }
     return { data };
   });
 }
