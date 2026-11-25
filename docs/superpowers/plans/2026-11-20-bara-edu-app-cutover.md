@@ -554,3 +554,4 @@ test('이메일 미인증 계정도 그대로 이관(email_confirmed_at null)', 
 
 - **배포 순서**: 패치 `api/db/patches/2026-11-25-signup-attempts.sql` -> API -> 앱. 가입이 적은 시간에 API와 앱을 연속 배포한다(API 후 앱 전에는 옛 앱의 `/auth/confirm`이 실패한다. 앱 배포 뒤 같은 링크를 다시 열면 토큰이 소모되지 않았으므로 정상 화면이 뜬다).
 - **롤백 절차(QA B1)**: 옛 `verify-email`은 토큰만으로 인증하므로, API를 옛 버전으로 되돌리면 새 방식 링크로 **인증 완료 + 비밀번호 NULL** 계정이 생길 수 있다. 순서는 **앱 -> API**, 패치 SQL은 되돌리지 않는다(추가만 했다). 롤백 후 `select id, email from auth.users where email_confirmed_at is not null and encrypted_password is null;`을 점검해 해당 회원에게 관리자 재설정 메일을 보낸다. 롤백 동안 옛 정리 함수는 시도를 지우지 않으므로 시도(이름·연락처·해시)는 계정 삭제(첫 가입 후 7일)까지 남는다.
+- **패치 재적용(QA B3)**: 패치 적용 뒤 API 배포 전에 옛 API가 받은 가입(비밀번호가 `auth.users`에 있고 토큰에 `attempt_id` 없음)은 이행되지 않는다. **API 배포 직후 같은 패치를 한 번 더 적용**한다(`begin; set local role bara_edu_service; <파일>; commit;`). 이행 문장이 멱등이라 두 번 적용해도 새 방식 데이터와 인증된 회원은 그대로다(테스트로 확인). 배포 전후 `select count(*) from auth.users where email_confirmed_at is null;`을 확인한다.

@@ -92,6 +92,8 @@
 
 1. 운영 DB 패치 `api/db/patches/2026-11-xx-signup-attempts.sql`(테이블·컬럼·함수 교체 + 기존 미인증 계정 비밀번호 비우기·옛 링크 폐기). 옛 API와도 호환된다(새 테이블·nullable 컬럼만 추가). 운영 미인증 계정은 0건(2026-11-25 확인).
 2. API. 이 시점부터 `verify-email`이 404다.
+   - **API 배포 직후 같은 패치를 한 번 더 적용한다**(QA B3). 패치 적용 뒤 API 교체 전까지 옛 API가 받은 가입은 비밀번호가 `auth.users`에 있고 토큰에 `attempt_id`가 없어, 새 API에서 링크는 `invalid`·재전송은 메일 없음이 된다. 패치의 이행 문장(미인증 계정 비밀번호 비우기, 옛 미사용 confirm 토큰 삭제)이 멱등이므로 두 번 적용해도 안전하고, 새 방식의 시도·토큰·인증된 회원은 건드리지 않는다(`patch-signup-attempts.test.ts`가 확인). 이행된 사람은 다시 가입하면 된다.
+   - 배포 전후 `select count(*) from auth.users where email_confirmed_at is null;`을 확인한다.
 3. 앱(가입 마무리 화면). 앱이 API보다 먼저 나가면 `check`가 없어 화면이 열리지 않는다.
 
 - 2~3 사이: 옛 앱의 `/auth/confirm` 라우트가 verify-email을 부르다 실패해 `/sign-in?confirmError=1`로 간다. 이 구간은 짧아야 한다(가입 트래픽이 적은 시간에 연속 배포).
