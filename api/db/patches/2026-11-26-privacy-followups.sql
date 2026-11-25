@@ -8,7 +8,9 @@
 --       정책 drop은 테이블 소유자 권한이 필요하다(bara_edu_service가 소유자인지 적용 전 확인).
 -- 적용: 한 트랜잭션 안에서 함수 소유자 역할로 전환한 뒤 실행한다(파일에는 역할 전환을 넣지 않는다 — 패치 형식 테스트).
 --       begin; set local role bara_edu_service; <이 파일>; commit;
--- 배포 순서: 이 패치 -> API -> 앱 (함수만 바뀌므로 어느 순서와도 호환된다)
+-- 배포 순서: API -> 앱 -> 이 패치 (QA 2026-11-26). 정책 drop 때문에 옛 앱(main의 /v1/query 리드 update)이 남아 있는 동안 적용하면
+-- 리드 상태·메모 변경이 0행으로 조용히 실패한다. 함수 교체만 먼저 필요하면 함수 부분만 따로 실행해도 된다.
+-- 앱을 되돌릴 때는 정책을 먼저 복구한다(02-schema.sql 이전 정의).
 
 create or replace function public.purge_unclaimed_diagnosis_pii()
 returns integer
