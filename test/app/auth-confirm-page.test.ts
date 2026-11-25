@@ -133,7 +133,7 @@ test('틀림: 오류 박스·남은 횟수, 3회째부터 펼침, 마지막 1번
   expect(h).toContain('3번 더 입력해 볼 수 있어요.');
   expect(h).toContain('aria-invalid="true"');
   expect(h).toContain('aria-describedby="confirm-password-hint confirm-password-error"');
-  expect(h).not.toContain('role="alert"');
+  expect(h).toContain('id="confirm-password-error" role="alert"'); // Enter 제출 시 포커스 이벤트가 없어도 읽히게(2026-11-26 QA 접근성)
   expect(h).not.toContain('open=""');
   actionState = { kind: 'wrong_password', attemptsLeft: 2 };
   h = await html(TOKEN);
