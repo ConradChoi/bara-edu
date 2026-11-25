@@ -78,6 +78,12 @@ test('전화를 비우면 phone:null을 보낸다', async () => {
   expect(out).toMatchObject({ status: 'ok', mailQueued: false });
 });
 
+test('기존 이름이 공백 두 칸인 회원의 휴대전화만 바꾸면 phone만 보낸다', async () => {
+  respond({ result: 'ok', changed: ['phone'], profile: { name: '홍  길동', phone: '010-3333-4444' }, mailQueued: true });
+  await updateMemberProfile(MEMBER, input({ name: '홍  길동', phone: '010-3333-4444', expected: { name: '홍  길동', phone: '010-1111-2222' } }));
+  expect(sent()).toEqual({ memberId: MEMBER, phone: '010-3333-4444', expected: { phone: '010-1111-2222' }, reason: 'member_request', memo: null, identityChecked: true });
+});
+
 test('바뀐 칸이 없으면 API를 부르지 않고 unchanged', async () => {
   expect(await updateMemberProfile(MEMBER, input({ name: '홍길순' }))).toEqual({ status: 'unchanged', profile: { name: '홍길순', phone: '010-1111-2222' } });
   expect(calls).toHaveLength(0);

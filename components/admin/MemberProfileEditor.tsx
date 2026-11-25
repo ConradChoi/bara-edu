@@ -85,14 +85,19 @@ export default function MemberProfileEditor({
   pendingCount,
   certificateCount,
   initialStep = 'view',
+  initialForm,
 }: {
   member: MemberProfileView;
   pendingCount: number;
   certificateCount: number;
   initialStep?: 'view' | 'edit' | 'confirm'; // 테스트용: 서버 렌더로 각 단계를 확인한다
+  initialForm?: Partial<FormState>; // 테스트용: 입력이 있는(취소 확인이 뜨는) 상태
 }) {
   const router = useRouter();
-  const [state, setState] = useState<EditorState>(() => ({ ...initialState({ name: member.name, phone: member.phone }), step: initialStep }));
+  const [state, setState] = useState<EditorState>(() => {
+    const base = initialState({ name: member.name, phone: member.phone });
+    return { ...base, step: initialStep, form: { ...base.form, ...initialForm } };
+  });
   const [saving, startSaving] = useTransition();
   const savingRef = useRef(false);
 
@@ -179,7 +184,8 @@ export default function MemberProfileEditor({
       savingRef.current = false;
       setState((s) => applyOutcome(s, outcome));
       if (outcome.status === 'not_found') router.refresh(); // 페이지가 notFound()로 이어진다
-      if (outcome.status === 'ok' || outcome.status === 'stale') window.dispatchEvent(new Event(PROFILE_EDITS_RELOAD));
+      // ok는 revalidatePath로 새로 그려진 페이지가 이력을 새 값으로 내려 준다(page의 key로 다시 마운트). 충돌은 이벤트로 목록만 다시 읽는다.
+      if (outcome.status === 'stale') window.dispatchEvent(new Event(PROFILE_EDITS_RELOAD));
     });
   };
 
@@ -446,6 +452,7 @@ export default function MemberProfileEditor({
       )}
 
       <form
+        id="pe-form"
         noValidate
         onSubmit={(e) => {
           e.preventDefault();
@@ -567,27 +574,29 @@ export default function MemberProfileEditor({
           </label>
           <ErrorLine id="pe-verified-error">{errors.verified}</ErrorLine>
         </div>
-
-        <div className="flex flex-col gap-2">
-          {noChange && (
-            <p id="pe-nochange" className="text-[14px] text-n-7">
-              {MSG.none}
-            </p>
-          )}
-          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-between">
-            {cancelButton}
-            <button
-              type="submit"
-              aria-disabled={noChange}
-              aria-describedby={noChange ? 'pe-nochange' : undefined}
-              onClick={(e) => noChange && e.preventDefault()}
-              className={noChange ? BTN_DISABLED : BTN_PRIMARY}
-            >
-              변경 내용 확인
-            </button>
-          </div>
-        </div>
       </form>
+
+      {/* 버튼 묶음은 form 밖에 둔다: 취소 ConfirmDialog가 자체 <dialog><form>을 그려서 form이 중첩되면 안 된다. */}
+      <div className="flex flex-col gap-2">
+        {noChange && (
+          <p id="pe-nochange" className="text-[14px] text-n-7">
+            {MSG.none}
+          </p>
+        )}
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-between">
+          {cancelButton}
+          <button
+            type="submit"
+            form="pe-form"
+            aria-disabled={noChange}
+            aria-describedby={noChange ? 'pe-nochange' : undefined}
+            onClick={(e) => noChange && e.preventDefault()}
+            className={noChange ? BTN_DISABLED : BTN_PRIMARY}
+          >
+            변경 내용 확인
+          </button>
+        </div>
+      </div>
     </section>
   );
 }

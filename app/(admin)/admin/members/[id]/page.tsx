@@ -200,6 +200,7 @@ export default async function AdminMemberDetailPage({
       </section>
 
       <ProfileEditHistory
+        key={edits.ok ? `${edits.items.length}-${edits.items[0]?.at ?? ''}` : 'failed'}
         memberId={id}
         initialItems={edits.ok ? edits.items : []}
         initialHasMore={edits.ok ? edits.hasMore : false}

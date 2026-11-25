@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
-import { normalizeName, normalizePhone, REASONS, type ProfileSaveInput, type SaveOutcome } from '@/lib/admin-profile-edit';
+import { isNameChanged, isPhoneChanged, normalizeName, normalizePhone, REASONS, type ProfileSaveInput, type SaveOutcome } from '@/lib/admin-profile-edit';
 import { listMemberProfileEditsApi, updateMemberProfileApi, type ProfileEditItem, type UpdateMemberProfileInput, type UpdateMemberProfileResult } from '@/lib/db/admin-profile';
 import { adminConfirmEmail, adminSendReset } from '@/lib/db/auth';
 import { getSiteOrigin } from '@/lib/site-origin';
@@ -105,11 +105,11 @@ export async function updateMemberProfile(memberId: string, input: ProfileSaveIn
   const name = normalizeName(input.name);
   const phone = normalizePhone(input.phone);
   const body: UpdateMemberProfileInput = { memberId, expected: {}, reason: input.reason, memo: input.memo.trim() || null, identityChecked: true };
-  if (name !== input.expected.name) {
+  if (isNameChanged(input.name, input.expected.name)) {
     body.name = name;
     body.expected.name = input.expected.name;
   }
-  if (phone !== input.expected.phone) {
+  if (isPhoneChanged(input.phone, input.expected.phone)) {
     body.phone = phone;
     body.expected.phone = input.expected.phone;
   }

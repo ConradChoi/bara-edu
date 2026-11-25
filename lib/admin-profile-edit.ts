@@ -49,13 +49,21 @@ export const normalizePhone = (s: string): string | null => {
   return t === '' ? null : t;
 };
 
-const CONTROL = /\p{Cc}/u;
+const CONTROL = /[\p{Cc}\p{Zl}\p{Zp}]/u;
 const PHONE_CHARS = /^[0-9\s\-+()]+$/;
 const digitCount = (s: string) => (s.match(/\d/g) ?? []).length;
-// 서버(api/src/ops/admin-profile.ts memo_has_pii)와 같은 규칙. 날짜(2026-11-26)는 허용한다.
-const MEMO_PHONE_LIKE = /(?<!\d)0\d{1,2}[\s.\-]\d{3,4}[\s.\-]\d{4}(?!\d)|\d{10,}/;
-const MEMO_EMAIL = /\S@\S/;
-const MEMO_CONTROL = /[\p{Cc}\p{Zl}\p{Zp}]/u;
+// 서버(api/src/ops/admin-profile.ts memo_has_pii)와 판정 결과가 같아야 한다. 날짜(2026-11-26)는 허용한다.
+const MEMO_CONTROL = /[\p{Cc}\p{Zl}\p{Zp}\p{Cs}]/u;
+const MEMO_DIGIT_RUN = /\d{9,}/;
+const MEMO_INTL = /\+\s*82/;
+const MEMO_RRN = /\d{6}\s*-?\s*[1-8]\d{6}/;
+const MEMO_EMAIL = /\S\s*@\s*\S/;
+
+export function memoHasPii(memo: string): boolean {
+  const n = memo.normalize('NFKC');
+  if (MEMO_CONTROL.test(n) || MEMO_INTL.test(n) || MEMO_RRN.test(n) || MEMO_EMAIL.test(n)) return true;
+  return MEMO_DIGIT_RUN.test(n.replace(/[\s\-.()]/g, ''));
+}
 
 export const MSG = {
   nameLength: '이름은 2자 이상 100자 이하로 입력해 주세요.',
@@ -73,10 +81,16 @@ export const MSG = {
 export type FormState = { name: string; phone: string; reason: EditReason | ''; memo: string; verified: boolean };
 export type FormErrors = Partial<Record<FieldKey, string>>;
 
+// "바뀌었는지"는 정규화 전 원문을 expected와 비교해 판정한다. 손대지 않은 칸(기존 값이 공백 두 칸 등 규칙 밖이어도)은
+// 바뀐 칸이 아니다. 정규화는 바뀐 칸의 새 값에만 적용한다(정규화해도 기존 값과 같으면 바뀐 칸이 아니다).
+export const isNameChanged = (raw: string, baselineName: string): boolean => raw !== baselineName && normalizeName(raw) !== baselineName;
+export const isPhoneChanged = (raw: string, baselinePhone: string | null): boolean =>
+  (baselinePhone === null ? raw !== '' : raw !== baselinePhone) && normalizePhone(raw) !== baselinePhone;
+
 export function changedFields(form: Pick<FormState, 'name' | 'phone'>, baseline: Values): ('name' | 'phone')[] {
   const out: ('name' | 'phone')[] = [];
-  if (normalizeName(form.name) !== baseline.name) out.push('name');
-  if (normalizePhone(form.phone) !== baseline.phone) out.push('phone');
+  if (isNameChanged(form.name, baseline.name)) out.push('name');
+  if (isPhoneChanged(form.phone, baseline.phone)) out.push('phone');
   return out;
 }
 
@@ -101,7 +115,7 @@ export function validateMemo(memo: string, reason: EditReason | ''): string | un
   const t = memo.trim();
   if (reason === 'other' && len(t) < LIMITS.memoMin) return MSG.memoRequired;
   if (len(t) > LIMITS.memoMax) return MSG.memoLength;
-  if (t && (MEMO_CONTROL.test(t) || MEMO_PHONE_LIKE.test(t) || MEMO_EMAIL.test(t))) return MSG.memoPii;
+  if (t && memoHasPii(t)) return MSG.memoPii;
   return undefined;
 }
 
@@ -133,6 +147,9 @@ export function messageForServerValidation(field: FieldKey | 'none', code?: stri
   switch (code) {
     case 'name_reserved':
       return MSG.nameReserved;
+    case 'name_control':
+    case 'name_length':
+      return MSG.nameLength; // copy 3.2: 제어 문자도 같은 문구
     case 'phone_masked':
       return MSG.phoneMasked;
     case 'memo_required':
@@ -189,7 +206,7 @@ export const LOCKED_TEXT: Record<LockedWhy, string> = {
 
 export function savedMessage(changed: ('name' | 'phone')[], mailQueued: boolean): string {
   const what = changed.length === 1 ? (changed[0] === 'name' ? '이름을' : '휴대전화를') : '이름·연락처를';
-  return mailQueued ? `${what} 수정했어요. 가입 이메일로 안내 메일을 보냈어요.` : `${what} 수정했어요.`;
+  return mailQueued ? `${what} 수정했어요. 가입 이메일로 안내 메일을 보내요. 메일이 안 왔다고 하시면 개발 담당에게 알려 주세요.` : `${what} 수정했어요.`;
 }
 export const MAIL_UNSURE = '수정은 끝났어요. 다만 안내 메일을 보내지 못했을 수 있어요. 회원에게 전화로 한 번 알려 주세요.';
 export const UNCHANGED_SERVER = '바뀐 내용이 없어요. 저장하지 않았어요.';

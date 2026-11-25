@@ -18,8 +18,8 @@ const member: MemberProfileView = {
   emailConfirmed: true,
   withdrawnAtLabel: null,
 };
-const html = (over: Partial<MemberProfileView> = {}, step: 'view' | 'edit' | 'confirm' = 'view', counts = { pending: 0, cert: 0 }) =>
-  renderToStaticMarkup(createElement(MemberProfileEditor, { member: { ...member, ...over }, pendingCount: counts.pending, certificateCount: counts.cert, initialStep: step }));
+const html = (over: Partial<MemberProfileView> = {}, step: 'view' | 'edit' | 'confirm' = 'view', counts = { pending: 0, cert: 0 }, initialForm?: { name?: string }) =>
+  renderToStaticMarkup(createElement(MemberProfileEditor, { member: { ...member, ...over }, pendingCount: counts.pending, certificateCount: counts.cert, initialStep: step, initialForm }));
 
 test('보기: 수정 가능하면 활성 버튼, 사유 줄 없음', () => {
   const h = html();
@@ -57,4 +57,21 @@ test('확인: 경고는 이름이 바뀔 때만(여기서는 변경 없음이라
   const h = html({}, 'confirm', { pending: 2, cert: 1 });
   expect(h).not.toContain('입금 대기 중인 신청');
   expect(h).not.toContain('수료 이력이');
+});
+
+test('편집 화면에서 form이 중첩되지 않는다(취소 확인 dialog의 form은 편집 form 밖)', () => {
+  const depthOk = (h: string) => {
+    let depth = 0;
+    for (const m of h.matchAll(/<(\/?)form\b/g)) {
+      depth += m[1] ? -1 : 1;
+      if (depth > 1) return false;
+    }
+    return depth === 0;
+  };
+  const dirty = html({}, 'edit', undefined, { name: '홍길동' });
+  expect(dirty).toContain('<dialog'); // 입력이 바뀌면 취소 확인 dialog(자체 form)가 그려진다
+  expect((dirty.match(/<form\b/g) ?? []).length).toBe(2);
+  expect(depthOk(dirty)).toBe(true);
+  expect(dirty).toContain('form="pe-form"'); // 저장 버튼은 form 속성으로 연결
+  expect(depthOk(html({}, 'edit'))).toBe(true);
 });
