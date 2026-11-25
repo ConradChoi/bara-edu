@@ -59,6 +59,7 @@ export const adminUpdateDiagnosisLead = defineOp({
     const row = cur.rows[0];
 
     let fields: string;
+    let to = '';
     if (p.change === 'note') {
       if ((row.admin_note ?? null) === note) return { result: 'unchanged' };
       await tx.query('update diagnosis_leads set admin_note = $2 where id = $1', [p.leadId, note]);
@@ -67,9 +68,10 @@ export const adminUpdateDiagnosisLead = defineOp({
       if (row.status !== from) return { result: 'already_processed' };
       await tx.query('update diagnosis_leads set status = $2, handled_by = $3, handled_at = now(), admin_note = $4 where id = $1', [p.leadId, p.change, userId, note]);
       fields = 'status,admin_note';
+      to = `;to=${p.change}`;
     }
-    // 같은 트랜잭션: 실패하면 위 변경도 롤백된다. 리드 id와 바뀐 항목 이름만 남기고 값(메모·이름·연락처)은 남기지 않는다.
-    await writeLog(tx, userId, row.user_id, LEAD_LOG_ACTION, `강사과정 문의 ${p.leadId} fields=${fields}`, ip);
+    // 같은 트랜잭션: 실패하면 위 변경도 롤백된다. 리드 id, 바뀐 항목 이름, 전환 이름(to=contacted|closed)만 남기고 값(메모·이름·연락처)은 남기지 않는다.
+    await writeLog(tx, userId, row.user_id, LEAD_LOG_ACTION, `강사과정 문의 ${p.leadId} fields=${fields}${to}`, ip);
     return { result: 'ok' };
   },
 });

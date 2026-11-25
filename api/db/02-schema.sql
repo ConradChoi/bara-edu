@@ -1884,12 +1884,12 @@ create policy "diagnosis_results_admin_select" on diagnosis_results for select u
 drop policy if exists "diagnosis_answers_admin_select" on diagnosis_answers;
 create policy "diagnosis_answers_admin_select" on diagnosis_answers for select using (is_admin());
 
--- diagnosis_leads: 쓰기는 submit_diagnosis_lead() RPC로만, select·update는 관리자만
--- (상태 전환·메모 수정은 admin-enrollments.ts와 동일한 조건부 update 패턴을 앱 레벨에서 사용).
+-- diagnosis_leads: 쓰기는 submit_diagnosis_lead() RPC로만, select는 관리자만.
+-- update 정책은 없다(2026-11-26 제거): 상태 전환·메모 수정은 API op admin.updateDiagnosisLead가 접속 기록과 한 트랜잭션으로
+-- 처리하므로, 기록 없이 직접 update하는 우회 경로를 열어 두지 않는다.
 drop policy if exists "diagnosis_leads_admin_select" on diagnosis_leads;
 create policy "diagnosis_leads_admin_select" on diagnosis_leads for select using (is_admin());
 drop policy if exists "diagnosis_leads_admin_update" on diagnosis_leads;
-create policy "diagnosis_leads_admin_update" on diagnosis_leads for update using (is_admin());
 
 -- diagnosis_course_links: 결과 화면 CTA 계산에 필요해 전체 공개 read, 관리자만 write.
 drop policy if exists "diagnosis_course_links_public_select" on diagnosis_course_links;

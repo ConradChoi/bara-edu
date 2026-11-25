@@ -27,13 +27,19 @@ const block = (sql: string, name: string) => {
 };
 const q = async (sql: string, params: unknown[] = []) => (await ctx.adminPool.query(sql, params)).rows;
 
-test('패치는 create or replace function 한 개만 담고 역할 전환·grant 변경이 없다', () => {
+test('패치는 create or replace function 1개와 drop policy if exists 1개만 담고 역할 전환·grant 변경이 없다', () => {
   const noComments = patch.split('\n').filter((l) => !l.trim().startsWith('--')).join('\n');
   const skeleton = noComments.replace(/\$\$[\s\S]*?\$\$/g, '$$$$');
   const statements = skeleton.split(';').map((s) => s.trim()).filter(Boolean);
-  expect(statements).toHaveLength(1);
+  expect(statements).toHaveLength(2);
   expect(statements[0]).toMatch(/^create or replace function public\.purge_unclaimed_diagnosis_pii\(/);
-  expect(skeleton).not.toMatch(/\b(drop|alter|truncate|grant|revoke|set\s+(local\s+)?role)\b/i);
+  expect(statements[1]).toBe('drop policy if exists diagnosis_leads_admin_update on public.diagnosis_leads');
+  expect(skeleton).not.toMatch(/\b(alter|truncate|grant|revoke)\b|\bdrop\s+(?!policy if exists diagnosis_leads_admin_update)|set\s+(local\s+)?role/i);
+});
+
+test('스키마에는 리드 update 정책이 없다(drop만 남음)', () => {
+  expect(schema).not.toMatch(/create policy "diagnosis_leads_admin_update"/);
+  expect(schema).toMatch(/drop policy if exists "diagnosis_leads_admin_update" on diagnosis_leads/);
 });
 
 test('패치의 함수 정의는 02-schema.sql과 글자 그대로 같다', () => {
@@ -86,4 +92,39 @@ test('패치를 소유자 역할로 여러 번 적용해도 성공하고 소유�
   expect(await snap()).toEqual(before);
   const x = await q("select has_function_privilege('bara_edu_anon', 'public.purge_unclaimed_diagnosis_pii()', 'execute') a, has_function_privilege('bara_edu_authenticated', 'public.purge_unclaimed_diagnosis_pii()', 'execute') b");
   expect(x[0]).toEqual({ a: false, b: false });
+});
+
+test('정책 제거 후 관리자(authenticated)의 리드 직접 update는 막히고 select는 된다. 패치를 두 번 적용해도 오류가 없다', async () => {
+  // 옛 정책이 있던 상태를 만들어 패치가 실제로 지우는지 본다
+  await ctx.adminPool.query('drop policy if exists diagnosis_leads_admin_update on public.diagnosis_leads');
+  await ctx.adminPool.query('create policy diagnosis_leads_admin_update on public.diagnosis_leads for update using (is_admin())');
+  for (let i = 0; i < 2; i++) {
+    const c = await ctx.adminPool.connect();
+    try {
+      await c.query('begin');
+      await c.query('set local role bara_edu_service');
+      await c.query(patch);
+      await c.query('commit');
+    } finally {
+      c.release();
+    }
+  }
+  expect(await q("select 1 from pg_policies where tablename = 'diagnosis_leads' and policyname = 'diagnosis_leads_admin_update'")).toHaveLength(0);
+
+  const admin = (await q("insert into auth.users (email, email_confirmed_at) values ('pa@example.com', now()) returning id"))[0].id as string;
+  await ctx.adminPool.query(`begin; set local session_replication_role = replica; update profiles set role='admin' where id='${admin}'; commit`);
+  const lead = (await q("insert into diagnosis_leads (name, contact, consent_contact) values ('n','c',true) returning id"))[0].id as string;
+  const c = await ctx.adminPool.connect();
+  try {
+    await c.query('begin');
+    await c.query('set local role bara_edu_authenticated');
+    await c.query("select set_config('request.user_id', $1, true)", [admin]);
+    expect((await c.query('select id from diagnosis_leads where id = $1', [lead])).rowCount).toBe(1);
+    const upd = await c.query("update diagnosis_leads set admin_note = 'x' where id = $1", [lead]).then((r) => r.rowCount, (e: Error) => e.message);
+    await c.query('rollback');
+    expect(upd === 0 || typeof upd === 'string').toBe(true);
+  } finally {
+    c.release();
+  }
+  expect((await q('select admin_note from diagnosis_leads where id = $1', [lead]))[0].admin_note).toBeNull();
 });

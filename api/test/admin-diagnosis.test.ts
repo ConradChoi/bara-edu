@@ -69,7 +69,7 @@ test('연락함 표시: 상태·처리자·메모 변경과 접속 기록 1건(�
   const rows = (await logs()).filter((r) => r.detail.includes(id));
   expect(rows).toHaveLength(1);
   expect(rows[0]).toMatchObject({ admin_id: adminId, target_user_id: null, action: '수정', ip_address: '203.0.113.9' });
-  expect(rows[0].detail).toBe(`강사과정 문의 ${id} fields=status,admin_note`);
+  expect(rows[0].detail).toBe(`강사과정 문의 ${id} fields=status,admin_note;to=contacted`);
   for (const v of ['통화', '010', '문의자']) expect(rows[0].detail).not.toContain(v);
 });
 
