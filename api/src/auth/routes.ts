@@ -41,6 +41,13 @@ const idParam = z.object({ id: z.string().uuid() });
 
 const INVALID = '요청 형식이 올바르지 않습니다.';
 
+// 새 비밀번호 칸은 화면에서 모두 'password'다. 첫 번째 잘못된 칸만 알려 준다(스키마 순서).
+const FIELD_ALIAS: Record<string, string> = { newPassword: 'password' };
+function fieldOf(err: z.ZodError | undefined): string | undefined {
+  const key = err?.issues[0]?.path[0];
+  return typeof key === 'string' ? (FIELD_ALIAS[key] ?? key) : undefined;
+}
+
 // request.ip would be the app's own egress address (shared by all users), so without the header IP limits are skipped
 function clientIp(req: FastifyRequest): string | null {
   const h = req.headers['x-bara-client-ip'];
@@ -65,14 +72,16 @@ export function registerAuthRoutes(app: FastifyInstance): void {
 
   app.post('/v1/auth/signup', async (req, reply) => {
     const body = signupBody.safeParse(req.body);
-    if (!body.success || !originAllowed(body.data.origin)) return sendError(reply, 'validation', INVALID);
+    if (!body.success) return sendError(reply, 'validation', INVALID, fieldOf(body.error));
+    if (!originAllowed(body.data.origin)) return sendError(reply, 'validation', INVALID, 'origin');
     if (await ipLimited(req, 'signup', 10, 3600)) return tooMany(reply);
     return { status: await signup(app.deps.pool, deliver, body.data) };
   });
 
   app.post('/v1/auth/resend', async (req, reply) => {
     const body = resendBody.safeParse(req.body);
-    if (!body.success || !originAllowed(body.data.origin)) return sendError(reply, 'validation', INVALID);
+    if (!body.success) return sendError(reply, 'validation', INVALID, fieldOf(body.error));
+    if (!originAllowed(body.data.origin)) return sendError(reply, 'validation', INVALID, 'origin');
     const { pool } = app.deps;
     const { email: to, origin } = body.data;
     if (await ipLimited(req, 'resend-ip', 20, 3600)) return tooMany(reply);
@@ -92,7 +101,7 @@ export function registerAuthRoutes(app: FastifyInstance): void {
 
   app.post('/v1/auth/login', async (req, reply) => {
     const body = loginBody.safeParse(req.body);
-    if (!body.success) return sendError(reply, 'validation', INVALID);
+    if (!body.success) return sendError(reply, 'validation', INVALID, fieldOf(body.error));
     if (await ipLimited(req, 'login-ip', 50, 900)) return tooMany(reply);
     const r = await login(app.deps.pool, app.deps.config.sessionTtlDays, body.data.email, body.data.password);
     if (r.kind === 'rate_limited') return tooMany(reply);
@@ -117,7 +126,7 @@ export function registerAuthRoutes(app: FastifyInstance): void {
     const userId = req.auth.userId;
     if (!userId) return sendError(reply, 'unauthenticated', '로그인이 필요합니다.');
     const body = changeBody.safeParse(req.body);
-    if (!body.success) return sendError(reply, 'validation', INVALID);
+    if (!body.success) return sendError(reply, 'validation', INVALID, fieldOf(body.error));
     const ok = await changePassword(app.deps.pool, userId, String(req.headers['x-bara-session']), body.data.currentPassword, body.data.newPassword);
     if (!ok) return sendError(reply, 'forbidden', '현재 비밀번호가 올바르지 않습니다.');
     return { ok: true };
@@ -125,7 +134,8 @@ export function registerAuthRoutes(app: FastifyInstance): void {
 
   app.post('/v1/auth/request-reset', async (req, reply) => {
     const body = resendBody.safeParse(req.body);
-    if (!body.success || !originAllowed(body.data.origin)) return sendError(reply, 'validation', INVALID);
+    if (!body.success) return sendError(reply, 'validation', INVALID, fieldOf(body.error));
+    if (!originAllowed(body.data.origin)) return sendError(reply, 'validation', INVALID, 'origin');
     const { pool } = app.deps;
     const { email: to, origin } = body.data;
     if (await ipLimited(req, 'reset-ip', 20, 3600)) return tooMany(reply);
@@ -136,7 +146,7 @@ export function registerAuthRoutes(app: FastifyInstance): void {
 
   app.post('/v1/auth/reset-password', async (req, reply) => {
     const body = resetBody.safeParse(req.body);
-    if (!body.success) return sendError(reply, 'validation', INVALID);
+    if (!body.success) return sendError(reply, 'validation', INVALID, fieldOf(body.error));
     if (!(await resetPassword(app.deps.pool, body.data.token, body.data.newPassword))) return sendError(reply, 'validation', 'invalid_token');
     return { ok: true };
   });
@@ -182,7 +192,7 @@ export function registerAuthRoutes(app: FastifyInstance): void {
     const userId = req.auth.userId;
     if (!userId) return sendError(reply, 'unauthenticated', '로그인이 필요합니다.');
     const body = withdrawBody.safeParse(req.body);
-    if (!body.success) return sendError(reply, 'validation', INVALID);
+    if (!body.success) return sendError(reply, 'validation', INVALID, fieldOf(body.error));
     const r = await withdrawAccount(app.deps.pool, userId, { reason: body.data.reason, detail: body.data.detail?.trim() || null });
     if (r === 'active_enrollment') return sendError(reply, 'conflict', 'active_enrollment');
     if (r === 'not_found') return sendError(reply, 'not_found', '회원을 찾을 수 없습니다.');
