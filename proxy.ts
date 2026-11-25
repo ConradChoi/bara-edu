@@ -6,6 +6,8 @@ import { getSession, isDeadSession } from '@/lib/db/auth';
 const SESSION_COOKIE = 'bara_session';
 const USER_ROUTE_PREFIXES = ['/my', '/learn'];
 const ADMIN_ROUTE_PREFIX = '/admin';
+// 세션 쿠키를 쓰거나 지우는 응답은 공유 캐시(CDN)에 저장되면 다른 방문자에게 쿠키가 나갈 수 있다 — 항상 private, no-store.
+const NO_STORE = 'private, no-store';
 
 function toSignIn(request: NextRequest, withRedirect: boolean): NextResponse {
   const url = request.nextUrl.clone();
@@ -23,7 +25,7 @@ function toServiceUnavailable(request: NextRequest): NextResponse {
   url.search = '';
   return NextResponse.rewrite(url, {
     status: 503,
-    headers: { 'Retry-After': '30', 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex' },
+    headers: { 'Retry-After': '30', 'Cache-Control': NO_STORE, 'X-Robots-Tag': 'noindex' },
   });
 }
 
@@ -38,13 +40,15 @@ function withoutSessionCookie(request: NextRequest, redirectTo: NextResponse | n
     path: '/',
     expires: new Date(0),
   });
+  response.headers.set('Cache-Control', NO_STORE);
   return response;
 }
 
-// API는 남은 기간이 절반 아래면 세션을 30일로 늘리는데(sliding), 브라우저 쿠키는 로그인 때의 만료일 그대로라
-// 브라우저가 먼저 쿠키를 버린다. 쿠키는 만료일을 읽을 수 없으므로 유효한 세션이면 매번 API가 준 expiresAt으로
-// 같은 옵션(writeSession과 동일)으로 다시 쓴다 — 한 번 놓쳐도 다음 요청이 바로잡는다.
-function withRefreshedCookie(response: NextResponse, token: string, expiresAt: string | undefined): NextResponse {
+// API는 남은 기간이 절반 아래가 되면 세션을 30일로 늘리는데(sliding), 브라우저 쿠키는 로그인 때의 만료일 그대로라
+// 브라우저가 먼저 쿠키를 버린다. API가 "이번 요청에서 실제로 연장했다"(renewed)고 알려 줄 때만 expiresAt으로
+// 같은 옵션(writeSession과 동일)으로 다시 쓴다 — 그 밖의 응답(공개 페이지 포함)에는 토큰이 실리지 않는다.
+function withRefreshedCookie(response: NextResponse, token: string, expiresAt: string | undefined, renewed: boolean | undefined): NextResponse {
+  if (renewed !== true) return response;
   const expires = expiresAt ? new Date(expiresAt) : null;
   if (!expires || Number.isNaN(expires.getTime())) return response;
   response.cookies.set(SESSION_COOKIE, token, {
@@ -54,6 +58,7 @@ function withRefreshedCookie(response: NextResponse, token: string, expiresAt: s
     path: '/',
     expires,
   });
+  response.headers.set('Cache-Control', NO_STORE);
   return response;
 }
 
@@ -89,7 +94,7 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(new URL('/', request.url));
   }
 
-  return withRefreshedCookie(NextResponse.next(), token, r.data.expiresAt);
+  return withRefreshedCookie(NextResponse.next(), token, r.data.expiresAt, r.data.renewed);
 }
 
 export const config = {

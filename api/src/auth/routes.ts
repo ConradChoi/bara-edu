@@ -224,6 +224,8 @@ export function registerAuthRoutes(app: FastifyInstance): void {
       profile: row.role && row.status ? { role: row.role, status: row.status } : null,
       // 슬라이딩 만료(resolveSession)가 반영된 값 — 앱 proxy가 브라우저 쿠키 만료를 맞추는 데 쓴다
       expiresAt: req.auth.sessionExpiresAt,
+      // 이 요청에서 만료가 실제로 늘어났는가 — 앱 proxy는 true일 때만 쿠키를 다시 쓴다
+      renewed: req.auth.sessionRenewed,
     };
   });
 }

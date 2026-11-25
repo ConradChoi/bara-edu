@@ -16,7 +16,7 @@ export async function createSession(pool: pg.Pool, userId: string, ttlDays: numb
   return { token, expiresAt: r.rows[0].expires_at };
 }
 
-export async function resolveSession(pool: pg.Pool, token: string, ttlDays: number): Promise<{ userId: string; expiresAt: Date } | null> {
+export async function resolveSession(pool: pg.Pool, token: string, ttlDays: number): Promise<{ userId: string; expiresAt: Date; renewed: boolean } | null> {
   return withService(pool, async (tx) => {
     const r = await tx.query<{ user_id: string; expires_at: Date }>(
       'select user_id, expires_at from auth.sessions where token_hash = $1 and expires_at > now()',
@@ -31,9 +31,9 @@ export async function resolveSession(pool: pg.Pool, token: string, ttlDays: numb
         [sha256(token), ttlDays],
       );
       if (u.rowCount === 0) return null;
-      return { userId: row.user_id, expiresAt: u.rows[0].expires_at };
+      return { userId: row.user_id, expiresAt: u.rows[0].expires_at, renewed: true };
     }
-    return { userId: row.user_id, expiresAt: row.expires_at };
+    return { userId: row.user_id, expiresAt: row.expires_at, renewed: false };
   });
 }
 

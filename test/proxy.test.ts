@@ -113,7 +113,7 @@ test('proxy: API 503 → 보호 경로는 /sign-in으로 보내지 않고 쿠키
   expect(location(res)).toBeNull();
   expect(rewrittenTo(res)).toBe('/service-unavailable'); // 평문이 아니라 오류 화면으로 rewrite
   expect(res.headers.get('retry-after')).toBe('30');
-  expect(res.headers.get('cache-control')).toBe('no-store');
+  expect(res.headers.get('cache-control')).toBe('private, no-store');
   expect(res.headers.get('x-robots-tag')).toBe('noindex');
   expect(cookieDeleted(res)).toBe(false);
   expect(setCookie(res)).toBe(''); // 세션 쿠키를 지우지도 다시 쓰지도 않는다
@@ -145,14 +145,12 @@ test('proxy: 위조된 XFF 맨 앞 값 대신 cloudfront-viewer-address를 API�
   expect(fetchMock.mock.calls[0][1].headers['x-bara-client-ip']).toBe('203.0.113.7');
 });
 
-test('proxy: 유효한 세션이면 API가 준 expiresAt으로 쿠키를 다시 쓴다 (httpOnly, lax, path=/)', async () => {
-  fetchMock.mockResolvedValueOnce(
-    json(200, {
-      user: { id: 'u1', email: 'a@b.kr', emailConfirmedAt: null },
-      profile: { role: 'user', status: 'active' },
-      expiresAt: '2026-12-25T00:00:00.000Z',
-    }),
-  );
+const active = (extra: Record<string, unknown> = {}) =>
+  json(200, { user: { id: 'u1', email: 'a@b.kr', emailConfirmedAt: null }, profile: { role: 'user', status: 'active' }, ...extra });
+const cacheControl = (res: Response) => res.headers.get('cache-control');
+
+test('proxy: API가 세션을 실제로 연장했을 때(renewed)만 expiresAt으로 쿠키를 다시 쓴다 (httpOnly, lax, path=/)', async () => {
+  fetchMock.mockResolvedValueOnce(active({ expiresAt: '2026-12-25T00:00:00.000Z', renewed: true }));
   const res = await proxy(request('/my', 'tok'));
   expect(passedThrough(res)).toBe(true);
   const c = setCookie(res);
@@ -165,36 +163,56 @@ test('proxy: 유효한 세션이면 API가 준 expiresAt으로 쿠키를 다시 
   expect(cookieDeleted(res)).toBe(false);
 });
 
-test('proxy: 공개 경로에서도 유효한 세션이면 쿠키 만료를 갱신한다', async () => {
-  fetchMock.mockResolvedValueOnce(
-    json(200, { user: { id: 'u1', email: 'a@b.kr', emailConfirmedAt: null }, profile: { role: 'user', status: 'active' }, expiresAt: '2026-12-25T00:00:00.000Z' }),
-  );
-  const res = await proxy(request('/', 'tok'));
-  expect(setCookie(res)).toContain('bara_session=tok');
+test('proxy: renewed가 false이거나 없으면 쿠키를 쓰지 않는다 (공개 페이지 응답에 토큰이 실리지 않는다)', async () => {
+  for (const extra of [{ expiresAt: '2026-12-25T00:00:00.000Z', renewed: false }, { expiresAt: '2026-12-25T00:00:00.000Z' }, {}]) {
+    fetchMock.mockResolvedValueOnce(active(extra));
+    const res = await proxy(request('/', 'tok'));
+    expect(passedThrough(res)).toBe(true);
+    expect(setCookie(res), JSON.stringify(extra)).toBe('');
+    expect(cacheControl(res)).toBeNull();
+  }
+});
+
+test('proxy: 쿠키를 쓰는 응답(연장·삭제)에는 Cache-Control: private, no-store', async () => {
+  // 연장 (next)
+  fetchMock.mockResolvedValueOnce(active({ expiresAt: '2026-12-25T00:00:00.000Z', renewed: true }));
+  expect(cacheControl(await proxy(request('/courses', 'tok')))).toBe('private, no-store');
+  // 삭제: 보호 경로 redirect, 공개 경로 next, 탈퇴 계정
+  fetchMock.mockResolvedValueOnce(json(401, { error: { code: 'unauthenticated', message: 'x' } }));
+  expect(cacheControl(await proxy(request('/my', 'stale')))).toBe('private, no-store');
+  fetchMock.mockResolvedValueOnce(json(401, { error: { code: 'unauthenticated', message: 'x' } }));
+  expect(cacheControl(await proxy(request('/', 'stale')))).toBe('private, no-store');
+  fetchMock.mockResolvedValueOnce(json(200, { user: { id: 'u1', email: 'a@b.kr', emailConfirmedAt: null }, profile: { role: 'user', status: 'withdrawn' } }));
+  fetchMock.mockResolvedValueOnce(json(200, { ok: true }));
+  expect(cacheControl(await proxy(request('/my', 'tok')))).toBe('private, no-store');
+});
+
+test('proxy: 503 rewrite도 캐시하지 않는다 (private, no-store)', async () => {
+  fetchMock.mockRejectedValueOnce(new Error('down'));
+  const res = await proxy(request('/my', 'tok'));
+  expect(res.status).toBe(503);
+  expect(cacheControl(res)).toBe('private, no-store');
+  expect(setCookie(res)).toBe('');
 });
 
 test('proxy: production에서는 Secure 쿠키', async () => {
   vi.stubEnv('NODE_ENV', 'production');
   try {
-    fetchMock.mockResolvedValueOnce(
-      json(200, { user: { id: 'u1', email: 'a@b.kr', emailConfirmedAt: null }, profile: { role: 'user', status: 'active' }, expiresAt: '2026-12-25T00:00:00.000Z' }),
-    );
+    fetchMock.mockResolvedValueOnce(active({ expiresAt: '2026-12-25T00:00:00.000Z', renewed: true }));
     expect(setCookie(await proxy(request('/my', 'tok')))).toMatch(/Secure/i);
   } finally {
     vi.unstubAllEnvs();
   }
 });
 
-test('proxy: expiresAt이 없거나 잘못된 값이면 쿠키를 건드리지 않는다 (옛 API 응답 호환)', async () => {
-  fetchMock.mockResolvedValueOnce(session({ role: 'user', status: 'active' }));
+test('proxy: renewed여도 expiresAt이 없거나 잘못된 값이면 쿠키를 건드리지 않는다', async () => {
+  fetchMock.mockResolvedValueOnce(active({ renewed: true }));
   expect(setCookie(await proxy(request('/my', 'tok')))).toBe('');
-  fetchMock.mockResolvedValueOnce(
-    json(200, { user: { id: 'u1', email: 'a@b.kr', emailConfirmedAt: null }, profile: null, expiresAt: 'not-a-date' }),
-  );
+  fetchMock.mockResolvedValueOnce(active({ renewed: true, expiresAt: 'not-a-date' }));
   expect(setCookie(await proxy(request('/my', 'tok')))).toBe('');
 });
 
-test('proxy: 세션이 죽었거나 API 장애면 쿠키를 연장하지 않는다', async () => {
+test('proxy: API 장애면 쿠키를 연장하지 않는다', async () => {
   fetchMock.mockRejectedValueOnce(new Error('down'));
   expect(setCookie(await proxy(request('/courses', 'tok')))).toBe('');
 });

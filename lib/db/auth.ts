@@ -10,6 +10,8 @@ export type SessionInfo = {
   profile: { role: string; status: string } | null;
   // 슬라이딩 만료가 반영된 세션 만료 시각(ISO). 옛 API 응답에는 없을 수 있다.
   expiresAt?: string;
+  // 이 요청에서 세션 만료가 실제로 늘어났는지. true일 때만 proxy가 쿠키를 다시 쓴다(옛 API 응답에는 없음 → 쓰지 않음).
+  renewed?: boolean;
 };
 
 export type SignUpInput = { email: string; password: string; name: string; phone: string | null };

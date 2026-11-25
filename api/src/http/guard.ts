@@ -5,7 +5,7 @@ import { sendError } from './errors.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
-    auth: { userId: string | null; sessionExpiresAt: Date | null };
+    auth: { userId: string | null; sessionExpiresAt: Date | null; sessionRenewed: boolean };
   }
 }
 
@@ -21,7 +21,7 @@ export function keyMatches(given: unknown, expected: string): boolean {
 }
 
 export function registerGuard(app: FastifyInstance): void {
-  app.decorateRequest('auth', null as unknown as { userId: string | null; sessionExpiresAt: Date | null });
+  app.decorateRequest('auth', null as unknown as { userId: string | null; sessionExpiresAt: Date | null; sessionRenewed: boolean });
   app.addHook('onRequest', async (req, reply) => {
     if (req.url === '/healthz') return;
     const { config, pool } = app.deps;
@@ -30,6 +30,6 @@ export function registerGuard(app: FastifyInstance): void {
     }
     const token = req.headers['x-bara-session'];
     const session = typeof token === 'string' && token ? await resolveSession(pool, token, config.sessionTtlDays) : null;
-    req.auth = { userId: session?.userId ?? null, sessionExpiresAt: session?.expiresAt ?? null };
+    req.auth = { userId: session?.userId ?? null, sessionExpiresAt: session?.expiresAt ?? null, sessionRenewed: session?.renewed ?? false };
   });
 }
