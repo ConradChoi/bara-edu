@@ -29,7 +29,7 @@ export default async function SignInPage({
         <div className="flex flex-col gap-3 rounded-md border border-danger bg-danger/10 px-3.5 py-3">
           <div>
             <p className="text-[13px] font-semibold text-danger">가입 인증 링크가 만료됐거나 이미 사용됐어요</p>
-            <p className="text-[12px] text-n-7">아래에 가입한 이메일을 입력하면 인증 메일을 다시 보내드려요.</p>
+            <p className="text-[12px] text-n-7">가입한 이메일을 입력하면 메일을 다시 보내요.</p>
           </div>
           <ResendConfirmationForm />
         </div>

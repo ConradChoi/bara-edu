@@ -11,7 +11,7 @@ export default function ResendConfirmationForm({ defaultEmail }: { defaultEmail?
   if (state && 'pendingConfirmation' in state) {
     return (
       <p className="text-[12px] font-medium text-success">
-        <span className="font-semibold">{state.email}</span>로 인증 메일을 다시 보냈어요.
+        <span className="font-semibold">{state.email}</span>로 메일을 보냈어요. 몇 분 안에 오지 않으면 스팸메일함을 확인해 주세요.
       </p>
     );
   }
@@ -32,7 +32,7 @@ export default function ResendConfirmationForm({ defaultEmail }: { defaultEmail?
           disabled={pending}
           className="h-10 shrink-0 rounded-md border border-n-3 px-4 text-[12.5px] font-medium text-n-7 hover:border-indigo hover:text-indigo disabled:opacity-60"
         >
-          {pending ? '보내는 중...' : '인증 메일 재전송'}
+          {pending ? '보내는 중이에요' : '메일 다시 받기'}
         </button>
       </div>
       {state && 'error' in state && <p className="text-[12px] text-danger">{state.error}</p>}

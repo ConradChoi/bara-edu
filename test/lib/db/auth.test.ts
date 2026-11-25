@@ -1,3 +1,4 @@
+import { siteConfig } from '@/data/site-config';
 import { beforeEach, expect, test, vi } from 'vitest';
 
 const store = { get: vi.fn(), set: vi.fn(), delete: vi.fn() };
@@ -69,11 +70,12 @@ test('login 실패 사유: 401 메시지별, 429, 그 외', async () => {
   expect(store.set).not.toHaveBeenCalled();
 });
 
-test('login email_not_confirmed → pendingConfirmation 상태', async () => {
+test('login email_not_confirmed → pendingConfirmation 상태(source: login — 메일을 새로 보낸 게 아니라 별도 문구)', async () => {
   fetchMock.mockResolvedValue(apiError(401, 'unauthenticated', 'email_not_confirmed'));
   expect(await actions.login(undefined, form({ email: 'a@b.kr', password: 'pw' }))).toEqual({
     pendingConfirmation: true,
     email: 'a@b.kr',
+    source: 'login',
   });
 });
 
@@ -88,15 +90,15 @@ test('login 액션 문구: 잘못된 비밀번호·재설정 필요·429', async
   });
   fetchMock.mockResolvedValueOnce(apiError(429, 'rate_limited', '...'));
   expect(await actions.login(undefined, form({ email: 'a@b.kr', password: 'pw' }))).toEqual({
-    error: '잠시 후 다시 시도해주세요',
+    error: '잠시 후 다시 시도해 주세요',
   });
 });
 
 test('login 액션: 서비스 키 오류(401 unauthorized_service)·503은 비밀번호 오류 문구가 아니다', async () => {
   fetchMock.mockResolvedValueOnce(apiError(401, 'unauthorized_service', '서비스 키가 올바르지 않습니다.'));
-  expect(await actions.login(undefined, form({ email: 'a@b.kr', password: 'pw' }))).toEqual({ error: '잠시 후 다시 시도해주세요' });
+  expect(await actions.login(undefined, form({ email: 'a@b.kr', password: 'pw' }))).toEqual({ error: '잠시 후 다시 시도해 주세요' });
   fetchMock.mockRejectedValueOnce(new Error('down'));
-  expect(await actions.login(undefined, form({ email: 'a@b.kr', password: 'pw' }))).toEqual({ error: '잠시 후 다시 시도해주세요' });
+  expect(await actions.login(undefined, form({ email: 'a@b.kr', password: 'pw' }))).toEqual({ error: '잠시 후 다시 시도해 주세요' });
 });
 
 test('login 액션 성공 → 안전한 redirect만 따른다', async () => {
@@ -111,10 +113,10 @@ test('login 액션 성공 → 안전한 redirect만 따른다', async () => {
   );
 });
 
-test('signup: already_registered 문구, pending_confirmation 상태, origin 전달', async () => {
+test('signup: 어떤 결과든 같은 pendingConfirmation 응답, origin 전달, 실패 문구', async () => {
   const fields = { name: '홍길동', email: 'a@b.kr', password: 'password1', phone: '010', agreeTerms: 'on', agreePrivacy: 'on' };
-  fetchMock.mockResolvedValueOnce(json(200, { status: 'already_registered' }));
-  expect(await actions.signup(undefined, form(fields))).toEqual({ error: '이미 가입된 이메일이에요. 로그인해 주세요' });
+  fetchMock.mockResolvedValueOnce(json(200, { status: 'pending_confirmation' }));
+  expect(await actions.signup(undefined, form(fields))).toEqual({ pendingConfirmation: true, email: 'a@b.kr' });
   expect(lastCall().url).toBe('http://api.local/v1/auth/signup');
   expect(lastCall().body).toEqual({
     email: 'a@b.kr',
@@ -123,15 +125,19 @@ test('signup: already_registered 문구, pending_confirmation 상태, origin 전
     phone: '010',
     origin: 'https://bara-edu.kr',
   });
-  fetchMock.mockResolvedValueOnce(json(200, { status: 'pending_confirmation' }));
-  expect(await actions.signup(undefined, form(fields))).toEqual({ pendingConfirmation: true, email: 'a@b.kr' });
   fetchMock.mockResolvedValueOnce(apiError(429, 'rate_limited', '...'));
   expect(await actions.signup(undefined, form(fields))).toEqual({
-    error: '가입 중 문제가 발생했어요. 잠시 후 다시 시도해주세요',
+    error: '가입 중 문제가 발생했어요. 잠시 후 다시 시도해 주세요',
   });
 });
 
-test('resendConfirmation: 성공·실패', async () => {
+test('signup: 앱은 already_registered 분기를 두지 않는다 (API가 알려 줘도 같은 화면)', async () => {
+  const fields = { name: '홍길동', email: 'a@b.kr', password: 'password1', agreeTerms: 'on', agreePrivacy: 'on' };
+  fetchMock.mockResolvedValueOnce(json(200, { status: 'already_registered' }));
+  expect(await actions.signup(undefined, form(fields))).toEqual({ pendingConfirmation: true, email: 'a@b.kr' });
+});
+
+test('resendConfirmation: 성공·실패(전화 문의 안내)', async () => {
   fetchMock.mockResolvedValueOnce(json(200, { status: 'pending_confirmation' }));
   expect(await actions.resendConfirmation(undefined, form({ email: 'a@b.kr' }))).toEqual({
     pendingConfirmation: true,
@@ -140,7 +146,7 @@ test('resendConfirmation: 성공·실패', async () => {
   expect(lastCall().body).toEqual({ email: 'a@b.kr', origin: 'https://bara-edu.kr' });
   fetchMock.mockResolvedValueOnce(apiError(400, 'validation', '...'));
   expect(await actions.resendConfirmation(undefined, form({ email: 'a@b.kr' }))).toEqual({
-    error: '인증 메일을 다시 보내지 못했어요. 잠시 후 다시 시도해주세요',
+    error: `메일을 보내지 못했어요. 잠시 후 다시 시도해 주세요. 계속 안 되면 전화로 문의해 주세요. ${siteConfig.phone}`,
   });
 });
 
@@ -172,7 +178,7 @@ test('resetPassword: 성공 → /sign-in?reset=1, 만료 토큰 → 기존 문�
   expect(lastCall().body).toEqual({ token: 't1', newPassword: 'newpass12' });
   fetchMock.mockResolvedValueOnce(apiError(400, 'validation', 'invalid_token'));
   expect(await actions.resetPassword(undefined, form({ token: 't1', password: 'newpass12', confirm: 'newpass12' }))).toEqual({
-    error: '비밀번호 변경에 실패했어요. 링크가 만료됐을 수 있어요. 다시 요청해주세요.',
+    error: '비밀번호 변경에 실패했어요. 링크가 만료됐을 수 있어요. 다시 요청해 주세요.',
   });
   expect(await actions.resetPassword(undefined, form({ token: 't1', password: 'short', confirm: 'short' }))).toEqual({
     error: '비밀번호는 8자 이상이어야 해요',

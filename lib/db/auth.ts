@@ -10,7 +10,7 @@ export type SessionInfo = {
 };
 
 export type SignUpInput = { email: string; password: string; name: string; phone: string | null };
-export type SignUpResult = { ok: true; status: 'pending_confirmation' | 'already_registered' } | { ok: false };
+export type SignUpResult = { ok: true; status: 'pending_confirmation' } | { ok: false };
 export type LoginResult =
   | { ok: true }
   | { ok: false; reason: 'invalid_credentials' | 'email_not_confirmed' | 'rate_limited' | 'failed' };
@@ -22,7 +22,7 @@ export function isDeadSession(r: ApiResult<unknown>): boolean {
 }
 
 export async function signUp(input: SignUpInput, origin: string): Promise<SignUpResult> {
-  const r = await apiFetch<{ status: 'pending_confirmation' | 'already_registered' }>('/v1/auth/signup', {
+  const r = await apiFetch<{ status: 'pending_confirmation' }>('/v1/auth/signup', {
     method: 'POST',
     body: { ...input, origin },
   });

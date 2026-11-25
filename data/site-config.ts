@@ -11,6 +11,8 @@ export const siteConfig: SiteConfig = {
   businessRegistrationNumber: '832-86-03446',
   mailOrderLicenseNumber: '제2026-경기광명-0607호',
   phone: '010-9025-5093',
+  // 전화 문의 가능 시간. API 안내 메일(api/src/mail/support.ts)의 SUPPORT_HOURS와 같아야 한다.
+  supportHours: '평일 10:00~18:00(점심 11:30~13:00 제외)',
   email: 'info@ylia.io',
   address: '경기도 광명시 오리로 362 4층 (창업지원센터)',
   kakaoUrl: undefined,
