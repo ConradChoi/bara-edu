@@ -25,6 +25,10 @@
 | 11-25 17:17 | `bara_edu`(앱 계정 → `set local role bara_edu_service`, 읽기 전용 트랜잭션) | 조회 | R24 배포 전 점검: 겹친 퀴즈 회차 0건, 정답 없는 문항 0건(문항·제출 모두 0건) |
 | 11-25 17:17 | `bara_edu`(앱 계정 → `set local role bara_edu_service`) | 변경 | R24 패치 `api/db/patches/2026-11-25-r24.sql` 적용: `get_quiz_for_lesson`·`submit_quiz_attempt` create or replace(데이터 변경 없음) |
 | 11-25 17:18 | WAS `bara-edu-api` | 변경 | API 릴리스 `98ac9b9` 설치·재시작(healthz 200) |
+| 11-25 20:58 | `bara_edu`(앱 계정 → `set local role bara_edu_service`, 읽기 전용) | 조회 | 가입 비밀번호 확인 설계용 미인증 계정 수(0건) |
+| 11-25 21:55 | `bara_edu`(앱 계정 → `set local role bara_edu_service`) | 변경 | 패치 `2026-11-25-signup-attempts.sql` 적용: `auth.signup_attempts` 생성, `email_tokens.attempt_id` 추가, 정리 함수 교체(이행 대상 0건) |
+| 11-25 21:56 | WAS `bara-edu-api` | 변경 | API 릴리스 `ef57636` 설치·재시작(healthz 200) |
+| 11-25 21:56 | `bara_edu`(동일) | 변경 | 같은 패치 재적용(API 배포 직후 절차, 이행 대상 0건) |
 
 ## 같은 날 함께 정리한 것
 
