@@ -510,6 +510,30 @@ test('login: 미인증 계정은 가입 시도의 비밀번호가 맞으면 emai
   expect(bad.json().error.message).toBe('invalid_credentials');
 });
 
+test('셀프 비밀번호 재설정(request-reset)으로도 미인증 계정을 확정할 수 있다: 메일함 주인만 링크를 받고, 쓰면 인증 완료 + 모든 가입 시도·링크 무효 (앱 화면에는 이 요청 경로가 없다)', async () => {
+  const email = 'selfreset1@bara-edu.kr';
+  await signup({ email, password: 'attackerpw1', name: '선점자' });
+  const signupLink = tokenOf(mailer.sent.at(-1)!.link);
+  await resetLimits();
+  await signup({ email, password: 'victimpw123', name: '본인' });
+  mailer.sent.length = 0;
+  const r = await post('/v1/auth/request-reset', { email, origin: ORIGIN });
+  expect(r.statusCode).toBe(200);
+  expect(mailer.sent).toHaveLength(1);
+  expect(mailer.sent[0]).toMatchObject({ to: email, template: 'recovery' });
+  const resetToken = tokenOf(mailer.sent[0].link);
+  expect((await post('/v1/auth/reset-password', { token: resetToken, newPassword: 'ownerchosen1' })).statusCode).toBe(200);
+  const u = await stored(email);
+  expect(u.email_confirmed_at).not.toBeNull();
+  expect(u.encrypted_password).toMatch(/^\$2[aby]\$/);
+  expect(await attemptsOf(email)).toHaveLength(0);
+  expect(await checkState(signupLink)).toBe('done');
+  expect((await confirm(signupLink, 'attackerpw1')).statusCode).toBe(409);
+  expect((await login(email, 'attackerpw1')).statusCode).toBe(401);
+  expect((await login(email, 'victimpw123')).statusCode).toBe(401); // 시도의 비밀번호는 계정 비밀번호가 되지 않는다
+  expect((await login(email, 'ownerchosen1')).statusCode).toBe(200);
+});
+
 test('이미 가입된 계정 안내 메일: 60초·1시간 제한이 풀려도 같은 주소에는 24시간에 1통', async () => {
   const email = 'daily1@bara-edu.kr';
   await signup({ email });
