@@ -63,11 +63,86 @@ test('phone 생략·null 허용', async () => {
   expect((await signup({ phone: null })).statusCode).toBe(200);
 });
 
-test('대소문자·공백만 다른 이메일로 재가입 → already_registered, 메일 없음 (Review Focus 1)', async () => {
+test('대소문자·공백만 다른 이메일로 재가입(미인증) → 같은 응답, 인증 메일 재발송', async () => {
   await signup({ email: 'User@Bara-Edu.kr ' });
   const r = await signup({ email: 'user@bara-edu.kr' });
-  expect(r.json()).toEqual({ status: 'already_registered' });
+  expect(r.statusCode).toBe(200);
+  expect(r.json()).toEqual({ status: 'pending_confirmation' });
+  // 신규 가입 자체는 resend 60초 카운트를 쓰지 않으므로 첫 재가입은 인증 메일을 다시 보낸다
+  expect(mailer.sent).toHaveLength(2);
+  expect(mailer.sent.every((m) => m.template === 'confirm')).toBe(true);
+});
+
+test('이미 인증한 계정으로 가입 → 같은 응답 + already_registered 메일(로그인 링크), 가입 정보는 그대로', async () => {
+  const email = 'confirmed1@bara-edu.kr';
+  await signup({ email, name: '원래이름' });
+  await post('/v1/auth/verify-email', { token: tokenOf(mailer.sent[0].link) });
+  mailer.sent.length = 0;
+  const before = await ctx.adminPool.query('select encrypted_password from auth.users where email = $1', [email]);
+  const r = await signup({ email: email.toUpperCase(), name: '다른이름', password: 'otherpass1' });
+  expect(r.statusCode).toBe(200);
+  expect(r.json()).toEqual({ status: 'pending_confirmation' });
+  expect(mailer.sent).toEqual([{ to: email, template: 'already_registered', link: `${ORIGIN}/sign-in` }]);
+  const after = await ctx.adminPool.query('select u.encrypted_password, p.name from auth.users u join public.profiles p on p.id = u.id where u.email = $1', [email]);
+  expect(after.rows[0].encrypted_password).toBe(before.rows[0].encrypted_password);
+  expect(after.rows[0].name).toBe('원래이름');
+});
+
+test('이미 인증한 계정에 대한 안내 메일도 60초에 한 번만 (메일 폭탄 방지), 응답은 동일', async () => {
+  const email = 'confirmed2@bara-edu.kr';
+  await signup({ email });
+  await post('/v1/auth/verify-email', { token: tokenOf(mailer.sent[0].link) });
+  mailer.sent.length = 0;
+  const a = await signup({ email });
+  const b = await signup({ email });
+  expect(a.json()).toEqual(b.json());
+  expect(mailer.sent.filter((m) => m.template === 'already_registered')).toHaveLength(1);
+});
+
+test('미인증 기존 계정으로 가입 → 같은 응답 + 인증 메일 새로 발송, 60초 안의 반복은 보내지 않는다', async () => {
+  const email = 'unconfirmed1@bara-edu.kr';
+  await signup({ email });
+  mailer.sent.length = 0;
+  const a = await signup({ email });
+  expect(a.json()).toEqual({ status: 'pending_confirmation' });
   expect(mailer.sent).toHaveLength(1);
+  expect(mailer.sent[0]).toMatchObject({ to: email, template: 'confirm' });
+  const b = await signup({ email });
+  expect(b.json()).toEqual({ status: 'pending_confirmation' });
+  expect(mailer.sent).toHaveLength(1);
+  // 새 링크로 인증할 수 있다
+  expect((await post('/v1/auth/verify-email', { token: tokenOf(mailer.sent[0].link) })).statusCode).toBe(200);
+});
+
+test('탈퇴(익명화)한 계정의 예전 이메일로 가입 → 새 계정으로 정상 가입', async () => {
+  const email = 'left1@bara-edu.kr';
+  await signup({ email });
+  await ctx.adminPool.query("update auth.users set email = 'withdrawn+x@deleted.invalid' where email = $1", [email]);
+  mailer.sent.length = 0;
+  const r = await signup({ email });
+  expect(r.json()).toEqual({ status: 'pending_confirmation' });
+  expect(mailer.sent).toHaveLength(1);
+  expect(mailer.sent[0]).toMatchObject({ to: email, template: 'confirm' });
+});
+
+test('익명화된 주소(@deleted.invalid)로 가입 시도 → 같은 응답, 메일은 보내지 않는다', async () => {
+  const email = 'withdrawn+11111111-1111-1111-1111-111111111111@deleted.invalid';
+  await ctx.adminPool.query("insert into auth.users (email, email_confirmed_at) values ($1, now())", [email]);
+  const r = await signup({ email });
+  expect(r.statusCode).toBe(200);
+  expect(r.json()).toEqual({ status: 'pending_confirmation' });
+  expect(mailer.sent).toHaveLength(0);
+});
+
+test('가입 응답 형태는 신규/인증됨/미인증 모두 같다', async () => {
+  const email = 'shape1@bara-edu.kr';
+  const fresh = await signup({ email });
+  const pending = await signup({ email });
+  await post('/v1/auth/verify-email', { token: tokenOf(mailer.sent[0].link) });
+  const confirmed = await signup({ email });
+  expect(fresh.statusCode).toBe(confirmed.statusCode);
+  expect(fresh.body).toBe(pending.body);
+  expect(fresh.body).toBe(confirmed.body);
 });
 
 test('비밀번호 7자 → 400 validation, 이름 1자 → 400 validation', async () => {

@@ -14,7 +14,12 @@ const confirmLink = (origin: string, token: string) => `${origin}/auth/confirm?t
 // queues the message for sending after the HTTP response; must not throw or await the send
 export type MailDeliver = (msg: MailMessage) => void;
 
-export async function signup(pool: pg.Pool, deliver: MailDeliver, input: SignupInput): Promise<'pending_confirmation' | 'already_registered'> {
+// 어떤 경우에도 같은 값을 돌려준다(이메일 열거 방지, 대표 결정 2026-11-25). 신규/인증 완료/미인증은 보내는 메일만 다르다.
+// 탈퇴 계정의 이메일은 `withdrawn+<id>@deleted.invalid`로 바뀌어 원래 주소는 비어 있으므로 새 가입으로 처리되고,
+// 익명화 주소로 가입을 시도하면 기존 계정으로 취급하되 보낼 곳이 없어 메일은 보내지 않는다.
+const UNDELIVERABLE = /@deleted\.invalid$/;
+
+export async function signup(pool: pg.Pool, deliver: MailDeliver, input: SignupInput): Promise<'pending_confirmation'> {
   const passwordHash = await hashPassword(input.password);
   const meta = { name: input.name, ...(input.phone ? { phone: input.phone } : {}) };
   const r = await withService(pool, (tx) =>
@@ -24,9 +29,28 @@ export async function signup(pool: pg.Pool, deliver: MailDeliver, input: SignupI
       [input.email, passwordHash, JSON.stringify(meta)],
     ),
   );
-  if (r.rowCount === 0) return 'already_registered';
-  const token = await issueEmailToken(pool, r.rows[0].id, 'confirm');
-  deliver({ to: input.email, template: 'confirm', link: confirmLink(input.origin, token) });
+  if (r.rowCount > 0) {
+    const token = await issueEmailToken(pool, r.rows[0].id, 'confirm');
+    deliver({ to: input.email, template: 'confirm', link: confirmLink(input.origin, token) });
+    return 'pending_confirmation';
+  }
+
+  const existing = await withService(pool, (tx) =>
+    tx.query<{ id: string; email_confirmed_at: Date | null }>('select id, email_confirmed_at from auth.users where lower(email) = $1', [input.email]),
+  );
+  const user = existing.rows[0];
+  if (!user || UNDELIVERABLE.test(input.email)) return 'pending_confirmation';
+  if (user.email_confirmed_at) {
+    // 같은 주소로 가입을 반복해 안내 메일을 쏟아내지 못하게 resend와 같은 간격으로 제한한다
+    if ((await hit(pool, 'already-60s', input.email, 1, 60)) && (await hit(pool, 'already-1h', input.email, 4, 3600))) {
+      deliver({ to: input.email, template: 'already_registered', link: `${input.origin}/sign-in` });
+    }
+    return 'pending_confirmation';
+  }
+  // 미인증 기존 계정: 인증 메일을 다시 보낸다(/v1/auth/resend와 같은 60초·1시간 제한)
+  if ((await hit(pool, 'resend-60s', input.email, 1, 60)) && (await hit(pool, 'resend-1h', input.email, 4, 3600))) {
+    await resendConfirmation(pool, deliver, input.email, input.origin);
+  }
   return 'pending_confirmation';
 }
 
