@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { closeLead, hideDiagnosisLeadContact, markLeadContacted, revealDiagnosisLeadContact, updateLeadNote } from '@/app/actions/admin-diagnosis';
+import LeadNoteTextarea from '@/components/admin/LeadNoteTextarea';
 import AdminTable from '@/components/admin/AdminTable';
 import StatusBadge from '@/components/admin/StatusBadge';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
@@ -21,6 +22,8 @@ const ERROR_MESSAGE: Record<string, string> = {
   failed: '처리 중 문제가 발생했어요.',
   'already-processed': '다른 관리자가 이미 처리했어요.',
   'reason-required': '종료 사유를 입력해 주세요.',
+  'memo-pii': '전화번호·이메일·주민번호처럼 보이는 내용은 저장할 수 없어요. 그 부분을 지우고 다시 저장해 주세요.',
+  'log-failed': '접속 기록을 남기지 못해 변경하지 않았어요. 잠시 후 다시 시도해 주세요.',
   'reveal-failed': '개인정보 보기 처리 중 오류가 발생했어요. 잠시 후 다시 시도해 주세요. 계속되면 관리자에게 문의해 주세요.',
 };
 
@@ -116,7 +119,7 @@ export default async function AdminDiagnosisLeadsPage({
                           description="통화 메모가 있으면 함께 남길 수 있어요."
                           confirmLabel="표시"
                           action={markLeadContacted.bind(null, lead.id)}
-                          reasonField={{ name: 'note', label: '메모 (선택)', placeholder: '통화 내용 등', required: false }}
+                          reasonField={{ name: 'note', label: '메모 (선택)', placeholder: '연락 내용만 적어 주세요. 이름·연락처는 적지 말아 주세요.', required: false, checkPii: true }}
                         />
                         <ConfirmDialog
                           triggerLabel="바로 종료"
@@ -126,7 +129,7 @@ export default async function AdminDiagnosisLeadsPage({
                           confirmLabel="종료"
                           tone="danger"
                           action={closeLead.bind(null, lead.id, 'new')}
-                          reasonField={{ name: 'reason', label: '종료 사유 *', placeholder: '예: 중복 접수, 연락 불가' }}
+                          reasonField={{ name: 'reason', label: '종료 사유 *', placeholder: '예: 중복 접수, 연락 불가', checkPii: true }}
                         />
                       </>
                     )}
@@ -137,7 +140,7 @@ export default async function AdminDiagnosisLeadsPage({
                         description="종료 사유를 입력해 주세요."
                         confirmLabel="종료"
                         action={closeLead.bind(null, lead.id, 'contacted')}
-                        reasonField={{ name: 'reason', label: '종료 사유 *', placeholder: '예: 강사과정 안내 완료' }}
+                        reasonField={{ name: 'reason', label: '종료 사유 *', placeholder: '예: 강사과정 안내 완료', checkPii: true }}
                       />
                     )}
                     <FormDialog
@@ -148,11 +151,7 @@ export default async function AdminDiagnosisLeadsPage({
                     >
                       <label className="flex flex-col gap-1.5 text-[12.5px] text-n-7">
                         메모
-                        <textarea
-                          name="note"
-                          defaultValue={lead.adminNote ?? ''}
-                          className="min-h-[80px] rounded-md border border-n-3 bg-n-1 p-2.5 text-[13px] text-n-9 outline-none focus:border-pink"
-                        />
+                        <LeadNoteTextarea defaultValue={lead.adminNote ?? ''} />
                       </label>
                     </FormDialog>
                   </div>

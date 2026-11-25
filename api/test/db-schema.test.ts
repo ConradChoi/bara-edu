@@ -25,14 +25,16 @@ test('포팅본에 storage·cron·supabase 역할 이름이 없다', () => {
   expect(code).not.toMatch(/\b(from|to)\s+(public,\s*)?(anon|authenticated|service_role)\b/);
 });
 
-test('정책 수 = 원본 정책 수 - storage 정책 4개', async () => {
+test('정책 수 = 원본 정책 수 - storage 정책 4개 - 의도적으로 없앤 정책', async () => {
   // categories_public_select / legal_documents_public_select are created twice (drop + recreate), so count distinct table+name.
   const defs = [...original.matchAll(/^\s*create policy ("[^"]+") on (\S+)/gim)].map((m) => `${m[2]} ${m[1]}`);
   const storageCount = defs.filter((d) => d.startsWith('storage.objects ')).length;
   expect(storageCount).toBe(4);
   const originalCount = new Set(defs).size;
   const { rows } = await adminPool.query("select count(*)::int n from pg_policies where schemaname='public'");
-  expect(rows[0].n).toBe(originalCount - storageCount);
+  // 원본(supabase/schema.sql)에는 있지만 이 스키마에서 의도적으로 없앤 정책: 리드 update(2026-11-26, 변경은 접속 기록과 함께 API op로만)
+  const removedOnPurpose = 1;
+  expect(rows[0].n).toBe(originalCount - storageCount - removedOnPurpose);
 });
 
 test('public 테이블의 소유자는 모두 bara_edu_service', async () => {
