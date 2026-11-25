@@ -211,6 +211,8 @@ export function registerAuthRoutes(app: FastifyInstance): void {
     return {
       user: { id: row.id, email: row.email, emailConfirmedAt: row.email_confirmed_at },
       profile: row.role && row.status ? { role: row.role, status: row.status } : null,
+      // 슬라이딩 만료(resolveSession)가 반영된 값 — 앱 proxy가 브라우저 쿠키 만료를 맞추는 데 쓴다
+      expiresAt: req.auth.sessionExpiresAt,
     };
   });
 }

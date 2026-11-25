@@ -85,3 +85,18 @@ test('auth.users가 삭제된 세션 → 401', async () => {
   expect(res.statusCode).toBe(401);
   expect(res.json().error.code).toBe('unauthenticated');
 });
+
+test('세션 응답에 expiresAt: 절반 넘게 남았으면 그대로, 절반 아래면 30일로 늘어난 값', async () => {
+  const u = await newUser();
+  const { token } = await createSession(ctx.pool, u.id, 30);
+  const stored = async () => (await ctx.adminPool.query<{ e: Date }>('select expires_at as e from auth.sessions where user_id = $1', [u.id])).rows[0].e;
+
+  const fresh = (await get(token)).json();
+  expect(new Date(fresh.expiresAt).getTime()).toBe((await stored()).getTime());
+  expect(new Date(fresh.expiresAt).getTime() - Date.now()).toBeGreaterThan(29 * 86_400_000);
+
+  await ctx.adminPool.query("update auth.sessions set expires_at = now() + interval '10 days' where user_id = $1", [u.id]);
+  const extended = (await get(token)).json();
+  expect(new Date(extended.expiresAt).getTime() - Date.now()).toBeGreaterThan(29 * 86_400_000);
+  expect(new Date(extended.expiresAt).getTime()).toBe((await stored()).getTime());
+});

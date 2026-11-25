@@ -28,6 +28,22 @@ function withoutSessionCookie(request: NextRequest, redirectTo: NextResponse | n
   return response;
 }
 
+// API는 남은 기간이 절반 아래면 세션을 30일로 늘리는데(sliding), 브라우저 쿠키는 로그인 때의 만료일 그대로라
+// 브라우저가 먼저 쿠키를 버린다. 쿠키는 만료일을 읽을 수 없으므로 유효한 세션이면 매번 API가 준 expiresAt으로
+// 같은 옵션(writeSession과 동일)으로 다시 쓴다 — 한 번 놓쳐도 다음 요청이 바로잡는다.
+function withRefreshedCookie(response: NextResponse, token: string, expiresAt: string | undefined): NextResponse {
+  const expires = expiresAt ? new Date(expiresAt) : null;
+  if (!expires || Number.isNaN(expires.getTime())) return response;
+  response.cookies.set(SESSION_COOKIE, token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    path: '/',
+    expires,
+  });
+  return response;
+}
+
 // Next.js 16부터 middleware.ts가 proxy.ts로 이름이 바뀌었다 (기능은 동일, Node.js 런타임).
 export async function proxy(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
@@ -63,7 +79,7 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(new URL('/', request.url));
   }
 
-  return NextResponse.next();
+  return withRefreshedCookie(NextResponse.next(), token, r.data.expiresAt);
 }
 
 export const config = {

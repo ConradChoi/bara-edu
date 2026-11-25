@@ -7,6 +7,8 @@ type Issued = { sessionToken: string; expiresAt: string };
 export type SessionInfo = {
   user: { id: string; email: string; emailConfirmedAt: string | null };
   profile: { role: string; status: string } | null;
+  // 슬라이딩 만료가 반영된 세션 만료 시각(ISO). 옛 API 응답에는 없을 수 있다.
+  expiresAt?: string;
 };
 
 export type SignUpInput = { email: string; password: string; name: string; phone: string | null };
