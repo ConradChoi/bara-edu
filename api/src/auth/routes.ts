@@ -5,7 +5,8 @@ import { sendError } from '../http/errors.js';
 import { hit, normalizeEmail } from './rate-limit.js';
 import { revokeAllSessions, revokeSession } from './sessions.js';
 import type { MailMessage } from '../mail/mailer.js';
-import { changePassword, confirmEmailAsAdmin, listConfirmations, login, requestReset, resendConfirmation, resetPassword, sendResetAsAdmin, signup, verifyEmail, withdrawAnonymize } from './service.js';
+import { withdrawAccount } from './withdraw.js';
+import { changePassword, confirmEmailAsAdmin, listConfirmations, login, requestReset, resendConfirmation, resetPassword, sendResetAsAdmin, signup, verifyEmail } from './service.js';
 
 type SessionRow = {
   id: string;
@@ -31,6 +32,9 @@ const loginBody = z.object({ email, password: z.string().min(1).max(200) });
 const changeBody = z.object({ currentPassword: z.string().min(1).max(200), newPassword: z.string().min(8).max(200) });
 const resetBody = z.object({ token: z.string().min(1).max(200), newPassword: z.string().min(8).max(200) });
 
+const withdrawBody = z
+  .object({ reason: z.string().regex(/^[a-z_]{1,50}$/), detail: z.string().max(1000).nullish() })
+  .strict();
 const sendResetBody = z.object({ origin: z.string() });
 const idParam = z.object({ id: z.string().uuid() });
 
@@ -173,12 +177,21 @@ export function registerAuthRoutes(app: FastifyInstance): void {
     return { items: await listConfirmations(app.deps.pool) };
   });
 
-  app.post('/v1/auth/withdraw-anonymize', async (req, reply) => {
+  app.post('/v1/account/withdraw', async (req, reply) => {
     const userId = req.auth.userId;
     if (!userId) return sendError(reply, 'unauthenticated', '로그인이 필요합니다.');
-    const body = z.object({ anonymizedEmail: z.string() }).safeParse(req.body);
-    if (!body.success || body.data.anonymizedEmail !== `withdrawn+${userId}@deleted.invalid`) return sendError(reply, 'validation', INVALID);
-    if (!(await withdrawAnonymize(app.deps.pool, userId, body.data.anonymizedEmail))) return sendError(reply, 'not_found', '회원을 찾을 수 없습니다.');
+    const body = withdrawBody.safeParse(req.body);
+    if (!body.success) return sendError(reply, 'validation', INVALID);
+    const r = await withdrawAccount(app.deps.pool, userId, { reason: body.data.reason, detail: body.data.detail?.trim() || null });
+    if (r === 'active_enrollment') return sendError(reply, 'conflict', 'active_enrollment');
+    if (r === 'not_found') return sendError(reply, 'not_found', '회원을 찾을 수 없습니다.');
+    // DB가 커밋된 뒤에만 사진을 지운다. 실패해도 탈퇴는 성공(photo_path는 이미 비워져 조회 경로가 없고, 남은 파일은 운영 정리 대상).
+    // 키는 DB 트리거가 `<uid>/photo`로 고정하므로 photo_path 값과 무관하게 항상 지운다.
+    try {
+      await app.deps.storage.remove(`${userId}/photo`);
+    } catch (err) {
+      req.log.error({ errorName: err instanceof Error ? err.name : 'unknown' }, 'withdraw photo removal failed');
+    }
     return { ok: true };
   });
 

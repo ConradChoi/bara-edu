@@ -4,7 +4,6 @@ import type { Config } from './config.js';
 import type { Mailer } from './mail/mailer.js';
 import type { Storage } from './storage/storage.js';
 import { registerStorageRoutes } from './storage/routes.js';
-import { accountWithdrawCleanup } from './ops/account.js';
 import { registerAuthRoutes } from './auth/routes.js';
 import { registerErrorHandlers, sendError } from './http/errors.js';
 import { keyMatches, registerGuard } from './http/guard.js';
@@ -36,7 +35,7 @@ export function buildApp(deps: AppDeps, extraOps: Op[] = []): FastifyInstance {
   registerGuard(app);
   app.get('/healthz', async () => ({ ok: true }));
   registerAuthRoutes(app);
-  registerOpRoutes(app, registerOps([profilesGetMine, bankAccountsList, accountWithdrawCleanup, ...extraOps]));
+  registerOpRoutes(app, registerOps([profilesGetMine, bankAccountsList, ...extraOps]));
   registerStorageRoutes(app);
   registerQueryRoutes(app, lazyCatalog(deps.pool));
   registerRpcRoutes(app, lazyRpcCatalog(deps.pool));

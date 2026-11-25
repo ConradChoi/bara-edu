@@ -1,7 +1,6 @@
 import type pg from 'pg';
 import { withService } from '../db/context.js';
 import type { MailMessage } from '../mail/mailer.js';
-import { randomBytes } from 'node:crypto';
 import { hashPassword, verifyPassword } from './passwords.js';
 import { hit, release, reserve } from './rate-limit.js';
 import { consumeEmailTokenIn, invalidateEmailTokensIn, issueEmailToken } from './tokens.js';
@@ -168,17 +167,4 @@ export async function listConfirmations(pool: pg.Pool): Promise<Array<{ id: stri
     tx.query<{ id: string; email_confirmed_at: Date | null }>('select id, email_confirmed_at from auth.users order by created_at, id'),
   );
   return r.rows.map((row) => ({ id: row.id, emailConfirmedAt: row.email_confirmed_at ? row.email_confirmed_at.toISOString() : null }));
-}
-
-export async function withdrawAnonymize(pool: pg.Pool, userId: string, anonymizedEmail: string): Promise<boolean> {
-  const hash = await hashPassword(randomBytes(32).toString('base64url'));
-  return withService(pool, async (tx) => {
-    const r = await tx.query(
-      "update auth.users set email = $2, encrypted_password = $3, raw_user_meta_data = '{}'::jsonb, updated_at = now() where id = $1",
-      [userId, anonymizedEmail, hash],
-    );
-    if (r.rowCount === 0) return false;
-    await invalidateEmailTokensIn(tx, userId);
-    return true;
-  });
 }
