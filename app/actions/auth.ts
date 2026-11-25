@@ -4,10 +4,20 @@ import { redirect } from 'next/navigation';
 import * as auth from '@/lib/db/auth';
 import { siteConfig } from '@/data/site-config';
 import { getSiteOrigin } from '@/lib/site-origin';
-import { FIELD_MESSAGES, LIMITS, MSG_RATE_LIMITED, MSG_UNAVAILABLE, isApiEmail } from '@/lib/form-messages';
+import { FIELD_MESSAGES, LIMITS, MSG_PASSWORD_MISMATCH, MSG_RATE_LIMITED, MSG_UNAVAILABLE, isApiEmail } from '@/lib/form-messages';
 
 // source: 'login'은 인증 전 계정으로 로그인한 경우다 — 메일을 새로 보내지 않았으므로 "메일을 보냈어요" 문구를 쓰면 안 된다.
 export type AuthFormState = { error: string } | { pendingConfirmation: true; email: string; source?: 'login' } | undefined;
+
+// 가입 마무리(/auth/confirm) 화면의 서버 액션 결과. 성공하면 redirect()라 값이 없다.
+// status: 화면이 상태 화면(잠김·만료·이미 가입·무효)으로 바뀐다. wrong_password: 같은 화면에 오류+남은 횟수.
+// error: 같은 화면 위에 알림만(남은 횟수는 줄지 않는다).
+export type SignupFinishStatus = 'locked' | 'expired' | 'done' | 'invalid';
+export type SignupFinishState =
+  | { kind: 'wrong_password'; attemptsLeft: number }
+  | { kind: 'status'; status: SignupFinishStatus }
+  | { kind: 'error'; error: 'empty' | 'unavailable' | 'rate_limited' | 'failed' }
+  | undefined;
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -42,6 +52,7 @@ export async function signup(
   const name = (formData.get('name') as string | null)?.trim() ?? '';
   const email = (formData.get('email') as string | null)?.trim() ?? '';
   const password = (formData.get('password') as string | null) ?? '';
+  const passwordConfirm = (formData.get('passwordConfirm') as string | null) ?? '';
   const phone = (formData.get('phone') as string | null)?.trim() || null;
 
   // API가 400으로 거절하는 한도(이름 100자, 이메일 규칙, 비밀번호 200자, 연락처 30자)는 먼저 검사해 칸별로 안내한다.
@@ -50,6 +61,9 @@ export async function signup(
   if (!EMAIL_RE.test(email) || !isApiEmail(email)) return { error: '올바른 이메일 형식이 아니에요' };
   if (password.length < 8) return { error: '비밀번호는 8자 이상이어야 해요' };
   if (password.length > LIMITS.password) return { error: `비밀번호는 ${LIMITS.password}자 이하로 입력해 주세요` };
+  // 화면에서 먼저 막지만 JS가 없거나 우회한 요청의 안전장치. 두 칸 모두 앞뒤 공백까지 그대로 비교한다.
+  if (!passwordConfirm) return { error: '비밀번호를 한 번 더 입력해 주세요' };
+  if (password !== passwordConfirm) return { error: MSG_PASSWORD_MISMATCH };
   if (phone && phone.length > LIMITS.phone) return { error: `연락처는 ${LIMITS.phone}자 이하로 입력해 주세요` };
   if (formData.get('agreeTerms') !== 'on' || formData.get('agreePrivacy') !== 'on') {
     return { error: '이용약관과 개인정보 수집·이용에 모두 동의해야 가입할 수 있어요' };
@@ -65,7 +79,7 @@ export async function signup(
     return { error: '가입 중 문제가 발생했어요. 잠시 후 다시 시도해 주세요' };
   }
   // 신규·이미 가입·미인증 모두 같은 응답이다(이메일 열거 방지, 대표 결정 2026-11-25). 메일 종류는 API가 나눠 보낸다.
-  // 가입 직후에는 세션이 없다 — 메일의 /auth/confirm 링크를 눌러야 세션이 생긴다.
+  // 가입 직후에는 세션이 없다 — 메일의 /auth/confirm 링크를 열고 가입할 때 정한 비밀번호를 입력해야 세션이 생긴다.
   return { pendingConfirmation: true, email };
 }
 
@@ -87,6 +101,36 @@ export async function resendConfirmation(
   }
 
   return { pendingConfirmation: true, email };
+}
+
+// 가입 마무리: 링크 토큰(hidden)과 가입 때 정한 비밀번호. 확정은 이 액션(POST)에서만 일어난다 — 링크를 여는 GET은 읽기 전용이다.
+// 비밀번호·토큰은 로그에 남기지 않고 상태에도 담지 않는다(오류 상태에는 횟수·종류만).
+export async function finishSignup(_prev: SignupFinishState, formData: FormData): Promise<SignupFinishState> {
+  const token = (formData.get('token') as string | null) ?? '';
+  const password = (formData.get('password') as string | null) ?? '';
+  if (!token) return { kind: 'status', status: 'invalid' };
+  if (!password) return { kind: 'error', error: 'empty' };
+
+  const r = await auth.completeSignup(token, password);
+  if (r.ok) redirect('/my?welcome=1');
+  switch (r.reason) {
+    case 'wrong_password':
+      return { kind: 'wrong_password', attemptsLeft: r.attemptsLeft };
+    case 'link_locked':
+      return { kind: 'status', status: 'locked' };
+    case 'link_expired':
+      return { kind: 'status', status: 'expired' };
+    case 'link_done':
+      return { kind: 'status', status: 'done' };
+    case 'invalid_token':
+      return { kind: 'status', status: 'invalid' };
+    case 'rate_limited':
+      return { kind: 'error', error: 'rate_limited' };
+    case 'unavailable':
+      return { kind: 'error', error: 'unavailable' };
+    default:
+      return { kind: 'error', error: 'failed' };
+  }
 }
 
 export async function login(

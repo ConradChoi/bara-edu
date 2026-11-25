@@ -23,9 +23,10 @@ const form = (fields: Record<string, string>) => {
   for (const [k, v] of Object.entries(fields)) fd.set(k, v);
   return fd;
 };
-const GOOD = { name: '홍길동', email: 'a@b.kr', password: 'password1', agreeTerms: 'on', agreePrivacy: 'on' };
+const GOOD = { name: '홍길동', email: 'a@b.kr', password: 'password1', passwordConfirm: 'password1', agreeTerms: 'on', agreePrivacy: 'on' };
 const signup = (over: Record<string, string | undefined> = {}) => {
-  const f = { ...GOOD, ...over } as Record<string, string>;
+  // 확인 칸은 따로 지정하지 않으면 비밀번호와 같은 값(일치)으로 보낸다
+  const f = { ...GOOD, ...(over.password !== undefined && !('passwordConfirm' in over) ? { passwordConfirm: over.password } : {}), ...over } as Record<string, string>;
   for (const k of Object.keys(f)) if (f[k] === undefined) delete f[k];
   return actions.signup(undefined, form(f));
 };
@@ -48,6 +49,14 @@ test('signup 검증: 이름·이메일·비밀번호·동의 — 문구가 맞�
   expect(await signup({ password: '1234567' })).toEqual({ error: '비밀번호는 8자 이상이어야 해요' });
   expect(await signup({ agreeTerms: undefined })).toEqual({ error: '이용약관과 개인정보 수집·이용에 모두 동의해야 가입할 수 있어요' });
   expect(await signup({ agreePrivacy: undefined })).toEqual({ error: '이용약관과 개인정보 수집·이용에 모두 동의해야 가입할 수 있어요' });
+  expect(fetchMock).not.toHaveBeenCalled();
+});
+
+test('signup: 비밀번호 확인이 비었거나 다르면 서버에서도 막는다(API 호출 없음, 공백까지 그대로 비교)', async () => {
+  expect(await signup({ passwordConfirm: 'password2' })).toEqual({ error: '비밀번호가 서로 달라요. 두 칸에 같은 비밀번호를 다시 입력해 주세요.' });
+  expect(await signup({ passwordConfirm: 'password1 ' })).toEqual({ error: expect.stringContaining('서로 달라요') });
+  expect(await signup({ passwordConfirm: undefined })).toEqual({ error: '비밀번호를 한 번 더 입력해 주세요' });
+  expect(await signup({ passwordConfirm: '' })).toEqual({ error: '비밀번호를 한 번 더 입력해 주세요' });
   expect(fetchMock).not.toHaveBeenCalled();
 });
 

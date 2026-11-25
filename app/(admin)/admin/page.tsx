@@ -147,7 +147,7 @@ export default async function AdminDashboardPage() {
                     {r.confirmed === null ? (
                       <StatusBadge tone="neutral">확인 불가</StatusBadge>
                     ) : (
-                      <StatusBadge tone={r.confirmed ? 'success' : 'warning'}>{r.confirmed ? '인증완료' : '미인증'}</StatusBadge>
+                      <StatusBadge tone={r.confirmed ? 'success' : 'warning'}>{r.confirmed ? '인증완료' : '가입 마무리 전'}</StatusBadge>
                     )}
                   </td>
                 </tr>

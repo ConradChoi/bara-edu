@@ -95,14 +95,6 @@ export async function completeSignup(token: string, password: string): Promise<C
   return { ok: false, reason: r.status === 429 ? 'rate_limited' : r.status === 503 ? 'unavailable' : 'failed' };
 }
 
-/** @deprecated API의 verify-email이 삭제됐다. app/auth/confirm 화면이 checkSignupLink·completeSignup으로 바뀌면(frontend-developer) 이 함수도 지운다. */
-export async function verifyEmail(token: string): Promise<boolean> {
-  const r = await apiFetch<Issued>('/v1/auth/verify-email', { method: 'POST', body: { token } });
-  if (!r.ok) return false;
-  await writeSession(r.data.sessionToken, r.data.expiresAt);
-  return true;
-}
-
 export async function login(email: string, password: string): Promise<LoginResult> {
   const r = await apiFetch<Issued & { userId: string }>('/v1/auth/login', { method: 'POST', body: { email, password } });
   if (r.ok) {
@@ -162,9 +154,14 @@ export async function withdrawAccount(reason: string, detail: string | null): Pr
   return { ok: false, reason: isDeadSession(r) ? 'unauthenticated' : 'failed' };
 }
 
-export async function adminConfirmEmail(userId: string): Promise<boolean> {
+// 409 password_not_set: 가입을 마무리하지 않아 비밀번호가 없는 계정은 관리자도 대신 인증할 수 없다(대표 결정 5).
+export type AdminConfirmResult = { ok: true } | { ok: false; reason: 'password_not_set' | 'failed' };
+
+export async function adminConfirmEmail(userId: string): Promise<AdminConfirmResult> {
   const r = await apiFetch(`/v1/admin/users/${encodeURIComponent(userId)}/confirm-email`, { method: 'POST', session: await readSession() });
-  return r.ok;
+  if (r.ok) return { ok: true };
+  if (r.status === 409 && r.error.message === 'password_not_set') return { ok: false, reason: 'password_not_set' };
+  return { ok: false, reason: 'failed' };
 }
 
 export async function adminSendReset(userId: string, origin: string): Promise<boolean> {

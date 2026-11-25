@@ -116,7 +116,7 @@ test('login 액션 성공 → 안전한 redirect만 따른다', async () => {
 });
 
 test('signup: 어떤 결과든 같은 pendingConfirmation 응답, origin 전달, 실패 문구', async () => {
-  const fields = { name: '홍길동', email: 'a@b.kr', password: 'password1', phone: '010', agreeTerms: 'on', agreePrivacy: 'on' };
+  const fields = { name: '홍길동', email: 'a@b.kr', password: 'password1', passwordConfirm: 'password1', phone: '010', agreeTerms: 'on', agreePrivacy: 'on' };
   fetchMock.mockResolvedValueOnce(json(200, { status: 'pending_confirmation' }));
   expect(await actions.signup(undefined, form(fields))).toEqual({ pendingConfirmation: true, email: 'a@b.kr' });
   expect(lastCall().url).toBe('http://api.local/v1/auth/signup');
@@ -134,7 +134,7 @@ test('signup: 어떤 결과든 같은 pendingConfirmation 응답, origin 전달,
 });
 
 test('signup: 앱은 already_registered 분기를 두지 않는다 (API가 알려 줘도 같은 화면)', async () => {
-  const fields = { name: '홍길동', email: 'a@b.kr', password: 'password1', agreeTerms: 'on', agreePrivacy: 'on' };
+  const fields = { name: '홍길동', email: 'a@b.kr', password: 'password1', passwordConfirm: 'password1', agreeTerms: 'on', agreePrivacy: 'on' };
   fetchMock.mockResolvedValueOnce(json(200, { status: 'already_registered' }));
   expect(await actions.signup(undefined, form(fields))).toEqual({ pendingConfirmation: true, email: 'a@b.kr' });
 });
@@ -150,16 +150,6 @@ test('resendConfirmation: 성공·실패(전화 문의 안내)', async () => {
   expect(await actions.resendConfirmation(undefined, form({ email: 'a@b.kr' }))).toEqual({
     error: `메일을 보내지 못했어요. 잠시 후 다시 시도해 주세요. 계속 안 되면 전화로 문의해 주세요. ${siteConfig.phone}`,
   });
-});
-
-test('verifyEmail 성공 → 쿠키 쓰기, 실패 → 쿠키 안 씀', async () => {
-  fetchMock.mockResolvedValueOnce(json(200, { sessionToken: 'tok', expiresAt: '2026-12-21T00:00:00.000Z' }));
-  expect(await auth.verifyEmail('abc')).toBe(true);
-  expect(lastCall().body).toEqual({ token: 'abc' });
-  expect(store.set).toHaveBeenCalledTimes(1);
-  fetchMock.mockResolvedValueOnce(apiError(400, 'validation', 'invalid_token'));
-  expect(await auth.verifyEmail('abc')).toBe(false);
-  expect(store.set).toHaveBeenCalledTimes(1);
 });
 
 test('checkSignupLink: GET, 토큰은 헤더로(URL에 없음), 상태를 그대로 돌려주고 쿠키·세션은 건드리지 않는다', async () => {
@@ -208,6 +198,15 @@ test('completeSignup: 오류를 사유별로 나누고 쿠키는 쓰지 않는�
   fetchMock.mockRejectedValueOnce(new Error('down'));
   expect(await auth.completeSignup('t', 'x')).toEqual({ ok: false, reason: 'unavailable' });
   expect(store.set).not.toHaveBeenCalled();
+});
+
+test('adminConfirmEmail: 성공, 409 password_not_set, 그 밖의 실패를 구분한다', async () => {
+  fetchMock.mockResolvedValueOnce(json(200, { ok: true }));
+  expect(await auth.adminConfirmEmail('u1')).toEqual({ ok: true });
+  fetchMock.mockResolvedValueOnce(apiError(409, 'conflict', 'password_not_set'));
+  expect(await auth.adminConfirmEmail('u1')).toEqual({ ok: false, reason: 'password_not_set' });
+  fetchMock.mockResolvedValueOnce(apiError(404, 'not_found', 'x'));
+  expect(await auth.adminConfirmEmail('u1')).toEqual({ ok: false, reason: 'failed' });
 });
 
 test('logout: 세션으로 API 호출 후 쿠키 삭제(API 실패해도 삭제)', async () => {

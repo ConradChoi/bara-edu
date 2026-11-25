@@ -106,7 +106,8 @@ export default async function MyPage({
       {welcome === '1' && <PendingClaimRedirect />}
       {welcome === '1' && (
         <div className="mt-4 rounded-md border border-success bg-success/10 px-3.5 py-3">
-          <p className="text-[13px] font-semibold text-success">이메일 인증이 완료됐어요. 가입을 환영해요!</p>
+          <p className="text-[13px] font-semibold text-success">가입이 끝났어요. 바라 평생교육원에 오신 것을 환영해요.</p>
+          <p className="mt-1 text-base text-n-8">다음부터는 이메일과 방금 입력한 비밀번호로 로그인해요.</p>
         </div>
       )}
       {withdrawError === 'active-enrollment' && (

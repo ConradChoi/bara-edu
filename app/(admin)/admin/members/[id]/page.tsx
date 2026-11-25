@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
-import { confirmMemberEmail, sendPasswordResetEmail } from '@/app/actions/admin-members';
+import { sendPasswordResetEmail } from '@/app/actions/admin-members';
 import StatusBadge from '@/components/admin/StatusBadge';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import { getAdminMemberDetail, getCourseExamSubmissionHistory } from '@/lib/supabase/admin-queries';
@@ -49,6 +49,11 @@ export default async function AdminMemberDetailPage({
           {SUCCESS_MESSAGE[success]}
         </div>
       )}
+      {error === 'password_not_set' && (
+        <div className="rounded-md border border-warning bg-warning/10 px-3.5 py-3 text-[13px] font-medium text-n-9">
+          비밀번호가 없는 계정은 인증 처리를 할 수 없어요. 비밀번호 재설정 메일을 보내 주세요.
+        </div>
+      )}
       {error === 'failed' && (
         <div className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger">
           처리 중 문제가 발생했어요. 잠시 후 다시 시도해 주세요.
@@ -70,7 +75,7 @@ export default async function AdminMemberDetailPage({
             {emailConfirmed === null ? (
               <span className="text-n-5">확인불가</span>
             ) : (
-              <StatusBadge tone={emailConfirmed ? 'success' : 'warning'}>{emailConfirmed ? '인증완료' : '미인증'}</StatusBadge>
+              <StatusBadge tone={emailConfirmed ? 'success' : 'warning'}>{emailConfirmed ? '인증완료' : '가입 마무리 전'}</StatusBadge>
             )}
           </dd>
         </div>
@@ -86,21 +91,47 @@ export default async function AdminMemberDetailPage({
         )}
       </dl>
 
+      {profile.status === 'active' && profile.email && emailConfirmed === false && (
+        // 가입을 마무리하지 않은 회원은 비밀번호가 없어 관리자가 대신 인증할 수 없다(대표 결정 5).
+        // 있던 "이메일 인증완료 처리" 자리에 이유와 대체 방법을 둔다. 재설정 링크를 쓰면 인증도 함께 끝난다.
+        <div
+          role="note"
+          aria-labelledby="unverified-note-title"
+          className="flex max-w-[720px] gap-3 rounded-md border border-n-3 border-l-4 border-l-warning bg-n-1 px-4 py-3 text-[13px] leading-[1.6] text-n-8"
+        >
+          <svg className="mt-0.5 size-4 shrink-0 text-warning" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+            <circle cx="12" cy="12" r="10" />
+            <path d="M12 16v-4" />
+            <path d="M12 8h.01" />
+          </svg>
+          <div className="flex flex-col gap-1">
+            <p id="unverified-note-title" className="font-semibold text-n-9">
+              가입을 마무리하기 전 회원이에요
+            </p>
+            <p>
+              이 회원은 아직 가입을 마무리하지 않아 비밀번호가 없어요. 인증 처리 대신 [비밀번호 재설정 메일 발송]을 눌러 주세요. 회원이 메일의 링크에서 새 비밀번호를 정하면 가입도 함께 끝나요.
+            </p>
+            <p className="text-n-6">전화로 요청받았다면 가입 이메일과 이름을 확인한 뒤 보내 주세요.</p>
+            <p className="text-n-6">이름과 연락처는 처음 가입을 시도한 사람이 입력한 값이에요. 회원 본인이 맞는지 전화로 확인해 주세요.</p>
+          </div>
+        </div>
+      )}
+
       {profile.status === 'active' && profile.email && (
         <div className="flex flex-wrap gap-2">
-          {emailConfirmed === false && (
-            <ConfirmDialog
-              triggerLabel="이메일 인증완료 처리"
-              title="이메일 인증을 완료 처리할까요?"
-              description={`${profile.email}의 인증 메일을 확인하지 못한 회원을 대신 인증 처리합니다.`}
-              confirmLabel="완료 처리"
-              action={confirmMemberEmail.bind(null, profile.id)}
-            />
-          )}
           <ConfirmDialog
             triggerLabel="비밀번호 재설정 메일 발송"
+            triggerClassName={
+              emailConfirmed === false
+                ? 'rounded-pill bg-indigo px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-arc-1'
+                : undefined
+            }
             title="비밀번호 재설정 메일을 보낼까요?"
-            description={`${profile.email}로 재설정 메일이 발송돼요. 회원은 메일의 링크로 새 비밀번호를 설정한 뒤 바로 로그인할 수 있어요.`}
+            description={
+              emailConfirmed === false
+                ? `${profile.email}로 재설정 메일이 발송돼요. 회원이 메일의 링크에서 새 비밀번호를 정하면 가입도 함께 마무리돼요.`
+                : `${profile.email}로 재설정 메일이 발송돼요. 회원은 메일의 링크로 새 비밀번호를 설정한 뒤 바로 로그인할 수 있어요.`
+            }
             confirmLabel="발송"
             action={sendPasswordResetEmail.bind(null, profile.id)}
           />
