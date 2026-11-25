@@ -30,3 +30,45 @@ export async function updateDiagnosisLeadApi(input: LeadChange & { note?: string
   }
 }
 
+export type DiagnosisResultDetail = {
+  id: string;
+  createdAt: string;
+  respondentName: string | null;
+  phone: string | null;
+  email: string | null;
+  learningExperience: string;
+  totalScore: number;
+  recommendedTier: string;
+  userId: string | null;
+  scoreTheory: number;
+  scoreReading: number;
+  scoreAnalysis: number;
+  scoreCounseling: number;
+  scoreCaseRecord: number;
+  scoreTeaching: number;
+  strengthAreas: string[];
+  improvementAreas: string[];
+  answers: { itemCode: string; score: number }[];
+};
+
+export type DiagnosisDetailResult =
+  | { ok: true; detail: DiagnosisResultDetail }
+  | { ok: false; reason: 'not_found' | 'forbidden' | 'unauthenticated' | 'log_failed' | 'failed' };
+
+// 접속 기록이 남은 경우에만 원문을 돌려준다(API가 한 트랜잭션으로 보장). 실패 결과에는 원문이 없다.
+export async function getDiagnosisResultDetailApi(id: string): Promise<DiagnosisDetailResult> {
+  try {
+    const r = await apiFetch<{ data: { result: string } & Partial<DiagnosisResultDetail> }>('/v1/op/admin.getDiagnosisResultDetail', { method: 'POST', session: await readSession(), body: { params: { id } } });
+    if (!r.ok) {
+      if (r.status === 401 && r.error.code === 'unauthenticated') return { ok: false, reason: 'unauthenticated' };
+      if (r.status === 503 && r.error.message === 'log_failed') return { ok: false, reason: 'log_failed' };
+      return { ok: false, reason: 'failed' };
+    }
+    const { result, ...rest } = r.data.data;
+    if (result === 'ok') return { ok: true, detail: rest as DiagnosisResultDetail };
+    if (result === 'not_found' || result === 'forbidden') return { ok: false, reason: result };
+    return { ok: false, reason: 'failed' };
+  } catch {
+    return { ok: false, reason: 'failed' };
+  }
+}

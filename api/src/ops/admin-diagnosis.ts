@@ -5,10 +5,12 @@ import { defineOp, OpError } from './registry.js';
 
 // 관리자 도형심리 진단 기능의 접속 기록 연동(처리방침 제8조 제5항).
 //  - admin.updateDiagnosisLead: 강사과정 문의(리드)의 상태 전환·메모 수정. 변경과 접속 기록('수정')이 한 트랜잭션이다.
+//  - admin.getDiagnosisResultDetail: 진단 결과 상세 원문 조회. 조회와 접속 기록('조회')이 한 트랜잭션이다.
 // 접속 기록 insert가 실패하면 OpError(503, log_failed)로 롤백한다 — 변경은 취소되고 조회 응답에는 원문이 실리지 않는다.
 // 업무 결과는 HTTP 200의 data.result로 돌려준다(admin.updateMemberProfile과 같다).
 
 export const LEAD_LOG_ACTION = '수정';
+export const DETAIL_LOG_ACTION = '조회';
 // 메모 길이 제한은 기존 동작(제한 없음)을 유지한다. 아래 값은 요청 본문 크기 방어용 상한일 뿐이다.
 const NOTE_BODY_CAP = 5000;
 
@@ -72,3 +74,55 @@ export const adminUpdateDiagnosisLead = defineOp({
   },
 });
 
+type ResultRow = {
+  id: string; created_at: Date; respondent_name: string | null; phone: string | null; email: string | null; learning_experience: string;
+  total_score: string | number; recommended_tier: string; user_id: string | null;
+  score_theory: number; score_reading: number; score_analysis: number; score_counseling: number; score_case_record: number; score_teaching: number;
+  strength_areas: string[] | null; improvement_areas: string[] | null;
+};
+
+export const adminGetDiagnosisResultDetail = defineOp({
+  name: 'admin.getDiagnosisResultDetail',
+  access: 'service',
+  params: z.object({ id: z.string().uuid() }).strict(),
+  async run({ tx, userId, ip, warn }, { id }) {
+    if (!userId || !(await isAdmin(tx, userId))) {
+      warn('admin.getDiagnosisResultDetail forbidden');
+      return { result: 'forbidden' };
+    }
+    const r = await tx.query<ResultRow>(
+      `select id, created_at, respondent_name, phone, email, learning_experience, total_score, recommended_tier, user_id,
+              score_theory, score_reading, score_analysis, score_counseling, score_case_record, score_teaching, strength_areas, improvement_areas
+         from diagnosis_results where id = $1`,
+      [id],
+    );
+    if (r.rowCount === 0) return { result: 'not_found' };
+    const row = r.rows[0];
+    const a = await tx.query<{ item_code: string; score: number }>('select item_code, score from diagnosis_answers where result_id = $1 order by item_code asc', [id]);
+
+    // 기록이 먼저 성공해야 응답이 나간다. 실패하면 OpError로 트랜잭션이 끝나고 위 조회 결과는 응답에 실리지 않는다.
+    await writeLog(tx, userId, row.user_id, DETAIL_LOG_ACTION, `진단 결과 상세(${id})`, ip);
+
+    return {
+      result: 'ok',
+      id: row.id,
+      createdAt: row.created_at.toISOString(),
+      respondentName: row.respondent_name,
+      phone: row.phone,
+      email: row.email,
+      learningExperience: row.learning_experience,
+      totalScore: Number(row.total_score),
+      recommendedTier: row.recommended_tier,
+      userId: row.user_id,
+      scoreTheory: row.score_theory,
+      scoreReading: row.score_reading,
+      scoreAnalysis: row.score_analysis,
+      scoreCounseling: row.score_counseling,
+      scoreCaseRecord: row.score_case_record,
+      scoreTeaching: row.score_teaching,
+      strengthAreas: row.strength_areas ?? [],
+      improvementAreas: row.improvement_areas ?? [],
+      answers: a.rows.map((x) => ({ itemCode: x.item_code, score: x.score })),
+    };
+  },
+});

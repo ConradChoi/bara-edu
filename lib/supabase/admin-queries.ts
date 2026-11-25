@@ -1531,64 +1531,8 @@ export async function getAdminDiagnosisResults(
   });
 }
 
-export type AdminDiagnosisResultDetail = AdminDiagnosisResultRow & {
-  scoreTheory: number;
-  scoreReading: number;
-  scoreAnalysis: number;
-  scoreCounseling: number;
-  scoreCaseRecord: number;
-  scoreTeaching: number;
-  strengthAreas: string[];
-  improvementAreas: string[];
-  answers: { itemCode: string; score: number }[];
-};
-
-// 상세 화면은 항상 원문을 보여준다(관리자가 이미 특정 결과 하나를 열어보기로 결정한
-// 행위 자체가 회원 상세(getAdminMemberDetail)와 동일한 "의도적 조회"이므로, 목록의
-// "개인정보 보기" 버튼 같은 별도 확인 없이 열람 시점에 접속기록을 남긴다).
-export async function getAdminDiagnosisResultDetail(id: string): Promise<AdminDiagnosisResultDetail | null> {
-  const supabase = await createClient();
-  const { data: row, error } = await supabase
-    .from('diagnosis_results')
-    .select(
-      'id, created_at, respondent_name, phone, email, learning_experience, total_score, recommended_tier, user_id, score_theory, score_reading, score_analysis, score_counseling, score_case_record, score_teaching, strength_areas, improvement_areas'
-    )
-    .eq('id', id)
-    .maybeSingle();
-  if (error) throw new Error(error.message);
-  if (!row) return null;
-
-  const { data: answerRows, error: answersError } = await supabase
-    .from('diagnosis_answers')
-    .select('item_code, score')
-    .eq('result_id', id)
-    .order('item_code', { ascending: true });
-  if (answersError) throw new Error(answersError.message);
-
-  await logAdminAccess(supabase, row.user_id, '조회', `진단 결과 상세(${id})`);
-
-  return {
-    id: row.id,
-    createdAt: row.created_at,
-    respondentName: row.respondent_name,
-    phone: row.phone,
-    email: row.email,
-    isRevealed: true,
-    learningExperience: row.learning_experience,
-    totalScore: row.total_score,
-    recommendedTier: row.recommended_tier,
-    userId: row.user_id,
-    scoreTheory: row.score_theory,
-    scoreReading: row.score_reading,
-    scoreAnalysis: row.score_analysis,
-    scoreCounseling: row.score_counseling,
-    scoreCaseRecord: row.score_case_record,
-    scoreTeaching: row.score_teaching,
-    strengthAreas: row.strength_areas ?? [],
-    improvementAreas: row.improvement_areas ?? [],
-    answers: (answerRows as { item_code: string; score: number }[]).map((a) => ({ itemCode: a.item_code, score: a.score })),
-  };
-}
+// 진단 결과 상세는 여기 없다: 조회와 접속 기록('조회')을 API 한 트랜잭션으로 묶은 lib/db/admin-diagnosis.ts의
+// getDiagnosisResultDetailApi()가 맡는다(기록이 실패하면 원문을 내려 주지 않는다, 2026-11-26).
 
 export type AdminDiagnosisLeadRow = {
   id: string;

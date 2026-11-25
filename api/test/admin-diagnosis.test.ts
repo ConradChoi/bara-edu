@@ -146,3 +146,49 @@ test('관리자만: 학습자·세션 없음 거절, 없는 리드는 not_found'
   expect((await call({ leadId: '11111111-1111-4111-8111-111111111111', change: 'note', note: 'x' })).result).toBe('not_found');
 });
 
+// ---------------- 진단 결과 상세: 기록과 조회를 한 트랜잭션으로 ----------------
+
+async function result(userId: string | null = null) {
+  const id = (
+    await q(
+      `insert into diagnosis_results (user_id, respondent_name, phone, email, learning_experience, age_confirmed, version, score_theory, score_reading, score_analysis, score_counseling, score_case_record, score_teaching, total_score, recommended_tier, consent_privacy, strength_areas, improvement_areas)
+       select $1,'비밀이름','010-7777-8888','secret@example.com', e, true, 'v1', 1,2,3,4,5,6, 10, t, true, array['theory'], array['teaching'] from (select (enum_range(null::diagnosis_experience))[1] e, (enum_range(null::diagnosis_tier))[1] t) s
+       returning id`,
+      [userId],
+    )
+  )[0].id as string;
+  await q("insert into diagnosis_answers (result_id, item_code, score) values ($1,'A1',3)", [id]);
+  return id;
+}
+const detail = (id: string, token?: string, ip?: string) => op('admin.getDiagnosisResultDetail', { id }, token, ip);
+
+test('상세 조회: 원문과 응답을 돌려주고 같은 호출에서 조회 기록 1건(값 없음)', async () => {
+  const id = await result();
+  const r = await detail(id, adminToken, '203.0.113.5');
+  expect(r.statusCode, r.body).toBe(200);
+  const d = r.json().data;
+  expect(d).toMatchObject({ result: 'ok', respondentName: '비밀이름', phone: '010-7777-8888', email: 'secret@example.com', userId: null });
+  expect(d.answers).toEqual([{ itemCode: 'A1', score: 3 }]);
+  expect(d.strengthAreas).toEqual(['theory']);
+  const rows = (await logs('조회')).filter((x) => x.detail === `진단 결과 상세(${id})`);
+  expect(rows).toHaveLength(1);
+  expect(rows[0]).toMatchObject({ admin_id: adminId, target_user_id: null, ip_address: '203.0.113.5' });
+});
+
+test('접속 기록이 실패하면 503 log_failed이고 응답 어디에도 원문이 없다', async () => {
+  const id = await result();
+  await withFailingLog(async () => {
+    const r = await detail(id, adminToken);
+    expect(r.statusCode).toBe(503);
+    expect(r.json().error).toMatchObject({ code: 'unavailable', message: 'log_failed' });
+    for (const v of ['비밀이름', '7777', 'secret@example.com']) expect(r.body).not.toContain(v);
+  });
+});
+
+test('상세: 관리자만, 없는 id는 not_found(기록 없음)', async () => {
+  const id = await result();
+  expect((await detail(id, learnerToken)).json().data).toEqual({ result: 'forbidden' });
+  const n = (await logs('조회')).length;
+  expect((await detail('11111111-1111-4111-8111-111111111111')).json().data).toEqual({ result: 'not_found' });
+  expect((await logs('조회')).length).toBe(n);
+});
