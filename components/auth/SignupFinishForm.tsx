@@ -58,7 +58,7 @@ export default function SignupFinishForm({ token, email, requestedLabel, remaini
 
   return (
     <section aria-labelledby="confirm-title" className="flex flex-col">
-      <h1 id="confirm-title" tabIndex={-1} className="text-2xl font-bold leading-[1.35] text-n-9 break-keep outline-none md:text-[28px]">
+      <h1 id="confirm-title" tabIndex={-1} className="scroll-mt-20 text-2xl font-bold leading-[1.35] text-n-9 break-keep outline-none md:text-[28px]">
         가입을 마무리해 주세요
       </h1>
       <p className="mt-3 text-lg leading-[1.7] text-n-7 break-keep">가입할 때 정한 비밀번호를 입력하면 가입이 끝나요.</p>
@@ -195,9 +195,12 @@ export default function SignupFinishForm({ token, email, requestedLabel, remaini
             처음부터 다시 가입하기
           </Link>
           <p className="text-base leading-[1.7] text-n-7 break-keep">다시 가입이 어려우면 전화로 문의해 주세요.</p>
-          <a href={`tel:${digits}`} className={`${SECONDARY_BTN} !px-4 !text-base`}>
-            <PhoneIcon className="size-6" />
-            전화 문의 {siteConfig.phone}
+          <a href={`tel:${digits}`} className={`${SECONDARY_BTN} !flex-col !gap-0 !py-2`}>
+            <span className="inline-flex items-center gap-2">
+              <PhoneIcon className="size-5" />
+              전화 문의
+            </span>
+            <span className="whitespace-nowrap text-xl">{siteConfig.phone}</span>
           </a>
           <p className="text-sm leading-[1.6] text-n-6 break-keep">운영시간 {siteConfig.supportHours}</p>
         </div>

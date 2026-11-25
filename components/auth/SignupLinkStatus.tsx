@@ -11,7 +11,7 @@ import { CircleCheckIcon, ClockIcon, LockIcon, PhoneIcon, WifiOffIcon } from '@/
 // 좌측 정렬이고 채운 버튼은 화면마다 1개다. 색은 인디고 단색(경고색을 쓰지 않는다).
 export type SignupLinkStatusKind = 'locked' | 'expired' | 'invalid' | 'done' | 'unavailable' | 'rate_limited';
 
-const TITLE_CLASS = 'mt-5 text-2xl font-bold leading-[1.35] text-n-9 break-keep outline-none md:text-[28px]';
+const TITLE_CLASS = 'scroll-mt-20 mt-5 text-2xl font-bold leading-[1.35] text-n-9 break-keep outline-none md:text-[28px]';
 const DESC_CLASS = 'mt-3 text-lg leading-[1.7] text-n-7 break-keep';
 const LINK_CLASS = `inline-flex min-h-11 items-center text-base text-indigo underline underline-offset-4 ${'focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-indigo'}`;
 
@@ -19,9 +19,12 @@ function Phone() {
   const digits = siteConfig.phone.replace(/[^0-9]/g, '');
   return (
     <div className="flex flex-col gap-1.5">
-      <a href={`tel:${digits}`} className={SECONDARY_BTN}>
-        <PhoneIcon className="size-6" />
-        전화 문의 {siteConfig.phone}
+      <a href={`tel:${digits}`} className={`${SECONDARY_BTN} !flex-col !gap-0 !py-2`}>
+        <span className="inline-flex items-center gap-2">
+          <PhoneIcon className="size-5" />
+          전화 문의
+        </span>
+        <span className="whitespace-nowrap text-xl">{siteConfig.phone}</span>
       </a>
       <p className="text-sm leading-[1.6] text-n-6 break-keep">{siteConfig.supportHours}</p>
     </div>
