@@ -5,8 +5,9 @@
 --       같은 회원·강의의 동시 제출을 advisory lock으로 직렬화해 attempt_no 중복 방지
 -- 성격: create or replace function만 담았다. 멱등(여러 번 실행해도 같은 결과), 테이블·인덱스·정책·트리거·데이터 변경 없음,
 --       기존 grant 유지. `npm run db:migrate`(스키마 전체 재실행)는 쓰지 않는다.
--- 적용: psql "$DATABASE_URL" --single-transaction -v ON_ERROR_STOP=1 -f api/db/patches/2026-11-25-r24.sql
---       (관리자 권한 연결, 함수 소유자와 같은 역할)
+-- 적용: 한 트랜잭션 안에서 함수 소유자 역할로 전환한 뒤 실행한다(파일에는 역할 전환을 넣지 않는다 — 패치 형식 테스트).
+--       begin; set local role bara_edu_service; <이 파일>; commit;
+--       운영(2026-11-25)은 앱 계정(bara_edu_app, bara_edu_service로 set role 가능)으로 적용했다.
 -- 배포 순서: 이 패치 -> API -> 앱 (함수는 옛 앱·옛 API와도 호환된다)
 
 create or replace function public.get_quiz_for_lesson(p_lesson_id uuid)
