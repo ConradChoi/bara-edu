@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 
-export type ErrorCode = 'unauthorized_service' | 'unauthenticated' | 'forbidden' | 'validation' | 'rate_limited' | 'not_found' | 'conflict' | 'internal';
+export type ErrorCode = 'unauthorized_service' | 'unauthenticated' | 'forbidden' | 'validation' | 'rate_limited' | 'not_found' | 'conflict' | 'unavailable' | 'internal';
 
 const STATUS: Record<ErrorCode, number> = {
   unauthorized_service: 401,
@@ -10,6 +10,7 @@ const STATUS: Record<ErrorCode, number> = {
   rate_limited: 429,
   not_found: 404,
   conflict: 409,
+  unavailable: 503,
   internal: 500,
 };
 
