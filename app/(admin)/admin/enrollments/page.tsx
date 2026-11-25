@@ -37,6 +37,7 @@ const SUCCESS_MESSAGE: Record<string, string> = {
 
 const ERROR_MESSAGE: Record<string, string> = {
   'already-processed': '이미 처리된 신청이에요.',
+  'course-full': '정원이 찼어요. 강좌 정원을 먼저 늘려 주세요.',
   'reason-required': '사유를 입력해야 해요.',
   failed: '처리 중 문제가 발생했어요.',
 };

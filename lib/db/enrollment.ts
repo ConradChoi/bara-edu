@@ -18,3 +18,20 @@ export async function applyEnrollment(courseId: string): Promise<ApplyOutcome> {
     return 'failed';
   }
 }
+
+export type ApproveOutcome = 'ok' | 'full' | 'already_processed' | 'not_found' | 'forbidden' | 'unauthenticated' | 'failed';
+
+// 관리자 승인: API가 강좌 행을 잠그고 승인 인원을 세어 정원이 차면 'full'을 돌려준다.
+export async function approveEnrollmentApi(enrollmentId: string): Promise<ApproveOutcome> {
+  try {
+    const r = await apiFetch<{ data: { result: ApproveOutcome } }>('/v1/op/enrollments.approve', {
+      method: 'POST',
+      session: await readSession(),
+      body: { params: { enrollmentId } },
+    });
+    if (r.ok) return r.data.data.result;
+    return r.status === 401 && r.error.code === 'unauthenticated' ? 'unauthenticated' : 'failed';
+  } catch {
+    return 'failed';
+  }
+}
