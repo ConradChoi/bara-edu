@@ -47,7 +47,7 @@ async function main(): Promise<void> {
   app.addHook('onClose', async () => scheduler?.stop());
 
   await app.listen({ port: config.port, host: config.host });
-  scheduler = startScheduler(pool, { log: app.log });
+  scheduler = startScheduler(pool, { log: app.log, storage });
 }
 
 main().catch((err) => {

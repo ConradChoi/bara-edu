@@ -201,7 +201,8 @@ export function registerAuthRoutes(app: FastifyInstance): void {
     try {
       await app.deps.storage.remove(`${userId}/photo`);
     } catch (err) {
-      req.log.error({ errorName: err instanceof Error ? err.name : 'unknown' }, 'withdraw photo removal failed');
+      // userId(가명 식별자)와 오류 이름만 — 이메일·사진 내용은 남기지 않는다. 남은 파일은 매일 사진 정리 작업(purge_withdrawn_photos)이 다시 지운다.
+      req.log.error({ userId, errorName: err instanceof Error ? err.name : 'unknown' }, 'withdraw photo removal failed');
     }
     return { ok: true };
   });
