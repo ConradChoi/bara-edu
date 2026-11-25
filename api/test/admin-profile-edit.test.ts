@@ -127,9 +127,10 @@ test('변경 안내 메일: 가입 이메일로, 값 없이, 로그인 링크', 
   await tick();
   expect(mailer.sent).toHaveLength(before + 1);
   const msg = mailer.sent[before];
-  expect(msg).toMatchObject({ to: m.email, template: 'profile_changed', link: 'https://bara-edu.kr/sign-in', fields: ['name', 'phone'] });
+  expect(msg).toMatchObject({ to: m.email, template: 'profile_changed', fields: ['name', 'phone'] });
+  expect(msg.link).toBeUndefined();
   expect(JSON.stringify(msg)).not.toContain('홍길동');
-  expect(typeof msg.at).toBe('string');
+  expect(msg.at).toMatch(/^\d{4}년 \d{1,2}월 \d{1,2}일 (오전|오후) \d{1,2}시 \d{1,2}분$/);
 });
 
 test('메일 전송이 실패해도 변경은 성공이다', async () => {
@@ -250,6 +251,16 @@ test('사유·메모·본인 확인 검증', async () => {
   await invalid({ memo: '줄\n바꿈' }, 'memo', 'memo_has_pii');
   await invalid({ name: undefined, phone: undefined }, 'name', 'none');
   await invalid({ expected: {} }, 'expected', 'expected_missing');
+});
+
+test('메모: 날짜는 허용, 전화번호 형태는 거절', async () => {
+  for (const ok of ['2026-11-26 요청', '2026.11.26 접수', '접수번호 123456789', '2026-11-26 14:12']) {
+    const m = await member();
+    expect((await update(base(m.id, { memo: ok }))).result, ok).toBe('ok');
+  }
+  for (const no of ['010-1234-5678', '010 1234 5678', '010.1234.5678', '02-123-4567', '031-1234-5678', '01012345678', '1234567890 번']) {
+    await invalid({ memo: no }, 'memo', 'memo_has_pii');
+  }
 });
 
 test('메모의 구분자(; =)는 인코딩되어 detail 형식이 깨지지 않는다', async () => {

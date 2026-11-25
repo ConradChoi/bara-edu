@@ -9,14 +9,20 @@ const GREETING = '안녕하세요. 바라 평생교육원이에요.';
 const SIGNATURE = '바라 평생교육원';
 
 const TEMPLATES: Record<MailMessage['template'], Template> = {
-  // 문구: docs/02-design/features/bara-edu-lms.admin-profile-edit.md 10장. {fields}·{at}는 보낼 때 채운다. 바뀐 값은 싣지 않는다. 링크는 로그인 화면.
+  // 문구: docs/02-design/features/bara-edu-lms.admin-profile-edit-copy.md 6장. {fields}·{at}는 보낼 때 채운다. 링크 없음. 바뀐 값은 싣지 않는다.
   profile_changed: {
-    subject: '[바라 평생교육원] 회원 정보가 수정됐어요',
-    intro: ['회원님의 정보({fields})가 {at}에 수정됐어요.', '바뀐 내용은 보안을 위해 메일에 적지 않아요.'],
-    after: ['본인이 요청하지 않았다면 아래 연락처로 바로 연락해 주세요.'],
+    subject: '[바라 평생교육원] 회원 정보가 바뀌었어요',
+    intro: [
+      '회원님의 정보가 바뀌어서 알려 드려요.',
+      '고객센터에서 회원님의 정보를 고쳤어요.',
+      '바뀐 항목: {fields}',
+      '바뀐 시각: {at}',
+      '바뀐 내용은 개인정보를 지키기 위해 이 메일에 적지 않았어요.',
+      '회원님이 고객센터에 전화해서 요청한 것이 맞다면 따로 하실 일은 없어요.',
+    ],
+    after: ['본인이 요청하지 않았다면 전화로 알려 주세요.'],
     closing: [],
   },
-  // 문구: docs/02-design/features/bara-edu-lms.signup-verify-password-copy.md 3장. "24시간"은 tokens.ts의 confirm 토큰 만료와 같아야 한다(ses.test.ts가 확인).
   confirm: {
     subject: '[바라 평생교육원] 가입을 마무리해 주세요',
     intro: [
@@ -40,9 +46,9 @@ const TEMPLATES: Record<MailMessage['template'], Template> = {
   },
 };
 
-const FIELD_LABEL = { name: '이름', phone: '연락처' } as const;
+const FIELD_LABEL = { name: '이름', phone: '휴대전화' } as const;
 const fill = (line: string, msg: MailMessage) =>
-  line.replace('{fields}', (msg.fields ?? ['name', 'phone']).map((f) => FIELD_LABEL[f]).join(', ')).replace('{at}', msg.at ?? '방금');
+  line.replace('{fields}', (msg.template === 'profile_changed' ? msg.fields : []).map((f) => FIELD_LABEL[f]).join(', ')).replace('{at}', msg.template === 'profile_changed' ? msg.at : '');
 
 const escapeHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
@@ -59,12 +65,12 @@ export class SesMailer implements Mailer {
     const tpl = TEMPLATES[msg.template];
     const t = { ...tpl, intro: tpl.intro.map((l) => fill(l, msg)) };
     const contact = [`전화: ${this.support.phone}`, ...(this.support.hours ? [`운영시간: ${this.support.hours}`] : [])];
-    const link = escapeHtml(msg.link);
+    const link = msg.link === undefined ? null : escapeHtml(msg.link);
     const p = (lines: string[]) => lines.map((l) => `<p>${escapeHtml(l)}</p>`).join('');
     const html =
-      p([GREETING, ...t.intro]) + `<p><a href="${link}">${link}</a></p>` + p(t.after) +
+      p([GREETING, ...t.intro]) + (link === null ? '' : `<p><a href="${link}">${link}</a></p>`) + p(t.after) +
       `<p>${contact.map(escapeHtml).join('<br>')}</p>` + p(t.closing) + p([SIGNATURE]);
-    const text = [GREETING, '', ...t.intro, '', msg.link, '', ...(t.after.length ? [...t.after, ''] : []), ...contact, '', ...(t.closing.length ? [...t.closing, ''] : []), SIGNATURE, ''].join('\n');
+    const text = [GREETING, '', ...t.intro, '', ...(msg.link === undefined ? [] : [msg.link, '']), ...(t.after.length ? [...t.after, ''] : []), ...contact, '', ...(t.closing.length ? [...t.closing, ''] : []), SIGNATURE, ''].join('\n');
     await this.client.send(
       new SendEmailCommand({
         FromEmailAddress: this.from,

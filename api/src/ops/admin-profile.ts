@@ -17,8 +17,8 @@ const bad = (field: string, reason: string): Validation => ({ result: 'validatio
 
 const CONTROL_RE = /[\p{Cc}\p{Zl}\p{Zp}]/u;
 const PHONE_CHARS_RE = /^[0-9\s\-+()]+$/;
-// 숫자 7개 이상(공백·-·. 로 끊겨도 전화번호처럼 보이는 것)과 이메일 형태는 메모에 못 쓴다
-const PHONE_LIKE_RE = /\d(?:[\s.\-]?\d){6,}/;
+// 메모에 못 쓰는 전화번호 형태: 0으로 시작해 2~3자리 / 3~4자리 / 4자리를 공백·-·.로 이은 것, 구분 없이 10자리 이상 이어진 숫자. 날짜(2026-11-26)는 허용한다.
+const PHONE_LIKE_RE = /(?<!\d)0\d{1,2}[\s.\-]\d{3,4}[\s.\-]\d{4}(?!\d)|\d{10,}/;
 const EMAIL_LIKE_RE = /\S@\S/;
 
 // 가입(auth/routes.ts signupBody: 이름 trim 2~100자)과 같은 규칙에 제어 문자·예약 이름 거절, 연속 공백 정리를 더했다.
@@ -69,18 +69,19 @@ async function isAdmin(tx: Tx, userId: string | null): Promise<boolean> {
   return r.rows[0]?.role === 'admin';
 }
 
-// KST 표시용 시각: 2026.11.26 14:12
+// KST 표시용 시각: 2026년 11월 26일 오후 2시 12분
 function kstStamp(d: Date): string {
-  const p = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(d);
-  const g = (t: string) => p.find((x) => x.type === t)!.value;
-  return `${g('year')}.${g('month')}.${g('day')} ${g('hour')}:${g('minute')}`;
+  const p = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Seoul', year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: 'numeric', hour12: false }).formatToParts(d);
+  const g = (t: string) => Number(p.find((x) => x.type === t)!.value);
+  const h = g('hour') % 24;
+  return `${g('year')}년 ${g('month')}월 ${g('day')}일 ${h < 12 ? '오전' : '오후'} ${h % 12 || 12}시 ${g('minute')}분`;
 }
 
 export const adminUpdateMemberProfile = defineOp({
   name: 'admin.updateMemberProfile',
   access: 'service',
   params,
-  async run({ tx, userId, ip, siteOrigin, queueMail }, p) {
+  async run({ tx, userId, ip, queueMail }, p) {
     if (!userId || !(await isAdmin(tx, userId))) return { result: 'forbidden' };
 
     const meta = checkMeta(p);
@@ -150,7 +151,7 @@ export const adminUpdateMemberProfile = defineOp({
     const profile = { name: next.name ?? cur.name, phone: 'phone' in next ? (next.phone ?? null) : cur.phone };
     let mailQueued = true;
     try {
-      queueMail({ to: cur.email, template: 'profile_changed', link: `${siteOrigin}/sign-in`, fields: changed, at: kstStamp(new Date()) });
+      queueMail({ to: cur.email, template: 'profile_changed', fields: changed, at: kstStamp(new Date()) });
     } catch {
       mailQueued = false;
     }
