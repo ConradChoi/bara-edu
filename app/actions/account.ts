@@ -2,10 +2,9 @@
 
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/db/server';
-import { changePassword as changeLoginPassword, logoutAll, withdrawAnonymize, withdrawCleanup } from '@/lib/db/auth';
+import { changePassword as changeLoginPassword, withdrawAccount, type WithdrawResult } from '@/lib/db/auth';
 import { clearSession } from '@/lib/db/session-cookie';
-import { removeMemberPhoto, uploadMemberPhoto } from '@/lib/db/storage';
-import { hasIncompleteApprovedEnrollment } from '@/lib/supabase/classroom-queries';
+import { uploadMemberPhoto } from '@/lib/db/storage';
 import { WITHDRAWAL_REASONS } from '@/data/account-settings';
 
 const PHOTO_ERROR = { 'too-large': 'photo-too-large', invalid: 'photo-invalid', failed: 'failed' } as const;
@@ -14,18 +13,14 @@ const PHOTO_ERROR = { 'too-large': 'photo-too-large', invalid: 'photo-invalid', 
 // Q12: 진행 중인 강좌가 있으면 차단.
 // Q10: 이름/연락처/이메일은 즉시 복구 불가능하게 익명화하고 학습 이력(진도/퀴즈/과제)은 파기한다.
 // 거래(enrollments)·수료(certificates) 기록은 법정 보존기간 동안 user_id만으로 보존한다.
-// 로그인 계정(auth.users) 익명화·비밀번호 무효화와 학습 이력 파기는 RLS를 넘어야 해서
-// API의 전용 경로(withdraw-anonymize, account.withdrawCleanup)가 본인 세션으로만 수행한다.
 //
-// 단계마다 결과를 확인하고 실패 시 즉시 중단한다(qa-reviewer 점검, 2026-08-06 — 조용한 부분
-// 실패 방지). 순서는 학습 이력 파기 → 계정 익명화 → profiles 익명화 → 사진 삭제 → 전역
-// 로그아웃(R17) — 파기가 실패하면 계정이 그대로라 회원이 다시 시도할 수 있다. API 연결 실패로
-// 예외가 나도 액션 전체가 죽지 않고 기존 ?withdrawError=failed 배너로 끝나야 한다
-// (대표 리포트, 2026-09-16).
+// R24: 예전에는 이 액션이 API를 여러 번 불러(학습 이력 파기 → 계정 익명화 → profiles 갱신 → 사진 삭제 →
+// 전체 로그아웃) 중간 실패 시 반쯤 탈퇴된 상태가 남을 수 있었다. 지금은 POST /v1/account/withdraw 한 번이
+// 검증(진행 중 수강)부터 세션 삭제까지 한 DB 트랜잭션으로 처리하고, 사진 삭제는 커밋 뒤에 API가 한다
+// (실패해도 탈퇴는 성공). API 연결 실패로 예외가 나도 액션 전체가 죽지 않고 ?withdrawError=failed 배너로 끝난다.
 //
 // 탈퇴 사유(reason)는 필수, 상세 서술(detail)은 선택 — 사유 없이 바로 탈퇴되지 않아야 한다는
-// 대표 요청(2026-09-16)에 따라 추가. 클라이언트가 임의 문자열을 보낼 수 있어 고정 목록에
-// 있는 key인지 서버에서 재검증한다(다른 폼 검증과 동일 원칙).
+// 대표 요청(2026-09-16). 클라이언트가 임의 문자열을 보낼 수 있어 고정 목록에 있는 key인지 서버에서 재검증한다.
 export async function withdraw(formData: FormData) {
   const reason = formData.get('reason') as string | null;
   const detail = (formData.get('detail') as string | null)?.trim() || null;
@@ -33,58 +28,14 @@ export async function withdraw(formData: FormData) {
     redirect('/my?withdrawError=validation');
   }
 
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect('/sign-in');
-
-  if (await hasIncompleteApprovedEnrollment(user.id)) {
-    redirect('/my?withdrawError=active-enrollment');
+  const r = await withdrawAccount(reason, detail).catch((): WithdrawResult => ({ ok: false, reason: 'failed' }));
+  if (!r.ok) {
+    if (r.reason === 'unauthenticated') redirect('/sign-in');
+    redirect(r.reason === 'active_enrollment' ? '/my?withdrawError=active-enrollment' : '/my?withdrawError=failed');
   }
 
-  // 학습 이력 파기·역량진단 결과 익명화·자가진단 강사과정 관심 문의(diagnosis_leads) 삭제(privacy-security-officer C-2, 2026-09-14).
-  // 계정 익명화보다 먼저 해야 실패해도 재시도할 수 있다(account.withdrawCleanup은 멱등).
-  if (!(await attempt(withdrawCleanup()))) redirect('/my?withdrawError=failed');
-
-  const anonymizedEmail = `withdrawn+${user.id}@deleted.invalid`;
-  if (!(await attempt(withdrawAnonymize(anonymizedEmail)))) redirect('/my?withdrawError=failed');
-
-  // profiles.email은 auth.users.email의 복제본(관리자 검색용, module-lms-6)이라
-  // 위와 동일한 값으로 맞추지 않으면 탈퇴 전 이메일이 그대로 남아 익명화가 무의미해진다.
-  const profileUpdated = await attempt(
-    supabase
-      .from('profiles')
-      .update({
-        name: '탈퇴한 회원',
-        phone: null,
-        email: anonymizedEmail,
-        address: null,
-        photo_path: null,
-        status: 'withdrawn',
-        withdrawn_at: new Date().toISOString(),
-        withdrawal_reason: reason,
-        withdrawal_reason_detail: detail,
-      })
-      .eq('id', user.id)
-      .then(({ error }) => !error),
-  );
-  if (!profileUpdated) redirect('/my?withdrawError=failed');
-
-  // 사진(주소와 함께 즉시 파기 대상, 2026-08-28)은 DB 트리거·API가 키를 `<uid>/photo`로
-  // 고정하므로 photo_path 값과 무관하게 항상 지운다 — 앞선 부분 실패 후 재시도에서도 남지 않는다.
-  // 실패해도 탈퇴는 막지 않는다(photo_path는 이미 비워져 조회 경로가 없고, 남은 파일은 운영 정리 대상).
-  await removeMemberPhoto(`${user.id}/photo`);
-
-  // 전역 로그아웃: 다른 기기/탭에 남아있던 세션까지 끊는다(security-officer 점검, 2026-08-08).
-  // 계정은 이미 익명화됐으니 실패해도 탈퇴는 성공으로 끝낸다.
-  await attempt(logoutAll());
   await clearSession();
   redirect('/?withdrawn=1');
-}
-
-function attempt(p: PromiseLike<boolean>): Promise<boolean> {
-  return Promise.resolve(p).catch(() => false);
 }
 
 // 로그인 비밀번호 변경 (마이페이지 "계정", 대표 요청 2026-09-16 — 이름/휴대전화는 지원하지

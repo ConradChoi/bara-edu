@@ -6,6 +6,7 @@ type Res = { ok: true; data: unknown } | { ok: false; status: number; error: { c
 
 const calls: { label: string; init: Init }[] = [];
 let failAt: string | string[] | null = null;
+let failWith = { status: 500, code: 'internal', message: 'x' };
 let photoPath: string | null = `${UID}/photo`;
 
 const label = (path: string, init: Init) => (path === '/v1/query' ? `${init.body?.action}:${init.body?.table}` : path);
@@ -15,7 +16,7 @@ const apiFetch = vi.fn(async (path: string, init: Init): Promise<Res> => {
   const l = label(path, init);
   calls.push({ label: l, init });
   if (l === failAt || (Array.isArray(failAt) && failAt.includes(l))) {
-    return { ok: false, status: 500, error: { code: 'internal', message: 'x' } };
+    return { ok: false, status: failWith.status, error: { code: failWith.code, message: failWith.message } };
   }
   switch (l) {
     case '/v1/auth/session':
@@ -43,7 +44,7 @@ vi.mock('next/navigation', () => ({
 }));
 
 import { updateContactInfo, withdraw } from '@/app/actions/account';
-import { memberPhotoSignedUrl, removeMemberPhoto, uploadMemberPhoto } from '@/lib/db/storage';
+import { memberPhotoSignedUrl, uploadMemberPhoto } from '@/lib/db/storage';
 
 const form = (fields: Record<string, string | File>) => {
   const fd = new FormData();
@@ -51,14 +52,7 @@ const form = (fields: Record<string, string | File>) => {
   return fd;
 };
 const run = (p: Promise<unknown>) => p.then(() => 'no redirect', (e: Error) => e.message);
-const WITHDRAW_STEPS = [
-  '/v1/op/account.withdrawCleanup',
-  '/v1/auth/withdraw-anonymize',
-  'update:profiles',
-  '/v1/storage/member-photos/remove',
-  '/v1/auth/logout-all',
-];
-const steps = () => calls.map((c) => c.label).filter((l) => WITHDRAW_STEPS.includes(l));
+const steps = () => calls.map((c) => c.label);
 const callTo = (l: string) => calls.find((c) => c.label === l)!;
 const jpeg = (size: number) => {
   const bytes = new Uint8Array(size);
@@ -69,64 +63,54 @@ const jpeg = (size: number) => {
 beforeEach(() => {
   calls.length = 0;
   failAt = null;
+  failWith = { status: 500, code: 'internal', message: 'x' };
   photoPath = `${UID}/photo`;
   apiFetch.mockClear();
   store.delete.mockClear();
 });
 
-test('withdraw: 경로 호출 순서가 withdrawCleanup → anonymize → profiles update → remove → logout-all', async () => {
-  expect(await run(withdraw(form({ reason: 'no_longer_needed' })))).toBe('REDIRECT:/?withdrawn=1');
-  expect(steps()).toEqual(WITHDRAW_STEPS);
-  expect(callTo('/v1/auth/withdraw-anonymize').init).toMatchObject({
+test('withdraw: /v1/account/withdraw 한 번만 호출하고 쿠키를 지운 뒤 /?withdrawn=1', async () => {
+  expect(await run(withdraw(form({ reason: 'no_longer_needed', detail: ' 이유 ' })))).toBe('REDIRECT:/?withdrawn=1');
+  expect(steps()).toEqual(['/v1/account/withdraw']);
+  expect(callTo('/v1/account/withdraw').init).toMatchObject({
     method: 'POST',
     session: 'tok',
-    body: { anonymizedEmail: `withdrawn+${UID}@deleted.invalid` },
+    body: { reason: 'no_longer_needed', detail: '이유' },
   });
-  expect(callTo('update:profiles').init.body?.values).toMatchObject({
-    name: '탈퇴한 회원',
-    email: `withdrawn+${UID}@deleted.invalid`,
-    photo_path: null,
-    status: 'withdrawn',
-    withdrawal_reason: 'no_longer_needed',
-  });
-  expect(callTo('/v1/op/account.withdrawCleanup').init).toMatchObject({ method: 'POST', session: 'tok', body: { params: {} } });
-  expect(callTo('/v1/storage/member-photos/remove').init.body).toEqual({ path: `${UID}/photo` });
-  expect(callTo('/v1/auth/logout-all').init).toMatchObject({ method: 'POST', session: 'tok' });
   expect(store.delete).toHaveBeenCalledWith('bara_session');
 });
 
-test('withdraw: withdrawCleanup 실패 → /my?withdrawError=failed, anonymize·profiles update·logout-all 호출 안 함', async () => {
-  failAt = '/v1/op/account.withdrawCleanup';
-  expect(await run(withdraw(form({ reason: 'no_longer_needed' })))).toBe('REDIRECT:/my?withdrawError=failed');
-  expect(steps()).toEqual(WITHDRAW_STEPS.slice(0, 1));
+test('withdraw: 상세 사유가 없으면 detail은 null', async () => {
+  await run(withdraw(form({ reason: 'other' })));
+  expect(callTo('/v1/account/withdraw').init.body).toEqual({ reason: 'other', detail: null });
+});
+
+test('withdraw: 사유가 없거나 목록에 없으면 API를 부르지 않고 validation', async () => {
+  expect(await run(withdraw(form({})))).toBe('REDIRECT:/my?withdrawError=validation');
+  expect(await run(withdraw(form({ reason: 'made_up' })))).toBe('REDIRECT:/my?withdrawError=validation');
+  expect(steps()).toEqual([]);
+});
+
+test('withdraw: 진행 중 수강(409 active_enrollment) → /my?withdrawError=active-enrollment, 쿠키 유지', async () => {
+  failAt = '/v1/account/withdraw';
+  failWith = { status: 409, code: 'conflict', message: 'active_enrollment' };
+  expect(await run(withdraw(form({ reason: 'other' })))).toBe('REDIRECT:/my?withdrawError=active-enrollment');
   expect(store.delete).not.toHaveBeenCalled();
 });
 
-test('withdraw: anonymize 실패 → /my?withdrawError=failed, 이후 단계 없음', async () => {
-  failAt = '/v1/auth/withdraw-anonymize';
-  expect(await run(withdraw(form({ reason: 'no_longer_needed' })))).toBe('REDIRECT:/my?withdrawError=failed');
-  expect(steps()).toEqual(WITHDRAW_STEPS.slice(0, 2));
+test('withdraw: 세션이 없거나 만료(401 unauthenticated) → /sign-in', async () => {
+  failAt = '/v1/account/withdraw';
+  failWith = { status: 401, code: 'unauthenticated', message: 'x' };
+  expect(await run(withdraw(form({ reason: 'other' })))).toBe('REDIRECT:/sign-in');
+});
+
+test('withdraw: API 실패(500)·연결 예외 → /my?withdrawError=failed, 쿠키 유지', async () => {
+  failAt = '/v1/account/withdraw';
+  expect(await run(withdraw(form({ reason: 'other' })))).toBe('REDIRECT:/my?withdrawError=failed');
+  failAt = null;
+  apiFetch.mockRejectedValueOnce(new Error('service key unavailable'));
+  expect(await run(withdraw(form({ reason: 'other' })))).toBe('REDIRECT:/my?withdrawError=failed');
   expect(store.delete).not.toHaveBeenCalled();
-});
-
-test('withdraw: profiles update 실패 → /my?withdrawError=failed, 사진 삭제·logout-all 호출 안 함', async () => {
-  failAt = 'update:profiles';
-  expect(await run(withdraw(form({ reason: 'no_longer_needed' })))).toBe('REDIRECT:/my?withdrawError=failed');
-  expect(steps()).toEqual(WITHDRAW_STEPS.slice(0, 3));
-  expect(store.delete).not.toHaveBeenCalled();
-});
-
-test('withdraw: 사진 삭제·logout-all 실패는 무시하고 쿠키를 지운 뒤 성공 처리', async () => {
-  failAt = ['/v1/storage/member-photos/remove', '/v1/auth/logout-all'];
-  expect(await run(withdraw(form({ reason: 'no_longer_needed' })))).toBe('REDIRECT:/?withdrawn=1');
-  expect(steps()).toEqual(WITHDRAW_STEPS);
-  expect(store.delete).toHaveBeenCalledWith('bara_session');
-});
-
-test('withdraw: photo_path가 null이어도 고정 키 <uid>/photo를 지운다', async () => {
-  photoPath = null;
-  expect(await run(withdraw(form({ reason: 'no_longer_needed' })))).toBe('REDIRECT:/?withdrawn=1');
-  expect(callTo('/v1/storage/member-photos/remove').init.body).toEqual({ path: `${UID}/photo` });
 });
 
 test('사진 업로드 6MB → 기존 오류 문구', async () => {
@@ -171,6 +155,4 @@ test('서명 URL·삭제: 성공 값과 실패 시 null/false', async () => {
   });
   apiFetch.mockResolvedValueOnce({ ok: false, status: 403, error: { code: 'forbidden', message: 'x' } });
   expect(await memberPhotoSignedUrl(`${UID}/photo`)).toBeNull();
-  apiFetch.mockRejectedValueOnce(new Error('service key unavailable'));
-  expect(await removeMemberPhoto(`${UID}/photo`)).toBe(false);
 });

@@ -83,18 +83,15 @@ export async function getSession(token: string, clientIp: string | null): Promis
   return apiFetch<SessionInfo>('/v1/auth/session', { method: 'GET', session: token, clientIp });
 }
 
-export async function withdrawAnonymize(anonymizedEmail: string): Promise<boolean> {
-  const r = await apiFetch('/v1/auth/withdraw-anonymize', { method: 'POST', session: await readSession(), body: { anonymizedEmail } });
-  return r.ok;
-}
+export type WithdrawResult = { ok: true } | { ok: false; reason: 'active_enrollment' | 'unauthenticated' | 'failed' };
 
-export async function withdrawCleanup(): Promise<boolean> {
-  const r = await apiFetch('/v1/op/account.withdrawCleanup', { method: 'POST', session: await readSession(), body: { params: {} } });
-  return r.ok;
-}
-
-export async function logoutAll(): Promise<boolean> {
-  return (await apiFetch('/v1/auth/logout-all', { method: 'POST', session: await readSession() })).ok;
+// 탈퇴 전체(검증·익명화·학습 이력 파기·전체 세션 삭제·사진 삭제)를 API가 한 트랜잭션으로 처리한다.
+// 성공하면 서버의 세션이 이미 없어졌으므로 호출한 쪽은 쿠키만 지우면 된다.
+export async function withdrawAccount(reason: string, detail: string | null): Promise<WithdrawResult> {
+  const r = await apiFetch('/v1/account/withdraw', { method: 'POST', session: await readSession(), body: { reason, detail } });
+  if (r.ok) return { ok: true };
+  if (r.status === 409 && r.error.message === 'active_enrollment') return { ok: false, reason: 'active_enrollment' };
+  return { ok: false, reason: isDeadSession(r) ? 'unauthenticated' : 'failed' };
 }
 
 export async function adminConfirmEmail(userId: string): Promise<boolean> {
