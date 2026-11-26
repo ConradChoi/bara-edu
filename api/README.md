@@ -88,6 +88,12 @@ rm -f ~/migrate.env && unset SUPABASE_DB_URL TARGET_DB_ADMIN_URL SUPABASE_URL SU
 | `AWS_REGION` | 운영 O | `ap-northeast-2` | SES·S3·SSM 리전 |
 | `BARA_DEV_FAKES` | | - | 로컬 확인 전용. `1`이면 SES·S3 대신 메모리 구현을 쓰고 메일 링크(토큰 포함)를 로그에 남긴다. `SITE_ORIGINS`가 전부 `localhost`·`127.0.0.1`이어야 하고, `NODE_ENV=production`이거나 `MAIL_FROM`·`S3_BUCKET`이 있으면 시작을 거절한다 |
 | `LOG_LEVEL` | | `info` | 로그 수준(`fatal`/`error`/`warn`/`info`/`debug`/`trace`/`silent`). 오류 로그에는 pg `detail`·쿼리 값, `x-bara-service-key`·`x-bara-session` 헤더가 남지 않는다 |
+| `ADMIN_MFA_MODE` | 운영 O | 로컬 `enforce` | 관리자 2단계 인증 모드 `off`/`optional`/`enforce`. 운영에서 없거나 셋 중 하나가 아니면 시작 거절(보안 점검 I-3). 시작 로그 `event=mfa_mode`, `enforce`가 아니면 경고 `mfa_mode_weak`. 마지막으로 시작한 모드(`auth.mfa_runtime`)와 다르면 시작할 때 비밀번호만의 관리자 세션을 모두 지운다(`mfa_mode_changed`). 바꿀 때는 대표 승인 기록 |
+| `ADMIN_MFA_GRACE_UNTIL` | 운영 `optional`이면 O | - | 유예 종료 시각(오프셋 있는 ISO 8601, 예 `2026-12-03T00:00:00+09:00`). 화면 배너 표시용(`/v1/auth/mfa/status`의 `graceUntil`). 자동 전환은 하지 않는다 |
+| `ADMIN_SECURITY_ALERT_TO` | 권장 | - | 관리자 보안 알림을 추가로 받을 주소(쉼표, 최대 5개, 관리자 이메일과 다른 메일함). 다른 활성 관리자도 없고 이것도 없으면 본인 메일만 보내고 접속 기록에 `alert=self_only` |
+| `BARA_MFA_KEY_PARAMS` | 운영 O | - | 2단계 인증 마스터 키 SSM SecureString 목록 `1=/bara-edu/api/mfa-key-v1[,2=/bara-edu/api/mfa-key-v2]`. 각 값은 base64로 정확히 32바이트(`openssl rand -base64 32`, 끝 줄바꿈 없이). 운영에서는 모드와 상관없이(off 포함) 필수. 읽기 실패·형식 오류·`auth.mfa_key_check` 불일치면 시작 거절 |
+| `BARA_MFA_KEY_CURRENT` | `BARA_MFA_KEY_PARAMS`가 있으면 O | - | 새로 암호화·HMAC할 때 쓰는 키 버전(목록에 있어야 함). 옛 버전은 검증용으로 목록에 남긴다(키 교체 절차: 기획서 2.6, `mfa-rekey`) |
+| `BARA_MFA_KEYS` | 로컬 전용 | - | 로컬·테스트용 평문 키 목록 `1=<base64 32바이트>,…`(현재 버전은 `BARA_MFA_KEY_CURRENT`, 없으면 가장 큰 버전). `NODE_ENV=production`에서 있으면 시작 거절. 운영이 아닌데 키가 하나도 없으면 2단계 API는 503 `unavailable` |
 
 AWS 자격 증명은 환경변수로 넣지 않고 인스턴스 역할(기본 자격 증명 체인)을 쓴다.
 
@@ -101,7 +107,7 @@ DB 연결 풀: 연결 대기 5초 제한, 유휴 연결이 끊기면 고정 문�
 - 로그인 세션은 `x-bara-session` 헤더로 보낸다.
 - 앱은 사용자 IP를 `x-bara-client-ip`로 전달한다. 이 헤더 기준으로 `signup` IP당 1시간 10회, `resend`·`request-reset` 각각 IP당 1시간 20회, `login` IP당 15분 50회(초과 429 `rate_limited`). 헤더가 없거나 비어 있으면 IP 제한은 걸지 않는다(이메일 기준 제한은 그대로).
 - `signup`·`resend`·`request-reset`·관리자 `send-reset`의 메일은 응답 뒤에 발송한다. 발송 실패는 로그(오류 이름만)에만 남고 응답에는 드러나지 않는다(관리자 `send-reset`의 `mailSent`는 발송 접수 의미로 항상 `true`).
-- 오류 응답은 항상 `{ "error": { "code", "message" } }`. 코드: `unauthorized_service`(401), `unauthenticated`(401), `forbidden`(403), `validation`(400), `rate_limited`(429), `not_found`(404), `internal`(500, 내부 오류 문구는 노출하지 않음).
+- 오류 응답은 항상 `{ "error": { "code", "message" } }`. 코드: `unauthorized_service`(401), `unauthenticated`(401), `forbidden`(403), `validation`(400), `rate_limited`(429), `not_found`(404), `conflict`(409), `unavailable`(503), `internal`(500, 내부 오류 문구는 노출하지 않음). 필요하면 `error`에 `field`·`attemptsLeft`·`lockScope`·`retryAfterMinutes`·`reason` 같은 추가 필드가 붙는다.
 
 ## 경로
 
@@ -123,7 +129,46 @@ DB 연결 풀: 연결 대기 5초 제한, 유휴 연결이 끊기면 고정 문�
 | POST | `/v1/admin/users/:id/confirm-email` | 관리자: 이메일 인증 처리 |
 | POST | `/v1/admin/users/:id/send-reset` | 관리자: 재설정 메일 발송 |
 | GET | `/v1/admin/users/confirmations` | 관리자: 인증 대기 목록 |
+| POST | `/v1/auth/mfa/verify` | 관리자 2단계: 인증 앱 6자리(대기표) |
+| POST | `/v1/auth/mfa/recover` | 관리자 2단계: 복구 코드(대기표) |
+| POST | `/v1/auth/mfa/enroll/ticket` | 등록 코드 확인(입구 B) |
+| POST | `/v1/auth/mfa/enroll/start` | 등록 시작(입구 A·B·C) |
+| POST | `/v1/auth/mfa/enroll/current` | 진행 중인 등록 다시 보기 |
+| POST | `/v1/auth/mfa/enroll/confirm` | 등록 확정 |
+| GET | `/v1/auth/mfa/status` | 내 2단계 인증 상태(관리자 세션) |
+| POST | `/v1/auth/mfa/recovery-codes` | 복구 코드 재발급(6자리 재확인) |
+| POST | `/v1/auth/mfa/recovery-codes/ack` | 복구 코드 보관 확인 |
+| POST | `/v1/admin/users/:id/mfa-reset` | 관리자: 다른 관리자의 2단계 인증 초기화(요청자 6자리, 2단계 세션 필요) |
+| GET | `/v1/admin/users/:id/mfa` | 관리자: 대상 관리자의 2단계 인증 상태 |
+| GET | `/v1/admin/mfa/overview` | 관리자: 활성 관리자 전원의 상태 |
 | POST | `/v1/op/:name` | 오퍼레이션 실행 |
+
+## 관리자 2단계 인증
+
+계약(요청·응답·오류)은 `docs/02-design/features/bara-edu-lms.admin-totp.md` 4장이 기준이다. 요약:
+
+- 비밀번호가 맞은 관리자는 모드·계정 상태(기획서 2.2)에 따라 세션 대신 `{ mfa: "required" | "enroll_required", challengeToken, challengeExpiresAt, enrollReason? }`을 받는다. 세션은 6자리·복구 코드·등록 확정 뒤에만 생긴다.
+- 관리자 세션은 최대 12시간(연장 없음) + 1시간 미사용 만료. 끝난 세션의 `GET /v1/auth/session`은 401 `{ error: { code: "unauthenticated", message: "session_expired", reason: "max" | "idle" } }`. 앱은 관리자 화면 요청에 `x-bara-activity: admin`을 붙인다(프리페치 헤더가 있으면 무시).
+- TOTP는 RFC 6238(SHA-1, 6자리, 30초, ±1칸), 같은 칸 재사용은 403 `code_reused`. 비밀 키는 AES-256-GCM(AAD에 용도·사용자·키 버전), 복구 코드·등록 코드는 HMAC-SHA256만 저장. 새 의존성 없음(`node:crypto`). QR은 앱이 `otpauthUri`로 그린다.
+- 시도 제한: 대기표당 5회, 계정당 15분 10회 + 24시간 30회(`mfa-fail`), IP당 15분 50회(`mfa-ip`). 응답 `Cache-Control: no-store`.
+- 정리: `purge_expired_mfa_rows`(매일 03:50 KST) — 만료된 등록 대기, 만료 1일 지난 대기표, 만료·사용 1일 지난 등록 코드.
+
+운영 명령(서버에서 개발 담당만, SSM Session Manager 접속). API와 같은 환경 변수를 읽는다. 변경 명령은 접속 기록을 같은 트랜잭션에 남기고, 기록이 실패하면 아무것도 바꾸지 않는다.
+
+```bash
+npm run build
+npm run admin-mfa -- mfa-report --operator "이름"                                     # 강제 전 점검표(보안 점검 I-8)
+npm run admin-mfa -- mfa-ticket --email <관리자> --operator "이름"                       # 첫 관리자·승격 계정 등록 코드(터미널에 한 번만)
+npm run admin-mfa -- mfa-reset  --email <관리자> --operator "이름" --reason lost_phone   # 관리자가 한 명뿐일 때 초기화 + 등록 코드
+npm run admin-mfa -- mfa-unlock --email <관리자> --operator "이름" --reason owner_locked # 잠금 해제
+npm run admin-mfa -- mfa-clear  --email <강등된 계정> --operator "이름"                  # 강등 뒤 정리
+npm run admin-mfa -- mfa-rekey  --operator "이름"                                       # 키 교체 3단계
+npm run admin-mfa -- admin-sessions-revoke --operator "이름"                            # 관리자 세션 전부 삭제(비상)
+```
+
+`--reason`: `mfa-reset`은 `lost_phone`/`new_phone`/`app_deleted`/`sole_admin_locked`/`key_lost`/`incident`, `mfa-unlock`은 `owner_locked`/`attack_suspected`. `--operator`는 1~50자, `;`·`=`·제어 문자 불가. 종료 코드: 0 성공, 1 실패, 2 사용법 오류. 등록 코드는 경고 문구 다음 줄에 한 번만 출력되므로 세션 기록을 끈 상태에서 실행하고 전화·대면으로만 전달한다. `MAIL_FROM`이 없으면 보안 알림 메일을 보내지 못한 수를 출력한다.
+
+운영 DB 패치: `db/patches/2026-11-26-admin-mfa.sql`(`begin; set local role bara_edu_service; \i <파일>; commit;`). 순서: 앱 배포 → 패치 → API(`ADMIN_MFA_MODE=optional`, `ADMIN_MFA_GRACE_UNTIL`, 키 SSM 등록 후).
 
 ## 회원 탈퇴
 

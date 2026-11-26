@@ -5,7 +5,7 @@
 - 근거: 대표 결정 2026-11-26 "인증 앱(OTP) 지금 기획". Google Authenticator 같은 인증 앱의 6자리 번호(TOTP, RFC 6238)를 쓴다.
 - 배경: 개인정보·보안 점검 I-3. 지금은 메일함만 장악하면 재설정 링크(`/reset-password`)로 관리자 비밀번호를 바꾸고 관리자 권한까지 얻을 수 있다. 본인 확인 정책은 이메일만이고 휴대폰 본인인증은 하지 않는다(대표 결정 2026-11-26). 이 기능은 "메일함 탈취 = 관리자 탈취"를 끊는 것이 목표다.
 - 법적 근거(검토 중): 개인정보의 안전성 확보조치 기준 제6조(접근통제)의 "외부에서 개인정보처리시스템에 접속할 때 안전한 인증수단 적용". 변호사 확인을 기다린다. 이 문서는 법적 의무 여부와 관계없이 보안 목적만으로도 성립하게 설계했다. 같은 조의 자동 접속 차단(일정 시간 미사용 시) 요구 여부도 함께 확인 요청한다(질문 2).
-- 상태: **구현 준비 완료(2026-11-26 갱신)**. 대표 결정(Q1~Q6), 문구(`bara-edu-lms.admin-totp-copy.md`), 디자인 스펙(T-0~T-13), privacy-security-officer 설계 점검(`bara-edu-lms.admin-totp-security-review.md`, 조건부 승인)의 Important I-1~I-8과 Minor M-1~M-11을 모두 반영했다. 반영한 자리에는 "(보안 점검 I-n 반영)" / "(보안 점검 M-n 반영)"을 붙였다. 반영 목록은 1.2, 문구·디자인 미결 사항의 결정은 1.3에 있다. 문서만 바꿨고 코드는 바꾸지 않았다.
+- 상태: **API 구현 완료(2026-11-26, 브랜치 `feat/admin-totp`, 배포 전 qa-reviewer·privacy-security-officer 리뷰 대기)**. 구현 결정은 4.11, 구현 상태는 9.5. 이전 상태: 구현 준비 완료(2026-11-26 갱신). 대표 결정(Q1~Q6), 문구(`bara-edu-lms.admin-totp-copy.md`), 디자인 스펙(T-0~T-13), privacy-security-officer 설계 점검(`bara-edu-lms.admin-totp-security-review.md`, 조건부 승인)의 Important I-1~I-8과 Minor M-1~M-11을 모두 반영했다. 반영한 자리에는 "(보안 점검 I-n 반영)" / "(보안 점검 M-n 반영)"을 붙였다. 반영 목록은 1.2, 문구·디자인 미결 사항의 결정은 1.3에 있다. 문서만 바꿨고 코드는 바꾸지 않았다.
 - 다음 단계: backend-developer(4장 API 계약을 이 문서대로 확정, 바꿀 것이 있으면 이 문서를 먼저 고친다) → frontend-developer → qa-reviewer → privacy-security-officer 구현 뒤 코드 점검 → 배포. **인증 정보(비밀 키·복구 코드)를 새로 다루므로 privacy-security-officer 점검 없이 배포하지 않는다.**
 - 구현 기준: backend·frontend developer는 이 문서 하나로 구현한다. 2장(규칙) → 4장(API 계약) → 9장(바꿀 파일) 순서로 읽는다. 2장과 4장이 어긋나면 4장이 아니라 **2장의 규칙**이 기준이며, 어긋남을 발견하면 service-planner에게 알린다.
 - 문구: 이 문서의 문구는 초안이다. 최종 문구는 ux-writer가 정한다. 말투는 `bara-edu-lms.signup-enumeration-copy.md`(쉬운 `~해요`체, 이모지·느낌표 없음, 사용자를 탓하지 않기)를 따른다.
@@ -808,6 +808,33 @@ POST인 이유: 대기표를 본문으로만 받기 위해서다(4.0).
 
 ---
 
+### 4.11 구현 상태와 구현 결정 (backend-developer, 2026-11-26)
+
+4.0~4.9의 계약은 모두 구현했다(엔드포인트 1~14, 테스트 9.5). 문서가 애매하거나 서로 어긋난 곳은 더 안전한 쪽으로 정했고 아래에 "(구현 결정)"으로 남긴다. 앱이 알아야 할 것은 ★.
+
+| # | 구현 결정 | 이유 |
+|---|---|---|
+| D-1 | (구현 결정) 운영(`NODE_ENV=production`)에서는 **모드와 상관없이(off 포함)** 2단계 인증 키(`BARA_MFA_KEY_PARAMS`·`BARA_MFA_KEY_CURRENT`)가 없으면 시작을 거절한다 | `off`에서도 등록·초기화 데이터가 있고, 키 없이 시작하면 `enforce`로 되돌릴 때 검증이 깨진다 |
+| D-2 | (구현 결정) `auth.mfa_key_check`는 **현재 버전 행만** 처음 시작할 때 만든다. 현재가 아닌 버전인데 행이 없으면 시작 거절 | 옛 버전 키를 잘못 넣었을 때 조용히 받아들이지 않게(2.6) |
+| D-3 | (구현 결정) `ADMIN_SECURITY_ALERT_TO` 형식 오류·6개 이상은 운영뿐 아니라 **모든 환경에서** 시작 거절. 소문자·중복 제거 | 설정 실수를 로컬에서 먼저 잡는다 |
+| D-4 | (구현 결정) `mfa_enrollments`에 `replace_check`(`totp`/`recovery`) 컬럼을 더했다. 입구 C 등록 대기만 값이 있다(검사 제약) | 기록 `2단계인증등록 via=replace;check=…`에 재확인 수단을 남기고, 입구 C 등록 대기를 DB 제약으로 구분 |
+| D-5 | (구현 결정) 입구 C는 `renew`(QR 새로 만들기)에도 **재확인을 다시 묻는다**. `enroll/current`(새로고침)만 재확인 없이 같은 등록 대기를 돌려준다 ★ | 세션만으로 새 비밀 키를 받지 못하게(I-4) |
+| D-6 | (구현 결정) 입구 C `rotateRecoveryCodes`의 기본값은 `false`(값이 없으면 복구 코드 그대로, `recoveryCodes: null`) ★ | 기존 인쇄본을 사용자가 모르게 무효화하지 않는다. 앱은 C에서 새로 받을지 명시해서 보낸다 |
+| D-7 | (구현 결정) 입구 B에서 등록 코드가 무효가 됐을 때(만료·5회 실패·사용됨·확인 안 된 대기표에 묶이지 않음) `enroll/start`·`enroll/confirm`도 409 `ticket_unusable`을 준다 ★ | 4.4.2·4.4.4 표에 없던 경우. 화면은 MFA-TICKET-ERR-DEAD |
+| D-8 | (구현 결정) 등록 코드 5번째 실패는 403 `ticket_invalid`가 아니라 409 `ticket_unusable`(그 뒤 요청도 같음). 행은 남기되 죽은 것으로 본다(정리 작업이 지운다) ★ | 대기표 `challenge_exhausted`와 같은 방식(마지막 실패에서 바로 "다시 받으세요") |
+| D-9 | (구현 결정) 입구 C 재확인 실패(`wrong_code`)에는 `attemptsLeft`가 없다(계정 `mfa-fail` 한도만 적용) ★ | 대기표·등록 대기가 아직 없어 남은 횟수의 기준이 없다 |
+| D-10 | (구현 결정) 세션이 없을 때(입구 A·C, 4.5, 4.6) 401 `message`는 기존 문구 `로그인이 필요합니다.`를 그대로 쓴다 ★ | 기존 API와 같은 응답(앱은 401 `code`로 처리) |
+| D-11 | (구현 결정) `mfa-reset`의 `memo`는 저장하지 않는다(검증만: 5~200자, `other`면 필수). 기록 detail은 `reason=…;by=admin`. 요청자 번호 확인보다 대상 검사(404·409)가 먼저다(번호를 쓰지 않으므로 실패 횟수도 안 셈) | 2.7.2 "사유 키만 기록" |
+| D-12 | (구현 결정) 관리자 초기화는 전역 advisory lock으로 한 번에 하나만 처리한다 | 두 관리자가 서로를 동시에 초기화할 때 행 잠금 순서가 엇갈리는 것을 막는다(둘 중 하나만 성공) |
+| D-13 | (구현 결정) `mfa_locked` 메일은 계정·한도(15분/24시간)마다 1시간에 1번(`rate_events` `mfa-lock-mail-*`), 접속 기록 `2단계인증잠김`은 잠길 때마다 남긴다. 잠김 기록이 실패해도 429는 그대로 준다(서버 오류 로그만) | 잠김이 기록 실패 때문에 풀리면 안 된다 |
+| D-14 | (구현 결정) 탈퇴할 때 `mfa_*` 행·`mfa_account_state`와 함께 그 사용자의 `rate_events`(`mfa-%`)도 지운다 | 탈퇴자 식별자 잔존 최소화 |
+| D-15 | (구현 결정) CLI는 `api/src/db/cli.ts`가 아니라 `api/scripts/admin-mfa.ts`(`npm run admin-mfa -- <명령>`, 빌드 결과 `dist/scripts/admin-mfa.js`)이고 `DATABASE_URL`(앱 역할)로 접속한다. DB 관리자 계정이 필요 없다 | 운영 데이터 명령을 스키마 명령(`db/cli.ts`, 관리자 URL)과 분리. 서버에 관리자 URL을 두지 않는다 |
+| D-16 | (구현 결정) CLI 초기화(`mfa-reset`) 알림 메일은 MFA-MAIL-RESET-INTRO-3-DB 문구(관리자 화면이 아닌 서버 작업)로 보낸다. `--operator`는 1~50자, `;`·`=`·제어 문자 불가(기록 detail 구분자 보호) | 2.7.3 |
+| D-17 | (구현 결정) API도 `x-bara-activity`를 프리페치 헤더(`next-router-prefetch`, `purpose`/`sec-purpose`에 prefetch)가 있으면 무시한다. 관리자 API(`/v1/admin/*`, `/v1/auth/mfa/*`, `/v1/op/admin.*`, 승인 오퍼레이션)와 쿼리 API의 쓰기는 헤더 없이도 "사용"으로 센다 | 2.3 "사용" 정의를 API에서도 이중으로 지킨다 |
+| D-18 | (구현 결정) 테이블은 `02-schema.sql`이 아니라 `01-auth.sql`(auth 스키마 블록, 기존 패턴)에 두고, 정리 함수 `purge_expired_mfa_rows`만 `02-schema.sql`에 둔다. 운영 패치 파일 이름은 `api/db/patches/2026-11-26-admin-mfa.sql` | 2.11·9.1 |
+| D-19 | (구현 결정) QR은 API가 만들지 않는다(앱이 `otpauthUri`로 SVG를 그린다, 4.4.2). TOTP·HKDF·AES-GCM·HMAC은 `node:crypto`만 쓴다(새 의존성 없음) | 의존성 최소화 |
+| D-20 | (구현 결정) `Cache-Control: no-store`는 4.0의 경로에 `/v1/admin/mfa/*`(overview)를 더했다 | 4.7 #14도 상태 정보 |
+
 ## 5. 엣지케이스 표
 
 ### 5.1 로그인
@@ -976,7 +1003,7 @@ POST인 이유: 대기표를 본문으로만 받기 위해서다(4.0).
 
 | 파일 | 변경 |
 |---|---|
-| `api/db/01-auth.sql` + `api/db/patches/<날짜>-admin-totp.sql` | 2.11의 테이블 전부 생성(`mfa_factors`, `mfa_enrollments`, `mfa_recovery_codes`, `mfa_challenges`, `mfa_enroll_tickets`, `mfa_account_state`, `mfa_key_check`, `mfa_runtime`), `auth.sessions`에 `mfa_at`·`mfa_method`·`last_seen_at` 추가, 인덱스(`mfa_recovery_codes(user_id)`, `mfa_challenges(expires_at)`, `mfa_enroll_tickets(expires_at)`, `sessions(user_id)` 확인). 스키마-패치 동기화 테스트 |
+| `api/db/01-auth.sql` + `api/db/patches/2026-11-26-admin-mfa.sql`(구현: 파일 이름 확정, 4.11 D-18) | 2.11의 테이블 전부 생성(`mfa_factors`, `mfa_enrollments`, `mfa_recovery_codes`, `mfa_challenges`, `mfa_enroll_tickets`, `mfa_account_state`, `mfa_key_check`, `mfa_runtime`), `auth.sessions`에 `mfa_at`·`mfa_method`·`last_seen_at` 추가, 인덱스(`mfa_recovery_codes(user_id)`, `mfa_challenges(expires_at)`, `mfa_enroll_tickets(expires_at)`, `sessions(user_id)` 확인). 스키마-패치 동기화 테스트 |
 | `api/src/auth/totp.ts`(신규) | TOTP 계산, ±1칸 3칸 모두 상수 시간 비교 후 맞은 칸 반환(2.8, M-9), base32, `otpauth` 주소 생성. RFC 6238 테스트 벡터 |
 | `api/src/auth/mfa-crypto.ts`(신규) | 키 링(버전 → 키), HKDF 하위 키(info `bara-mfa/{용도}/v{n}`), AES-256-GCM 암·복호화(AAD 용도·user_id·버전, 매번 새 IV), 복구 코드·등록 코드 HMAC(버전별), `mfa_key_check` 검증·생성(2.6) |
 | `api/src/auth/mfa.ts`(신규) | 대기표 발급·소모, verify/recover, 등록 ticket/start/current/confirm(입구 A·B·C), 복구 코드 발급·소모·ack, 초기화, 등록 코드, 시도 제한(15분·24시간, 2.9), 접속 기록, 계정 상태(`mfa_account_state`) |
@@ -993,7 +1020,7 @@ POST인 이유: 대기표를 본문으로만 받기 위해서다(4.0).
 | `api/src/auth/tokens.ts` | 락 순서 주석 갱신(2.11) |
 | `api/src/secrets.ts`, `api/src/config.ts` | `BARA_MFA_KEY_PARAMS`·`BARA_MFA_KEY_CURRENT`(운영), `BARA_MFA_KEYS`(로컬만, 운영에 있으면 시작 거절), 정확히 32바이트, `ADMIN_MFA_MODE`(운영 필수, 세 값 외 시작 거절, 개발 기본 `enforce`), `ADMIN_MFA_GRACE_UNTIL`(운영 `optional`이면 필수, ISO), `ADMIN_SECURITY_ALERT_TO`(선택, 쉼표 최대 5개, 형식 틀리면 운영 시작 거절) |
 | `api/src/mail/mailer.ts`, `api/src/mail/ses.ts` | `mfa_enrolled`, `mfa_reset`, `mfa_recovery_used`, `mfa_locked`(15분·24시간 두 문구), `admin_security_alert` 템플릿, `password_changed`의 관리자 한 줄. 공통 문의처 블록 그대로(4.8) |
-| `api/src/db/cli.ts` | `mfa-reset`, `mfa-ticket`, `mfa-clear`, `mfa-unlock`, `mfa-report`, `mfa-rekey`, `admin-sessions-revoke`(2.7.3 표). `--operator` 필수, `--reason` 고정 키, 등록 코드 출력 전 경고 |
+| `api/scripts/admin-mfa.ts`(구현 결정: `src/db/cli.ts` 대신, 4.11 D-15) | `mfa-reset`, `mfa-ticket`, `mfa-clear`, `mfa-unlock`, `mfa-report`, `mfa-rekey`, `admin-sessions-revoke`(2.7.3 표). `--operator` 필수, `--reason` 고정 키, 등록 코드 출력 전 경고 |
 | `api/src/jobs/scheduler.ts` | 만료된 대기표·등록 대기·등록 코드 정리(2.11) |
 | `api/README.md` | 새 환경 변수, SSM 파라미터, 키 교체·모드 변경·CLI 절차, Session Manager 접속 규칙 |
 | `api/test/*` | 아래 9.4 |
@@ -1041,6 +1068,17 @@ POST인 이유: 대기표를 본문으로만 받기 위해서다(4.0).
 | 초기화·기록 | 초기화 트랜잭션, 기록 실패 시 전체 롤백(`log_failed`), CLI 명령별 기록 |
 | 재설정 | 재설정 뒤 2단계 유지, `mfa-fail` 유지 |
 | 로그 | 서버·앱 로그 스트림에 6자리·복구 코드·등록 코드·대기표·`secretBase32`·`otpauth://`·QR SVG가 하나도 없음 |
+
+### 9.5 구현 상태 (backend-developer, 2026-11-26)
+
+| 항목 | 상태 |
+|---|---|
+| API(9.1 표 전부) | 완료. 브랜치 `feat/admin-totp`, 푸시·배포 안 함 |
+| 운영 패치 | `api/db/patches/2026-11-26-admin-mfa.sql`(멱등, `begin; set local role bara_edu_service; …; commit;`). 블록은 `01-auth.sql`·`02-schema.sql`과 글자 그대로 같음(테스트) |
+| 보관·정리 | 등록 대기: 만료 즉시(매일 03:50 정리), 대기표: 만료 1일 뒤, 등록 코드: 만료 또는 사용 1일 뒤. 접속 기록은 기존 2년 정리 그대로. 등록·복구 코드·계정 상태는 초기화·강등 정리·탈퇴 때 삭제 |
+| 테스트(9.4) | `api/test/totp.test.ts`, `mfa-crypto.test.ts`, `admin-mfa-login.test.ts`, `admin-mfa-enroll.test.ts`, `admin-mfa-admin.test.ts`, `patch-admin-mfa.test.ts`. 보안 점검 I-1~I-8은 테스트 이름 앞에 `I-n`. 전체 608개 통과 |
+| 운영 준비(ops) | SSM SecureString `/bara-edu/api/mfa-key-v1`(base64 32바이트), WAS 환경 `BARA_MFA_KEY_PARAMS=1=/bara-edu/api/mfa-key-v1`, `BARA_MFA_KEY_CURRENT=1`, `ADMIN_MFA_MODE=optional`, `ADMIN_MFA_GRACE_UNTIL`, `ADMIN_SECURITY_ALERT_TO`, 인스턴스 역할에 새 파라미터 `ssm:GetParameter` 권한 |
+| 남은 것 | 앱(9.2), qa-reviewer 리뷰, privacy-security-officer 구현 점검, 7.1 배포 절차 |
 
 ## 대표 결정
 
