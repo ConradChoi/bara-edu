@@ -85,12 +85,15 @@ export async function submitDiagnosis(formData: FormData) {
 
   const token = result.accessToken;
 
+  // path는 '/'여야 한다. '/selfcheck'로 좁히면 로그인 서버 액션(POST /sign-in)이 redirect()로 결과 페이지를
+  // 같은 요청 안에서 렌더할 때 브라우저가 이 쿠키를 보내지 않아(요청 경로가 /sign-in) 자동 귀속(AutoClaim)이 안 된다.
+  // 쿠키 값은 추측 불가능한 토큰이고 httpOnly라 범위를 넓혀도 노출되지 않는다.
   const cookieStore = await cookies();
   cookieStore.set(RECENT_SUBMIT_COOKIE, token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
-    path: '/selfcheck',
+    path: '/',
     maxAge: 60 * 60 * 24,
   });
 

@@ -371,7 +371,10 @@ export async function logout() {
   // 자가진단 결과 연결용 쿠키(제출한 브라우저 표시)도 함께 지운다. 공용 기기에서 로그아웃한 뒤 남지 않게(개인정보 점검 R-4).
   // 브라우저 임시 저장 초안(localStorage)은 서버가 못 지우므로 로그아웃 버튼(LogoutForm)이 보내기 전에 지운다.
   try {
-    (await cookies()).delete({ name: RECENT_SUBMIT_COOKIE, path: '/selfcheck' });
+    // 현재 경로('/')만 지운다. Next의 응답 쿠키는 이름으로만 구분돼 같은 이름을 두 경로로 지우면 마지막 것만
+    // 나간다(@edge-runtime/cookies ResponseCookies가 name 키 Map). 배포 전에 옛 경로('/selfcheck')로 발급된
+    // 쿠키는 최대 24시간 뒤 스스로 만료된다(2026-11-26 배포, 11-27 밤 이후 남지 않음).
+    (await cookies()).delete({ name: RECENT_SUBMIT_COOKIE, path: '/' });
   } catch {
     // 쿠키 삭제 실패가 로그아웃을 막으면 안 된다. 값(토큰)은 남기지 않고 한 줄만 기록한다.
     console.error('[logout] selfcheck result cookie delete failed');
