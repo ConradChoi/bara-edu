@@ -142,3 +142,99 @@
 | 처리방침 v8에 제8조·제5조 SES·M-10 반영 | privacy-security-officer | 아니오(배포 뒤 v8과 함께) |
 | 안전한 인증수단·자동 접속 차단 조문 확인 | 변호사 | 아니오(결과에 따라 시간 조정) |
 | 구현 뒤 privacy-security-officer 코드 점검 | privacy-security-officer | 예 |
+
+---
+
+## 구현 점검 (배포 전)
+
+- 점검일: 2026-11-26 (배포 예정 21:00 KST)
+- 대상: 브랜치 `feat/admin-totp`(main 병합 뒤), `api/src`, `api/db/patches/2026-11-26-admin-mfa.sql`, `api/scripts/admin-mfa.ts`, `app/`, `lib/`, `components/`, `proxy.ts`, `next.config.ts`. 코드는 고치지 않았다(읽기 전용).
+- 법률 자문이 아니다.
+
+### 판정: 조건부 승인
+
+코드에서 치명적(Critical) 이슈는 찾지 못했다. 2단계 없이 관리자 권한을 얻는 경로, 비밀 값 유출 경로, 코드 결함으로 인한 잠김 경로는 없다. 아래 "배포 조건" 4개는 **21:00 배포 전에 확인**해야 한다. 주요(Important) 3건은 코드가 아니라 설정·운영 항목이며, 모두 배포 조건에 들어 있다.
+
+### 1. 관리자 권한 경로 점검
+
+| 경로 | 결과 | 근거(file:line) |
+|---|---|---|
+| 세션 guard | 안전 | `api/src/http/guard.ts:58-72`가 `/healthz`를 뺀 모든 요청에 걸린다(onRequest, 루트 인스턴스). `api/src/auth/sessions.ts:77-90`: `role='admin'`이면 매 요청 12시간(`created_at`)·1시간(`last_seen_at`)을 판정하고, 그다음 `mfa_at` 규칙을 본다. `optional`은 등록 이력도 등록 코드 표시도 없는 계정만 비밀번호 세션을 허용한다(82행). 관리자 세션은 슬라이딩 연장을 하지 않는다 |
+| `/v1/query`, `/v1/rpc`, `/v1/op/*`, 스토리지 | 안전 | 모두 `req.auth.userId`를 쓰고 guard가 null을 준다. `api/src/ops/routes.ts:13`, `api/src/query/routes.ts:43-48`. 승격된 30일 세션·가입 마무리 세션은 테스트로 고정했다(`api/test/admin-mfa-login.test.ts:344,356`) |
+| 서비스 키 ops | 안전 | `access:'service'`도 `userId`가 필요하다(`ops/routes.ts:13`). 서비스 키만으로는 anon 권한뿐이다 |
+| 2단계 관련 관리자 API | 안전 | `api/src/auth/mfa-routes.ts:247-258`(is_admin 확인). 초기화에는 `mfa_at` 세션이 필요하고(271행), 요청자의 6자리를 확인하며, 자기 자신은 초기화할 수 없다(`api/src/auth/mfa.ts:877`) |
+| proxy·서버 컴포넌트 | 안전(방어선 아님) | `proxy.ts:78-82`, `app/(admin)/layout.tsx:13-20`. 옛 API에서는 `getMfaStatus` 404가 `unsupported`로 처리되어 화면이 그대로 그려진다(`lib/mfa-format.ts:108`) |
+| 세션 발급 경로 | 안전 | 관리자 세션은 어느 경로든 12시간이다(`sessions.ts:16-28`). `mfa_at`은 verify·recover·등록 확정에서만 채운다(`mfa.ts:399,431,733`) |
+
+### 2. 설계 점검 요구 사항 반영 확인
+
+| # | 반영 | 근거 |
+|---|---|---|
+| I-1 | 예 | 입구 A는 `ticket_required_at`이 없는 미등록 계정만 쓸 수 있다(`mfa.ts:578-584`, 확정 때 다시 확인 `:687`). 첫 등록 때 표시가 남고(`:724`), `enforce` 로그인 때도 남는다(`:342`). 초기화 때도 표시가 남는다(`:868`). guard `sessions.ts:82` |
+| I-2 | 예 | (a) 모드가 바뀌면 시작할 때 `mfa_at is null`인 관리자 세션을 삭제한다(`api/src/auth/mfa-mode.ts:10-27`). 첫 시작은 `mfa_runtime`에 행이 없어 바뀐 것으로 본다. (b) 입구 A 확정 때 모든 세션을 지우고 새 세션을 발급한다(`mfa.ts:731-735`). (c) 모든 모드에서 매 요청 판정한다(`sessions.ts:77-84`) |
+| I-3 | 예 | 운영에서 모드 값이 없거나 틀리면 시작을 거절한다(`api/src/config.ts:59-61`). `optional`인데 유예 시각이 없어도 거절한다(`:69`). 시작 로그·경고는 `mfa-mode.ts:33-36`에 있다 |
+| I-4 | 예 | 입구 C는 6자리 또는 복구 코드 1개가 필요하고, 실패하면 `mfa-fail`로 센다(`mfa.ts:586-618`). `renew`에도 재확인을 다시 묻는다(D-5) |
+| I-5 | 예 | 복구 코드·등록 코드에 `key_version`이 있다(패치 블록). 검증은 행의 버전 키로 하고(`mfa.ts:246-262`), HKDF info는 `bara-mfa/{용도}/v{n}`이다(`api/src/auth/mfa-crypto.ts:61`). `mfa-rekey`가 옛 버전 행 수를 출력한다 |
+| I-6 | 예 | 수신자는 본인, 다른 활성·인증 완료 관리자 전원, `ADMIN_SECURITY_ALERT_TO`다(`api/src/auth/mfa-alerts.ts:28-43`). 아무도 없으면 `alert=self_only`를 붙인다. 관리자 재설정 알림은 `service.ts:222-235`. 아래 I-A 참고 |
+| I-7 | 예 | 15분 10회와 24시간 30회(풀어 준 실패 포함, `mfa.ts:168-171`)다. 초기화·재발급·입구 C 재확인의 실패도 센다. CLI `mfa-unlock`이 있다(`api/scripts/admin-mfa.ts:190`). 테스트는 `admin-mfa-login.test.ts:277` |
+| I-8 | 예 | `mfa-report`가 등록 일시·IP·경로·최근 로그인 IP를 출력하고 비밀 값은 출력하지 않는다 |
+| M-1 | 예 | "사용"으로 치는 요청은 `x-bara-activity`(관리자 화면, 프리페치 제외), 관리자 API, 쿼리 쓰기뿐이다. 1분 단위로 묶어 갱신한다. 프리페치 헤더가 있으면 API가 무시한다(`guard.ts:39-52`, `lib/db/api.ts:72-77`). 주기적으로 부르는 클라이언트 코드는 없다 |
+| M-2 | 예 | B는 대기표에, A·C는 세션 사용자에 묶는다(`mfa.ts:670`). 등록 코드의 `enrollment_id`를 확인한다(`:688`). verify는 역할·등록 여부·모드를 다시 확인한다(`:384`) |
+| M-3·M-4·M-6·M-8·M-9 | 예 | 등록 코드는 HMAC으로 저장한다. AAD는 `bara-mfa|용도|user|v`이고, 확정 때 새 IV로 다시 암호화한다(`mfa.ts:711`). IV는 매번 12바이트 무작위다(`mfa-crypto.ts:75`). 운영에서는 평문 키를 거절하고 키가 정확히 32바이트여야 한다(`config.ts:79-80`, `mfa-crypto.ts:40-46`). 시작할 때 `mfa_key_check`로 키를 검증한다. 세션에 `mfa_method`가 있다. 3칸을 모두 상수 시간으로 비교한다(`api/src/auth/totp.ts:67-76`) |
+| M-5 | 예(코드) | `mfa-ticket`은 이미 등록된 계정을 거절하고, 사유는 정해진 키만 받으며, 출력 전에 경고한다. SSM 세션 기록은 운영 항목이다 |
+| M-11 | 예 | [파일로 받기]가 없다. 복구 코드는 서버 액션 상태에만 담긴다 |
+
+### 3. 대기표·재사용·복구 코드·암호화·로그
+
+- 대기표: API는 본문으로만 준다(`api/src/auth/routes.ts:149-151`). 앱은 `httpOnly`·`secure`(운영)·`sameSite=lax` 쿠키에만 두고, 만료는 대기표 남은 시간(최대 15분)이다(`lib/db/session-cookie.ts:125-138`). 클라이언트 JS·URL·hidden 필드에는 두지 않는다. 1회용 처리는 `used_at is null and expires_at > now() for update`(`mfa.ts:304-312`)와 성공 시 `used_at`(`:398,430`)으로 한다. 대기표당 5회를 넘으면 폐기한다.
+- 재사용: `last_used_step`을 `for update`로 갱신한다(`mfa.ts:217-235`). 등록 확정 때 맞은 칸을 저장한다(`:720`).
+- 복구 코드: 원자적으로 `update … and used_at is null returning`(`mfa.ts:259-262`)하고, 동시 사용도 테스트한다.
+- 비밀 값 로그: Fastify는 본문을 로그에 남기지 않는다. `SECRET_HEADERS`는 마스킹한다. 실패 로그에는 종류·userId·ipKey만 남긴다(`mfa.ts:208-210`). 로그 스트림 테스트는 `api/test/admin-mfa-admin.test.ts:587`. 접속 기록 detail은 사유 키·`mfa=…`·`operator`뿐이다(메모는 저장하지 않는다).
+- QR: 앱 서버에서 `uqr` 0.1.3(고정 버전)으로 SVG path를 만든다(`lib/qr.ts`, `server-only`). 외부 QR 서비스로 보내지 않는다. `otpauthUri`와 설정 키는 본인 화면에만 나간다(`otpauth://` 바로 추가 링크). MFA 화면 4개 경로에는 `private, no-store`·`no-referrer`·`noindex`를 건다(`next.config.ts:18,27`). API MFA 응답은 `no-store`다(`mfa-routes.ts:41,62-66`, 루트 인스턴스 훅).
+- 키: API(EC2) SSM에만 둔다. 앱 코드에는 `BARA_MFA*` 참조가 없다(Amplify 환경 변수에 넣지 않는다).
+
+### 4. 발견 사항
+
+#### 주요(Important): 모두 설정·운영 항목, 배포 조건에 포함
+
+| # | 이슈 | 위치 | 권장 조치 |
+|---|---|---|---|
+| I-A | 운영에서 `ADMIN_SECURITY_ALERT_TO`를 비워도 API가 시작된다. 지금은 관리자가 대표 한 명이라, 비어 있으면 모든 보안 알림이 "탈취됐을 수 있는 메일함" 하나로만 간다(I-6의 목적이 사라진다) | `api/src/config.ts:71-76` | **오늘 배포 환경 변수에 개발 담당 주소를 넣는다.** 배포 뒤 스테이징 또는 운영에서 테스트 알림 1통을 확인한다. 후속(권고): 활성 관리자가 1명이면 운영에서 이 값을 필수로 만든다 |
+| I-B | 단일 관리자의 마지막 복구 수단인 CLI가 운영 서버에서 실제로 뜨는지 확인되지 않았다. CLI는 API와 같은 운영 설정 전체(SSM 키, `ADMIN_MFA_MODE`, `ADMIN_MFA_GRACE_UNTIL`, TLS 파일, `S3_BUCKET`, `MAIL_FROM`, `NODE_ENV`)를 읽어야 시작한다 | `api/scripts/admin-mfa.ts:292` | API 배포 직후 운영 서버에서 읽기 전용 `mfa-report --operator "<이름>"`를 한 번 실행해 CLI가 시작되는지 확인한다. 스테이징 `mfa-reset`·`mfa-unlock` 리허설 기록(7.1 단계 0)을 운영 문서에서 확인한다 |
+| I-C | 유예 7일은 설계 점검(8장)이 권장한 "관리자 1명이면 1~2일"보다 길다. 대표가 등록하기 전까지는 메일함과 재설정을 가진 공격자가 입구 A로 먼저 등록할 수 있다(설계상 받아들인 I-8 위험) | 7.1 단계 1 | 대표가 **API 배포 직후 오늘 밤 바로 등록**한다. 그 뒤 `mfa-report`로 등록 IP·경로를 대표가 확인하고 기록한다. 확인되면 유예 종료일을 기다리지 않고 `enforce`로 전환하는 것을 권장한다. 대표가 등록을 마치면 대표 계정은 `optional`에서도 6자리가 필요하다 |
+
+#### 권고(Minor): 배포 차단 아님
+
+| # | 이슈 | 위치 | 권장 조치 |
+|---|---|---|---|
+| m-1 | 입구 C(인증 앱 바꾸기) 등록 대기는 세션만으로 `enroll/current`에서 다시 읽힌다. 본인이 바꾸는 중인 10분 안에 세션을 훔친 사람은 새 비밀 키를 알 수 있다. 세션 탈취가 먼저 필요하다 | `api/src/auth/mfa.ts:637-641`, `mfa-routes.ts:183-185` | 후속: C의 `current`는 `start`를 부른 세션(token_hash)에 묶는다 |
+| m-2 | 관리자 초기화 결과(등록 코드)는 `/admin/members/[id]` 서버 액션 응답으로 나가는데, 이 경로는 `MFA_PAGE_PATHS`에 없다. 서버 액션 응답은 기본이 동적이라 실제 위험은 낮다 | `next.config.ts:18`, `app/actions/admin-members.ts:160` | 후속: `/admin/members/:id`에도 `private, no-store` 헤더를 건다 |
+| m-3 | CLI `mfa-ticket`·`mfa-unlock`은 접속 기록만 남기고 알림 메일은 보내지 않는다(2.13 대상 사건에도 없다). M7 카드에는 표시된다 | `api/scripts/admin-mfa.ts:157,190` | 후속: `admin_security_alert`를 보낸다 |
+| m-4 | 6자리 검증은 API 서버 시계에 의존한다(±30초) | `totp.ts:67` | EC2 시간 동기화(chrony)를 배포 점검표에서 확인한다 |
+
+### 5. 배포 계획과 단일 관리자 잠김 위험
+
+순서(앱 → DB 패치 → API `optional`, 유예 `2026-12-03T21:00:00+09:00`)는 호환된다.
+
+- 앱만 먼저 배포: 옛 API는 `mfa` 필드를 주지 않으므로 기존 로그인 흐름 그대로다(`app/actions/auth.ts:199`). MFA API 404는 `unsupported`로 처리되어 화면만 숨긴다. 앱이 보내는 프리페치·`x-bara-activity` 헤더는 옛 API가 무시한다.
+- 패치: 추가만 하고 멱등이다. `last_seen_at`은 기본값이 있는 컬럼이라 옛 API와 호환된다. **새 API보다 반드시 먼저 적용한다.** 패치가 없으면 새 API가 `initMfa`에서 시작하지 못하고, 그러면 사이트 전체가 멈춘다.
+- API `optional` 시작: 모든 관리자 세션이 삭제된다. 대표는 비밀번호로 다시 로그인해 12시간 세션을 받고 입구 A로 등록한다. 잠김 없음.
+
+| 잠김 시나리오 | 가능성 | 복구 |
+|---|---|---|
+| 운영에서 실수로 `enforce`로 먼저 시작한 뒤 대표가 로그인 | 대표 계정에 `ticket_required_at`이 생겨 `optional`로 돌려도 등록 코드가 필요하다 | CLI `mfa-ticket --email … --operator …`로 등록 코드를 발급한다. **환경 변수 값이 `optional`인지 배포 전에 두 번 확인한다** |
+| 키·패치·모드 값 누락 | API가 시작하지 못한다(사이트 전체) | 직전 API 빌드로 되돌린다(DB 패치는 두어도 된다). 배포 직후 헬스 체크를 한다 |
+| 등록 뒤 휴대폰과 복구 코드를 모두 분실 | 관리자 기능이 멈춘다 | CLI `mfa-reset --reason sole_admin_locked` 뒤 등록 코드로 입구 B를 쓴다(I-B 확인 전제) |
+| 비밀번호를 아는 공격자가 30회 틀려 24시간 잠금 | 가용성만 떨어진다(받아들인 위험) | 비밀번호 재설정과 CLI `mfa-unlock`을 함께 한다 |
+| 2단계 검증 버그 | 등록된 대표가 들어오지 못한다 | `ADMIN_MFA_MODE=off`로 바꿔 재시작한다(대표 승인을 기록). 초기화된 계정은 `off`에서도 등록 코드가 필요하다 |
+
+롤백 순서: (1) 모드 `off` 또는 `optional`로 재시작, (2) 필요하면 직전 API 빌드로 되돌린다(DB 그대로, 다시 올릴 때 첫 시작이 관리자 세션을 정리한다), (3) 앱 롤백은 반드시 API를 `off`로 바꾼 **뒤에** 한다(옛 앱은 대기표 응답을 실패로 본다). 모드 변경은 매번 대표 승인과 시각을 운영자 접근 기록 문서에 적는다.
+
+### 6. 배포 조건(21:00 전 확인)
+
+1. API 환경 변수: `NODE_ENV=production`, `ADMIN_MFA_MODE=optional`, `ADMIN_MFA_GRACE_UNTIL=2026-12-03T21:00:00+09:00`, `BARA_MFA_KEY_PARAMS`·`BARA_MFA_KEY_CURRENT`(SSM), `BARA_MFA_KEYS` 없음, **`ADMIN_SECURITY_ALERT_TO`에 개발 담당 주소**(I-A). Amplify(앱) 환경 변수에는 MFA 키가 없어야 한다.
+2. 순서는 앱 → 패치 → API다. API 시작 로그에서 `mfa_mode=optional`, `keyVersions`, `mfa_mode_changed`(삭제 세션 수)를 확인하고 헬스 체크를 한다. 직전 API 빌드를 되돌릴 수 있게 준비해 둔다.
+3. 운영 서버에서 CLI `mfa-report`를 1회 실행해 CLI가 시작되는지 확인하고, 스테이징 리허설 기록을 확인한다(I-B).
+4. 대표가 오늘 밤 등록하고 복구 코드를 종이 두 곳에 보관한다. 이어서 6자리 로그인 1회, `mfa-report` 행 확인, 운영자 접근 기록 문서 기록을 한다(I-C). 대표 확인이 끝나면 `enforce` 전환 일정을 잡는다(내부 관리계획 갱신이 선행).
+
+권고 m-1~m-4는 다음 배포에 반영하고, qa-reviewer가 m-1·m-2를 테스트로 고정한다.
