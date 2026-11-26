@@ -29,6 +29,9 @@ export type ForgotPasswordState =
   | { error: ForgotPasswordError; email: string; resend: boolean }
   | undefined;
 
+export type ResetPasswordError = 'short' | 'long' | 'mismatch' | 'rule' | 'expired' | 'unavailable';
+export type ResetPasswordState = { error: ResetPasswordError } | undefined;
+
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // ?redirect= 값을 검증 없이 그대로 redirect()에 넘기면 오픈 리다이렉트(CWE-601)로
@@ -194,22 +197,24 @@ export async function logout() {
 }
 
 // 재설정 메일 링크(/reset-password?token=)의 토큰은 폼의 hidden input으로 넘어온다.
-export async function resetPassword(
-  _prevState: AuthFormState,
-  formData: FormData
-): Promise<AuthFormState> {
+// 결과는 종류만 돌려주고 문구는 화면이 정한다(카피 문서 4장 RP-*). 비밀번호·토큰은 상태에 담지 않는다.
+// short·long·rule: 새 비밀번호 칸 아래, mismatch: 확인 칸 아래, expired: 새 메일 받기 안내, unavailable: 연결 불가(입력 유지).
+export async function resetPassword(_prevState: ResetPasswordState, formData: FormData): Promise<ResetPasswordState> {
   const token = (formData.get('token') as string | null) ?? '';
   const password = (formData.get('password') as string | null) ?? '';
   const confirm = (formData.get('confirm') as string | null) ?? '';
 
-  if (password.length < 8) return { error: '비밀번호는 8자 이상이어야 해요' };
-  if (password.length > LIMITS.password) return { error: `비밀번호는 ${LIMITS.password}자 이하로 입력해 주세요` };
-  if (password !== confirm) return { error: '비밀번호가 일치하지 않아요' };
+  if (password.length < 8) return { error: 'short' };
+  if (password.length > LIMITS.password) return { error: 'long' };
+  if (password !== confirm) return { error: 'mismatch' };
+  if (!token) return { error: 'expired' };
 
-  const reset = token ? await auth.resetPassword(token, password) : ({ ok: false, field: undefined } as const);
+  const reset = await auth.resetPassword(token, password);
   if (!reset.ok) {
-    if (reset.field === 'password') return { error: FIELD_MESSAGES.password };
-    return { error: '비밀번호 변경에 실패했어요. 링크가 만료됐을 수 있어요. 다시 요청해 주세요.' };
+    if (reset.reason === 'validation' && reset.field === 'password') return { error: 'rule' };
+    if (reset.reason === 'unavailable') return { error: 'unavailable' };
+    // invalid_token, 토큰 형식 오류(400 field=token), 그 밖의 실패: 새 링크를 받는 것이 해결 방법이다(기존 동작 유지)
+    return { error: 'expired' };
   }
 
   redirect('/sign-in?reset=1');

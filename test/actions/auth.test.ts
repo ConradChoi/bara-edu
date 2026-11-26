@@ -169,10 +169,8 @@ test('logout 액션: API 호출 후 쿠키 삭제, /로 이동', async () => {
   expect(store.delete).toHaveBeenCalledWith('bara_session');
 });
 
-test('resetPassword 액션: 토큰이 없으면 API를 부르지 않고 만료 문구', async () => {
-  expect(await actions.resetPassword(undefined, form({ password: 'newpass12', confirm: 'newpass12' }))).toEqual({
-    error: '비밀번호 변경에 실패했어요. 링크가 만료됐을 수 있어요. 다시 요청해 주세요.',
-  });
+test('resetPassword 액션: 토큰이 없으면 API를 부르지 않고 만료(expired)', async () => {
+  expect(await actions.resetPassword(undefined, form({ password: 'newpass12', confirm: 'newpass12' }))).toEqual({ error: 'expired' });
   expect(fetchMock).not.toHaveBeenCalled();
 });
 
@@ -249,10 +247,25 @@ test('login: 400 + field=email → 이메일 형식 문구, field=password → �
   expect(await run()).toEqual({ error: '잠시 후 다시 시도해 주세요' });
 });
 
-test('resetPassword: 400 + field=password → 비밀번호 한도 문구, 토큰 문제는 만료 문구', async () => {
+test('resetPassword: 400 field=password → rule, 토큰 문제·field=token·기타 실패 → expired, 503·네트워크 → unavailable', async () => {
   const run = () => actions.resetPassword(undefined, form({ token: 't1', password: 'newpass12', confirm: 'newpass12' }));
   fetchMock.mockResolvedValueOnce(v400('password'));
-  expect(await run()).toEqual({ error: '비밀번호는 8자 이상 200자 이하로 입력해 주세요' });
+  expect(await run()).toEqual({ error: 'rule' });
   fetchMock.mockResolvedValueOnce(json(400, { error: { code: 'validation', message: 'invalid_token' } }));
-  expect(await run()).toEqual({ error: '비밀번호 변경에 실패했어요. 링크가 만료됐을 수 있어요. 다시 요청해 주세요.' });
+  expect(await run()).toEqual({ error: 'expired' });
+  fetchMock.mockResolvedValueOnce(v400('token'));
+  expect(await run()).toEqual({ error: 'expired' });
+  fetchMock.mockResolvedValueOnce(json(500, { error: { code: 'internal', message: 'x' } }));
+  expect(await run()).toEqual({ error: 'expired' });
+  fetchMock.mockResolvedValueOnce(json(503, { error: { code: 'unavailable', message: 'x' } }));
+  expect(await run()).toEqual({ error: 'unavailable' });
+  fetchMock.mockRejectedValueOnce(new Error('down'));
+  expect(await run()).toEqual({ error: 'unavailable' });
+  expect(store.delete).not.toHaveBeenCalled();
+});
+
+test('resetPassword: 200자 초과는 API를 부르지 않는다(long)', async () => {
+  const long = 'a'.repeat(201);
+  expect(await actions.resetPassword(undefined, form({ token: 't1', password: long, confirm: long }))).toEqual({ error: 'long' });
+  expect(fetchMock).not.toHaveBeenCalled();
 });
