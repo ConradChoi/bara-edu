@@ -4,7 +4,9 @@ import { notFound } from 'next/navigation';
 import StatusBadge from '@/components/admin/StatusBadge';
 import { DIAGNOSIS_AREAS, DIAGNOSIS_LEARNING_EXPERIENCE_LABELS, DIAGNOSIS_TIER_LABELS } from '@/data/diagnosis/config';
 import { redirect } from 'next/navigation';
-import { getDiagnosisResultDetailApi } from '@/lib/db/admin-diagnosis';
+import { ADMIN_DIAGNOSIS_COPY, fill } from '@/data/diagnosis/consent-copy';
+import { getDiagnosisResultDetailApi, type DiagnosisResultDetail } from '@/lib/db/admin-diagnosis';
+import { formatKstDatetimeLocal } from '@/lib/kst';
 
 export const metadata: Metadata = { title: '진단 결과 상세 | 관리자' };
 
@@ -59,6 +61,7 @@ export default async function AdminDiagnosisResultDetailPage({ params }: { param
           {DIAGNOSIS_LEARNING_EXPERIENCE_LABELS[detail.learningExperience] ?? detail.learningExperience} · 제출{' '}
           {new Date(detail.createdAt).toLocaleString('ko-KR')}
         </p>
+        <ConsentRecord detail={detail} />
         <div className="mt-1 flex items-center gap-2">
           <StatusBadge tone="info">
             {DIAGNOSIS_TIER_LABELS[detail.recommendedTier as keyof typeof DIAGNOSIS_TIER_LABELS] ?? detail.recommendedTier}
@@ -118,4 +121,29 @@ export default async function AdminDiagnosisResultDetailPage({ params }: { param
       <p className="text-[10.5px] text-n-5">이 화면 열람은 admin_access_logs에 기록됩니다.</p>
     </div>
   );
+}
+
+// 동의 기록 줄(SC-ADM-CONSENT-*, API 계약 C5). 시각은 한국 시간 YYYY-MM-DD HH:mm. 동의 기록은 고칠 수 없다(표시만).
+function ConsentRecord({ detail }: { detail: DiagnosisResultDetail }) {
+  return (
+    <p className="flex flex-wrap items-center gap-1.5 text-[12px] text-n-7">
+      <span className="font-semibold text-n-9">{ADMIN_DIAGNOSIS_COPY.consentLabel}</span>
+      {detail.sensitiveConsentVersion ? (
+        <span>{consentValue(detail)}</span>
+      ) : (
+        <StatusBadge tone="warning">{ADMIN_DIAGNOSIS_COPY.consentNone}</StatusBadge>
+      )}
+    </p>
+  );
+}
+
+function consentValue(detail: DiagnosisResultDetail): string {
+  const base = fill(ADMIN_DIAGNOSIS_COPY.consentValue, {
+    version: detail.sensitiveConsentVersion ?? '',
+    datetime: formatKstDatetimeLocal(detail.sensitiveConsentedAt).replace('T', ' ') || '-',
+    n: detail.privacyDocVersion ?? '',
+  });
+  if (detail.privacyDocVersion !== null) return base;
+  // 처리방침 버전이 없으면 "처리방침 v{n}" 자리를 SC-ADM-CONSENT-NODOC로 바꾼다.
+  return base.replace(/처리방침 v$/, ADMIN_DIAGNOSIS_COPY.consentNoDoc);
 }

@@ -11,6 +11,7 @@ import { requireAdminClient } from '@/lib/supabase/require-admin';
 import { clientIpFrom } from '@/lib/db/client-ip';
 import { createClient } from '@/lib/db/server';
 import { listEmailConfirmations } from '@/lib/db/auth';
+import { DIAGNOSIS_LIST_TIERS, listDiagnosisResultsApi, type AdminDiagnosisResultRow, type DiagnosisListMemberFilter } from '@/lib/db/admin-diagnosis';
 import { memberPhotoSignedUrl } from '@/lib/db/storage';
 import { groupBy, queryInChunks, selectIn } from '@/lib/db/embed';
 import {
@@ -1433,9 +1434,9 @@ export async function getAdminAssignmentSubmissions(filters?: {
 }
 
 // ===================== 도형심리 역량진단 관리 (/admin/selfcheck, 2026-09-14) =====================
-// F-ADMDG-*. diagnosis_results/diagnosis_answers/diagnosis_leads는 RLS가 admin-only select라
-// 여기서는 직접 select한다(학습자 RPC 경유와 무관). 목록은 연락처(휴대전화/이메일)를 기본
-// 마스킹하고, 관리자가 "개인정보 보기"를 눌러 특정 행의 revealedId를 넘기면 그 행만 원문을
+// F-ADMDG-*. 결과 목록·상세는 API op(lib/db/admin-diagnosis.ts)가 가림·접속 기록을 맡는다(2026-11-26).
+// 강사과정 문의(diagnosis_leads)는 RLS가 admin-only select라 여기서 직접 select한다. 목록은 연락처를
+// 기본 마스킹하고, 관리자가 "개인정보 보기"를 눌러 특정 행의 revealedId를 넘기면 그 행만 원문을
 // 보여준다 — 이 열람은 반드시 admin_access_logs에 남는다(관리자 요청, 2026-09-14).
 
 // maskEmail과 동일한 이유로 앞 3자리+가운데 마스킹+뒤 4자리만 남긴다("010-****-5093").
@@ -1450,85 +1451,46 @@ function maskPhone(phone: string | null | undefined): string {
   return `${prefix}-****-${suffix}`;
 }
 
-export type AdminDiagnosisResultRow = {
-  id: string;
-  createdAt: string;
-  respondentName: string;
-  phone: string; // 마스킹된 값 또는(revealedId 일치 시) 원문
-  email: string; // 위와 동일
-  isRevealed: boolean;
-  learningExperience: string;
-  totalScore: number;
-  recommendedTier: string;
-  userId: string | null;
-};
+export type { AdminDiagnosisResultRow } from '@/lib/db/admin-diagnosis';
 
-// revealedId만으로 마스킹을 해제하던 이전 방식은 admin_access_logs 기록 없이 우회할 수
-// 있었다(위 설명 참고) — 이제는 revealToken/revealExp를 함께 받아 서명을 검증했을 때만
-// 해제하고, 그 검증에 성공한 시점에 이 함수 안에서 직접 logAdminAccess()를 호출한다.
+export type AdminDiagnosisResultsPage =
+  | { ok: true; rows: AdminDiagnosisResultRow[]; revealFailed: boolean }
+  | { ok: false; reason: 'forbidden' | 'unauthenticated' | 'failed' };
+
+// 목록은 API op admin.listDiagnosisResults가 이름·연락처를 가려서 내려 준다(민감정보 별도 동의, API 계약 C4 —
+// 앱이 diagnosis_results를 직접 읽고 마스킹하던 방식을 바꿨다). 여기서는 "개인정보 보기" reveal 토큰(HMAC)만 검증하고,
+// 검증에 성공한 경우에만 revealId를 넘긴다. 원문 해제와 접속 기록('조회', fields=name,contact)은 API가 한 트랜잭션으로 한다.
+// 접속 기록이 실패(503 log_failed)하면 원문 없이 가린 목록을 다시 받아 revealFailed로 알린다.
 export async function getAdminDiagnosisResults(
-  filters?: { tier?: string; memberOnly?: 'all' | 'member' | 'non_member' },
+  filters?: { tier?: string; memberOnly?: string },
   reveal?: { id?: string; token?: string; exp?: number }
-): Promise<AdminDiagnosisResultRow[]> {
-  const supabase = await createClient();
-  let query = supabase
-    .from('diagnosis_results')
-    .select('id, created_at, respondent_name, phone, email, learning_experience, total_score, recommended_tier, user_id')
-    .order('created_at', { ascending: false });
-
-  if (filters?.tier && filters.tier !== 'all') query = query.eq('recommended_tier', filters.tier);
-  if (filters?.memberOnly === 'member') query = query.not('user_id', 'is', null);
-  if (filters?.memberOnly === 'non_member') query = query.is('user_id', null);
-
-  const { data, error } = await query;
-  if (error) throw new Error(error.message);
-
-  const rows = data as {
-    id: string;
-    created_at: string;
-    respondent_name: string;
-    phone: string;
-    email: string;
-    learning_experience: string;
-    total_score: number;
-    recommended_tier: string;
-    user_id: string | null;
-  }[];
+): Promise<AdminDiagnosisResultsPage> {
+  const tier = DIAGNOSIS_LIST_TIERS.find((t) => t === filters?.tier) ?? 'all';
+  const memberOnly: DiagnosisListMemberFilter = filters?.memberOnly === 'member' || filters?.memberOnly === 'non_member' ? filters.memberOnly : 'all';
 
   // reveal 토큰 검증(HMAC 서명, PII 열람 전용 시크릿 필요)이 실패하면 목록 화면 전체가
-  // 500으로 죽어서는 안 된다 — PII 노출은 "검증 성공 시에만 해제"가 원칙이므로, 여기서 나는
-  // 어떤 에러든 "해제 안 함(마스킹 유지)"으로 안전하게 처리하고 서버 로그에만 남긴다
-  // (관리자가 "개인정보 보기" 클릭 시 서버 에러 화면이 뜨던 문제, 2026-09-15 보고).
-  let verifiedReveal = false;
+  // 500으로 죽어서는 안 된다 — 어떤 에러든 "해제 안 함(가림 유지)"으로 처리하고 서버 로그에만 남긴다(2026-09-15 보고).
+  let revealId: string | undefined;
   if (reveal?.id && reveal.token && reveal.exp) {
     try {
+      const supabase = await createClient();
       const {
         data: { user },
       } = await supabase.auth.getUser();
-      if (user && await verifyRevealToken('diagnosis_result', reveal.id, user.id, reveal.token, reveal.exp)) {
-        const target = rows.find((r) => r.id === reveal.id);
-        verifiedReveal = await logAdminAccess(supabase, target?.user_id ?? null, '조회', `진단 결과 연락처 열람(${reveal.id})`);
-      }
+      if (user && await verifyRevealToken('diagnosis_result', reveal.id, user.id, reveal.token, reveal.exp)) revealId = reveal.id;
     } catch (err) {
       console.error('[getAdminDiagnosisResults] reveal token verification failed:', err);
     }
   }
 
-  return rows.map((row) => {
-    const isRevealed = verifiedReveal && row.id === reveal?.id;
-    return {
-      id: row.id,
-      createdAt: row.created_at,
-      respondentName: row.respondent_name,
-      phone: isRevealed ? row.phone : maskPhone(row.phone),
-      email: isRevealed ? row.email : maskEmail(row.email),
-      isRevealed,
-      learningExperience: row.learning_experience,
-      totalScore: row.total_score,
-      recommendedTier: row.recommended_tier,
-      userId: row.user_id,
-    };
-  });
+  let r = await listDiagnosisResultsApi({ tier, memberOnly, revealId });
+  let revealFailed = false;
+  if (!r.ok && r.reason === 'log_failed' && revealId) {
+    revealFailed = true;
+    r = await listDiagnosisResultsApi({ tier, memberOnly });
+  }
+  if (!r.ok) return { ok: false, reason: r.reason === 'log_failed' ? 'failed' : r.reason };
+  return { ok: true, rows: r.rows, revealFailed };
 }
 
 // 진단 결과 상세는 여기 없다: 조회와 접속 기록('조회')을 API 한 트랜잭션으로 묶은 lib/db/admin-diagnosis.ts의

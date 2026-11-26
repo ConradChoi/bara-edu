@@ -79,3 +79,20 @@ test('없는 결과는 404, 로그인 만료는 로그인으로', async () => {
   apiResponse = { ok: false, status: 401, error: { code: 'unauthenticated', message: 'x' } };
   await expect(render()).rejects.toThrow('REDIRECT:/sign-in');
 });
+
+test('동의 기록 줄: 민감정보 동의 버전·한국 시각·처리방침 버전(SC-ADM-CONSENT-VALUE)', async () => {
+  apiResponse = { ok: true, data: { data: { ...detail, sensitiveConsentVersion: 'sc-v1', sensitiveConsentedAt: '2026-12-03T05:02:00.000Z', privacyDocVersion: 10 } } };
+  const html = await render();
+  expect(html).toContain('동의 기록');
+  expect(html).toContain('민감정보 동의 sc-v1 · 2026-12-03 14:02 / 처리방침 v10');
+  expect(html).not.toContain('별도 동의 없음');
+});
+
+test('처리방침 버전이 없으면 SC-ADM-CONSENT-NODOC, 동의 기록이 없으면 경고 배지(SC-ADM-CONSENT-NONE)', async () => {
+  apiResponse = { ok: true, data: { data: { ...detail, sensitiveConsentVersion: 'sc-v1', sensitiveConsentedAt: '2026-12-03T05:02:00.000Z', privacyDocVersion: null } } };
+  expect(await render()).toContain('민감정보 동의 sc-v1 · 2026-12-03 14:02 / 처리방침 버전 기록 없음');
+  apiResponse = { ok: true, data: { data: { ...detail, sensitiveConsentVersion: null, sensitiveConsentedAt: null, privacyDocVersion: 9 } } };
+  const html = await render();
+  expect(html).toContain('별도 동의 없음(변경 전 결과)');
+  expect(html).not.toContain('민감정보 동의 ');
+});
