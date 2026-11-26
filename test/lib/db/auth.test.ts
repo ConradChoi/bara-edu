@@ -262,3 +262,35 @@ test('마이페이지 비밀번호 변경: change-password 1회, 403 → current
   await expect(changePasswordAction(form(fields))).rejects.toThrow('REDIRECT:/sign-in');
   expect(store.delete).not.toHaveBeenCalled();
 });
+
+// ---- 비밀번호 찾기: requestReset (계약: password-reset-request.md 5.1) ----
+const apiFieldError = (status: number, code: string, field: string) => json(status, { error: { code, message: '요청 형식이 올바르지 않습니다.', field } });
+
+test('requestReset: POST /v1/auth/request-reset { email, origin }, 200 → { ok: true }(응답 값은 쓰지 않는다)', async () => {
+  fetchMock.mockResolvedValueOnce(json(200, { ok: true, extra: 'ignored' }));
+  expect(await auth.requestReset('a@b.kr', 'https://bara-edu.kr')).toEqual({ ok: true });
+  expect(lastCall().url).toBe('http://api.local/v1/auth/request-reset');
+  expect(lastCall().init.method).toBe('POST');
+  expect(lastCall().body).toEqual({ email: 'a@b.kr', origin: 'https://bara-edu.kr' });
+  expect(lastCall().init.headers['x-bara-service-key']).toBe('secret-key');
+  expect(store.set).not.toHaveBeenCalled();
+  expect(store.delete).not.toHaveBeenCalled();
+});
+
+test('requestReset: 429·503·네트워크 오류·400·401·500을 구분한다', async () => {
+  fetchMock.mockResolvedValueOnce(apiError(429, 'rate_limited', '요청이 너무 많습니다.'));
+  expect(await auth.requestReset('a@b.kr', 'o')).toEqual({ ok: false, reason: 'rate_limited' });
+  fetchMock.mockResolvedValueOnce(apiError(503, 'unavailable', 'db'));
+  expect(await auth.requestReset('a@b.kr', 'o')).toEqual({ ok: false, reason: 'unavailable' });
+  fetchMock.mockRejectedValueOnce(new Error('down'));
+  expect(await auth.requestReset('a@b.kr', 'o')).toEqual({ ok: false, reason: 'unavailable' });
+  fetchMock.mockResolvedValueOnce(apiFieldError(400, 'validation', 'email'));
+  expect(await auth.requestReset('a@b.kr', 'o')).toEqual({ ok: false, reason: 'validation', field: 'email' });
+  // 허용되지 않은 origin은 사용자가 고칠 칸이 아니다 → field 없음
+  fetchMock.mockResolvedValueOnce(apiFieldError(400, 'validation', 'origin'));
+  expect(await auth.requestReset('a@b.kr', 'o')).toEqual({ ok: false, reason: 'validation' });
+  fetchMock.mockResolvedValueOnce(apiError(401, 'unauthorized_service', '서비스 키가 올바르지 않습니다.'));
+  expect(await auth.requestReset('a@b.kr', 'o')).toEqual({ ok: false, reason: 'failed' });
+  fetchMock.mockResolvedValueOnce(apiError(500, 'internal', 'x'));
+  expect(await auth.requestReset('a@b.kr', 'o')).toEqual({ ok: false, reason: 'failed' });
+});

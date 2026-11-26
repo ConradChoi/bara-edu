@@ -23,6 +23,8 @@ export type ResendResult = { ok: true } | { ok: false; reason: FailReason; field
 export type LoginResult =
   | { ok: true }
   | { ok: false; reason: 'invalid_credentials' | 'email_not_confirmed' | 'rate_limited' | 'unavailable' | 'validation' | 'failed'; field?: FormField };
+// 비밀번호 찾기(재설정 메일 요청). 200은 계정 유무·이메일 한도와 관계없이 같다(이메일 열거 방지) — 성공에는 아무 값도 싣지 않는다.
+export type RequestResetResult = { ok: true } | { ok: false; reason: FailReason; field?: FormField };
 export type ResetResult = { ok: true } | { ok: false; field?: FormField };
 
 function fieldOf(r: { status: number; error: { field?: string } }): { field?: FormField } {
@@ -125,8 +127,11 @@ export async function changePassword(currentPassword: string, newPassword: strin
   return { ok: false, reason: isDeadSession(r) ? 'unauthenticated' : 'failed' };
 }
 
-export async function requestReset(email: string, origin: string): Promise<boolean> {
-  return (await apiFetch('/v1/auth/request-reset', { method: 'POST', body: { email, origin } })).ok;
+// POST /v1/auth/request-reset — 429는 IP 한도뿐이고, 400 field=origin·401 서비스 키는 앱 설정 문제다(field 없음).
+// 계약: docs/02-design/features/bara-edu-lms.password-reset-request.md 5.1
+export async function requestReset(email: string, origin: string): Promise<RequestResetResult> {
+  const r = await apiFetch('/v1/auth/request-reset', { method: 'POST', body: { email, origin } });
+  return r.ok ? { ok: true } : { ok: false, reason: failReason(r), ...fieldOf(r) };
 }
 
 export async function resetPassword(token: string, newPassword: string): Promise<ResetResult> {

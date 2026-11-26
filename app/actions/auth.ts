@@ -19,6 +19,16 @@ export type SignupFinishState =
   | { kind: 'error'; error: 'empty' | 'unavailable' | 'rate_limited' | 'failed' }
   | undefined;
 
+// 비밀번호 찾기(/forgot-password)의 서버 액션 결과. 문구는 화면이 정한다(카피 문서 FP-*).
+// requested: 200 — 계정이 있든 없든, 이메일 한도에 걸렸든 같은 값이다(이메일 열거 방지). 서버 응답 값은 싣지 않는다.
+// error: 입력 칸 아래(empty·format) 또는 칸 위 알림(rate_limited·unavailable·failed). email은 입력 유지용(JS 없이도 칸을 다시 채운다).
+// resend: 보냄 화면의 [메일 다시 받기]에서 온 요청인지 — 결과를 보냄 화면에 그대로 그린다.
+export type ForgotPasswordError = 'empty' | 'format' | 'rate_limited' | 'unavailable' | 'failed';
+export type ForgotPasswordState =
+  | { requested: true; email: string; resend: boolean }
+  | { error: ForgotPasswordError; email: string; resend: boolean }
+  | undefined;
+
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // ?redirect= 값을 검증 없이 그대로 redirect()에 넘기면 오픈 리다이렉트(CWE-601)로
@@ -101,6 +111,24 @@ export async function resendConfirmation(
   }
 
   return { pendingConfirmation: true, email };
+}
+
+// 비밀번호 찾기: 재설정 메일 요청. resendConfirmation과 같은 구조(형식 검사 → 호출 → 상태 매핑).
+// 이메일은 로그에 남기지 않고 URL에도 싣지 않는다. 입력한 사람에게만 상태로 되돌려 보여 준다.
+export async function requestPasswordReset(_prev: ForgotPasswordState, formData: FormData): Promise<ForgotPasswordState> {
+  const raw = formData.get('email');
+  const email = typeof raw === 'string' ? raw.trim() : '';
+  const resend = formData.get('resend') === '1';
+  if (!email) return { error: 'empty', email, resend };
+  if (!EMAIL_RE.test(email) || !isApiEmail(email)) return { error: 'format', email, resend };
+
+  const r = await auth.requestReset(email, await getSiteOrigin());
+  if (r.ok) return { requested: true, email, resend };
+  if (r.reason === 'rate_limited') return { error: 'rate_limited', email, resend };
+  if (r.reason === 'unavailable') return { error: 'unavailable', email, resend };
+  if (r.reason === 'validation' && r.field === 'email') return { error: 'format', email, resend };
+  // 400 field=origin, 401 서비스 키, 그 밖의 5xx — 사용자가 고칠 수 없는 문제
+  return { error: 'failed', email, resend };
 }
 
 // 가입 마무리: 링크 토큰(hidden)과 가입 때 정한 비밀번호. 확정은 이 액션(POST)에서만 일어난다 — 링크를 여는 GET은 읽기 전용이다.
