@@ -12,18 +12,25 @@
 --      2026-11-26-privacy-followups.sql의 같은 함수를 대체한다. 이 패치 뒤에 그 파일을 다시 적용하지 않는다(파기가 이름 비우기로 되돌아간다).
 --   4. get_my_diagnosis_results: has_lead 열 추가(반환 형식 변경이라 drop -> create).
 --   5. delete_my_diagnosis_result(uuid, boolean) 신규: 회원 본인 결과 삭제(동의 철회).
+--   5-1. claim_diagnosis: 귀속 때 이 결과에 연결된 비회원 문의(diagnosis_leads.user_id is null)도 회원에게 묶는다(privacy M-1).
+--        이미 귀속된 결과의 문의는 아래 일회성 backfill(update)로 한 번 묶는다. 멱등(두 번째는 0행).
+--   5-2. 관리자 select 정책(diagnosis_results_admin_select, diagnosis_answers_admin_select) 제거(privacy R-1):
+--        일반 /v1/query로 원문이 읽히지 않게 한다. 관리자 읽기는 API op(가림 + 접속 기록)만 쓴다. 앱의 직접 select는 없음을 확인함.
 --   6. 권한: 새로 만든 함수 3개는 PUBLIC 실행 없음(기본 권한) + 아래 grant. 지운 뒤 다시 만든 함수는 grant가 사라지므로 다시 준다.
---      RLS: diagnosis_results·diagnosis_answers·diagnosis_leads는 그대로(관리자 select만, 쓰기·삭제는 security definer 함수로만).
+--      RLS: diagnosis_results·diagnosis_answers의 관리자 select 정책은 제거(5-2), diagnosis_leads는 그대로(관리자 select만). 쓰기·삭제는 security definer 함수로만.
 -- 함수·컬럼 블록은 api/db/02-schema.sql과 글자 그대로 같다(test/patch-diagnosis-consent.test.ts).
--- 성격: 멱등(if not exists / 예외 처리 / drop if exists / create or replace). 기존 데이터는 바꾸지 않는다(새 컬럼은 null).
+-- 성격: 멱등(if not exists / 예외 처리 / drop if exists / create or replace). 기존 데이터는 backfill 한 가지만 바꾼다(비회원 문의의 user_id 묶기). 새 컬럼은 null.
 -- 적용: 한 트랜잭션 안에서 스키마 소유자 역할로 전환한 뒤 실행한다(파일에는 역할 전환을 넣지 않는다 — 패치 형식 테스트).
 --       begin; set local role bara_edu_service; <이 파일>; commit;
--- 배포 순서(정의서 "API 계약" 배포 순서): 처리방침 v10 게시 -> 이 패치 -> API 재시작 -> 앱 -> 정리 스크립트.
+--       잠금 대기 제한 set local lock_timeout = '5s'는 이 파일 맨 앞에 있다(트랜잭션 안에서만 유효하므로 위 begin ... commit 래퍼 필수).
+-- 배포 순서(정의서 "API 계약" 배포 순서): 처리방침 v10 게시 -> 이 패치 -> API 즉시 재시작(패치 직후, 다른 작업 끼우지 않음) -> 앱 -> 정리 스크립트.
 --       이 패치는 옛 API와 호환된다(옛 API의 캐시된 submit_diagnosis 호출만 실패 = 제출 불가 구간, 9.3절이 허용).
 --       새 API를 먼저 올리면 RPC 카탈로그가 delete_my_diagnosis_result를 못 찾아 모든 /v1/rpc 호출이 실패한다.
 --       패치~정리 스크립트 사이에 변경 전 결과를 연결(claim)하면 제약에 걸려 실패한다(당일 정리로 지워질 행이라 허용).
 -- 롤백: 옛 앱·API로 돌릴 때는 02-schema.sql 이전 정의의 submit_diagnosis·get_my_diagnosis_results를 다시 만든다(컬럼·제약은 두어도 된다.
 --       단 정리 스크립트 뒤라면 not null 때문에 옛 submit_diagnosis가 실패하므로 not null을 먼저 푼다).
+
+set local lock_timeout = '5s';
 
 -- ----- 자가진단 민감정보 별도 동의: 컬럼·제약 (2026-11-26) 시작
 -- 기획: docs/02-design/features/bara-edu-lms.diagnosis-sensitive-consent.md 5장·"API 계약". 이 블록은
@@ -303,6 +310,52 @@ begin
 end;
 $$;
 
+create or replace function public.claim_diagnosis(p_token uuid)
+returns table (claimed boolean)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_owner uuid;
+  v_updated integer;
+begin
+  if v_user_id is null then
+    raise exception 'not authorized';
+  end if;
+
+  select user_id into v_owner from diagnosis_results where access_token = p_token;
+  if not found then
+    raise exception 'result not found';
+  end if;
+
+  if v_owner = v_user_id then
+    return query select true;
+    return;
+  end if;
+
+  if v_owner is not null then
+    raise exception 'already claimed by another account';
+  end if;
+
+  update diagnosis_results set user_id = v_user_id, claimed_at = now()
+  where access_token = p_token and user_id is null;
+  get diagnostics v_updated = row_count;
+
+  if v_updated = 0 then
+    raise exception 'already claimed by another account';
+  end if;
+
+  -- 비회원일 때 이 결과에 연결해 낸 강사과정 문의도 귀속과 함께 본인 것으로 묶는다(privacy M-1, 2026-11-26).
+  -- 안 묶으면 탈퇴·has_lead·기록 지우기(p_delete_leads)가 이 문의를 못 찾아 "본인에게 연결된 문의는 탈퇴 즉시 파기" 약속이 깨진다.
+  update diagnosis_leads set user_id = v_user_id
+  where result_id = (select id from diagnosis_results where access_token = p_token) and user_id is null;
+
+  return query select true;
+end;
+$$;
+
 -- 권한(03-grants.sql 결과와 같게): 제출은 비회원·회원, 목록·삭제는 회원만. purge는 API 서비스 역할만.
 revoke execute on function public.submit_diagnosis(text, text, text, diagnosis_experience, text, boolean, integer, boolean, text, boolean, jsonb, text, text, text) from public;
 grant execute on function public.submit_diagnosis(text, text, text, diagnosis_experience, text, boolean, integer, boolean, text, boolean, jsonb, text, text, text) to bara_edu_anon, bara_edu_authenticated;
@@ -311,6 +364,16 @@ grant execute on function public.get_my_diagnosis_results() to bara_edu_authenti
 revoke execute on function public.delete_my_diagnosis_result(uuid, boolean) from public, bara_edu_anon;
 grant execute on function public.delete_my_diagnosis_result(uuid, boolean) to bara_edu_authenticated;
 revoke execute on function public.purge_unclaimed_diagnosis_pii() from public, bara_edu_anon, bara_edu_authenticated;
+-- claim_diagnosis는 create or replace라 기존 grant가 유지된다(다시 주지 않는다).
+
+-- 일회성 backfill(privacy M-1): 이미 귀속된 결과에 붙은 비회원 문의를 결과의 회원에게 묶는다. 멱등.
+update diagnosis_leads l set user_id = r.user_id
+from diagnosis_results r
+where l.result_id = r.id and l.user_id is null and r.user_id is not null;
+
+-- 관리자 직접 select 정책 제거(privacy R-1)
+drop policy if exists "diagnosis_results_admin_select" on diagnosis_results;
+drop policy if exists "diagnosis_answers_admin_select" on diagnosis_answers;
 
 -- RLS는 이미 켜져 있다(02-schema.sql). 다시 켜 두는 것은 확인용이며 정책은 바꾸지 않는다.
 alter table diagnosis_results enable row level security;

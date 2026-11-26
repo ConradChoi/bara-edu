@@ -1929,11 +1929,10 @@ alter table diagnosis_course_links enable row level security;
 -- get_diagnosis_summary()/get_diagnosis_detail() RPC로만(전부 SECURITY DEFINER, RLS 우회).
 -- course_exam_submissions와 동일한 이유: 학습자가 REST로 직접 유리한 값을 꽂아 넣거나
 -- 타인 결과를 열람하는 경로를 원천 차단한다.
+-- 관리자 select 정책도 두지 않는다(2026-11-26, privacy R-1): 일반 /v1/query로 이름·연락처 원문이 가림 없이 읽히지 않게,
+-- 관리자 읽기는 API op(admin.listDiagnosisResults·getDiagnosisResultDetail: 가림 + 접속 기록)로만 한다.
 drop policy if exists "diagnosis_results_admin_select" on diagnosis_results;
-create policy "diagnosis_results_admin_select" on diagnosis_results for select using (is_admin());
-
 drop policy if exists "diagnosis_answers_admin_select" on diagnosis_answers;
-create policy "diagnosis_answers_admin_select" on diagnosis_answers for select using (is_admin());
 
 -- diagnosis_leads: 쓰기는 submit_diagnosis_lead() RPC로만, select는 관리자만.
 -- update 정책은 없다(2026-11-26 제거): 상태 전환·메모 수정은 API op admin.updateDiagnosisLead가 접속 기록과 한 트랜잭션으로
@@ -2292,6 +2291,11 @@ begin
   if v_updated = 0 then
     raise exception 'already claimed by another account';
   end if;
+
+  -- 비회원일 때 이 결과에 연결해 낸 강사과정 문의도 귀속과 함께 본인 것으로 묶는다(privacy M-1, 2026-11-26).
+  -- 안 묶으면 탈퇴·has_lead·기록 지우기(p_delete_leads)가 이 문의를 못 찾아 "본인에게 연결된 문의는 탈퇴 즉시 파기" 약속이 깨진다.
+  update diagnosis_leads set user_id = v_user_id
+  where result_id = (select id from diagnosis_results where access_token = p_token) and user_id is null;
 
   return query select true;
 end;

@@ -469,7 +469,7 @@ revoke execute on function public.delete_my_diagnosis_result(uuid, boolean) from
 3. DB 패치 적용(1~4). 이 순간부터 옛 앱의 제출은 인자 불일치로 실패한다.
 4. 앱 배포(동의 상자, 액션, 초안 v2, 관리자 화면).
 5. 기존 데이터 정리 스크립트(Q1) → not null 제약.
-6. 스모크: 비회원 제출, 회원 제출, 미체크 거부, 버전 불일치, 셀프 삭제, 관리자 상세 동의 줄.
+6. 스모크: 로그인 세션으로 `POST /v1/rpc/get_my_diagnosis_results` 호출이 200이고 각 행에 `has_lead`가 있다(패치·카탈로그 누락이면 실패. 퀴즈 RPC `get_quiz_for_lesson`도 200인지 함께 본다), 비회원 제출, 회원 제출, 미체크 거부, 버전 불일치, 셀프 삭제, 관리자 상세 동의 줄.
 
 3~4 사이를 줄이려면 2단계로 나눌 수 있다(새 인자를 기본값 null로 받고 검증을 꺼 둔 채 앱 배포 → 검증 켜는 패치). 실 운영 전이라 권하지 않는다.
 
@@ -855,8 +855,8 @@ revoke execute on function public.delete_my_diagnosis_result(uuid, boolean) from
 ### 배포 순서 (9.3절 수정)
 
 1. 처리방침 v10 CMS 게시(대표).
-2. **DB 패치** `api/db/patches/2026-11-26-diagnosis-consent.sql` (`begin; set local role bara_edu_service; <파일>; commit;`). 이 순간부터 옛 앱·옛 API의 제출은 실패한다(인자 불일치). 그 밖의 옛 API 경로는 그대로 동작한다.
-3. **API 배포**(재시작해 RPC 카탈로그를 다시 읽는다).
+2. **DB 패치** `api/db/patches/2026-11-26-diagnosis-consent.sql` (`begin; set local role bara_edu_service; <파일>; commit;`). 파일 맨 앞에 `set local lock_timeout = '5s'`가 들어 있어 잠금을 5초 넘게 못 잡으면 패치 전체가 실패(롤백)하므로, 반드시 이 begin ... commit 안에서 실행한다. 패치에는 비회원 문의 user_id backfill(귀속된 결과의 문의를 회원에게 묶음)과 관리자 직접 select 정책 제거가 포함된다. 패치 직후 **바로 3단계(API 재시작)**를 한다(사이에 다른 작업을 끼우지 않는다). 이 순간부터 옛 앱·옛 API의 제출은 실패한다(인자 불일치). 그 밖의 옛 API 경로는 그대로 동작한다.
+3. **API 배포**(패치 직후 즉시 재시작해 RPC 카탈로그를 다시 읽는다). `/healthz`는 패치 누락을 감지하지 못하므로 아래 6의 RPC 호출로 확인한다.
 4. 앱 배포(동의 상자, 액션, 초안 v2, 마이페이지 삭제, 관리자 목록 op·상세 동의 줄).
 5. 기존 결과 정리: 먼저 `api/db/patches/2026-11-26-diagnosis-consent-cleanup.sql` 머리말의 건수 쿼리(읽기 전용)를 돌려 대표에게 보고 → 같은 파일을 2와 같은 방식으로 실행. 출력된 건수(`NOTICE diagnosis consent cleanup: ...`)를 운영자 접근 기록에 적는다.
 6. 스모크: 비회원 제출, 회원 제출, 미체크 거부(`consent-required`), 버전 불일치(`consent-outdated`), 셀프 삭제, 관리자 목록 마스킹·개인정보 보기, 상세 동의 줄.

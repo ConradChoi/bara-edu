@@ -19,7 +19,7 @@ let ctx: Awaited<ReturnType<typeof setupTestDb>>;
 let patch: string;
 let cleanup: string;
 let schema: string;
-const legacy: { member1: string; member2: string; guest1: string; guest2: string; memberLead: string; guestLead: string } = {} as never;
+const legacy: { member1: string; member2: string; guest1: string; guest2: string; memberLead: string; guestLead: string; claimedGuestLead: string } = {} as never;
 let memberId: string;
 
 const q = async (sql: string, params: unknown[] = []) => (await ctx.adminPool.query(sql, params)).rows;
@@ -89,6 +89,8 @@ beforeAll(async () => {
     await q("insert into diagnosis_answers (result_id, item_code, score) select $1, p || n, 2 from unnest(array['A','B','C','D','E','F']) p, generate_series(1,5) n", [id]);
   }
   legacy.memberLead = (await q("insert into diagnosis_leads (result_id, user_id, name, contact, consent_contact) values ($1, $2, 'm', 'c', true) returning id", [legacy.member1, memberId]))[0].id;
+  // 비회원 때 낸 문의가 이미 귀속된 결과에 붙어 있는 옛 데이터(claim이 user_id를 안 묶던 시절): 패치 backfill이 묶는다
+  legacy.claimedGuestLead = (await q("insert into diagnosis_leads (result_id, name, contact, consent_contact) values ($1, 'c', 'c', true) returning id", [legacy.member2]))[0].id;
   legacy.guestLead = (await q("insert into diagnosis_leads (result_id, name, contact, consent_contact) values ($1, 'g', 'c', true) returning id", [legacy.guest1]))[0].id;
 });
 afterAll(async () => {
@@ -111,7 +113,11 @@ const canExec = async (role: string, fn: string) => (await q('select has_functio
 test('패치 형식: 역할 전환·데이터 변경(insert/update/delete/truncate)이 함수 본문 밖에 없다', () => {
   const noComments = patch.split('\n').filter((l) => !l.trim().startsWith('--')).join('\n');
   const skeleton = noComments.replace(/\$\$[\s\S]*?\$\$/g, '$$$$');
-  expect(skeleton).not.toMatch(/set\s+(local\s+)?role|\b(insert|update|delete|truncate)\b/i);
+  expect(skeleton).not.toMatch(/set\s+(local\s+)?role|\b(insert|delete|truncate)\b/i);
+  // 데이터 변경은 비회원 문의 user_id backfill(update 한 문장) 하나뿐이다. 잠금 대기 제한이 파일 안에 있다
+  expect(skeleton.match(/\bupdate\b/gi)).toHaveLength(1);
+  expect(skeleton).toMatch(/update diagnosis_leads l set user_id = r\.user_id/);
+  expect(skeleton).toMatch(/set local lock_timeout = '5s';/);
   // 일회성 정리는 패치에 없다(별도 스크립트, 앱 배포 뒤 실행)
   expect(skeleton).not.toMatch(/validate constraint|set not null/i);
   expect(cleanup.split('\n').filter((l) => !l.trim().startsWith('--')).join('\n')).not.toMatch(/set\s+(local\s+)?role/i);
@@ -120,7 +126,7 @@ test('패치 형식: 역할 전환·데이터 변경(insert/update/delete/trunca
 test('패치의 컬럼 블록·함수 4개·drop 줄·인덱스는 02-schema.sql과 글자 그대로 같다', () => {
   expect(colsBlock(patch)).toBe(colsBlock(schema));
   expect(colsBlock(patch)).toContain('not valid');
-  for (const fn of ['submit_diagnosis', 'purge_unclaimed_diagnosis_pii', 'get_my_diagnosis_results', 'delete_my_diagnosis_result']) {
+  for (const fn of ['submit_diagnosis', 'purge_unclaimed_diagnosis_pii', 'get_my_diagnosis_results', 'delete_my_diagnosis_result', 'claim_diagnosis']) {
     expect(fnBlock(patch, fn), fn).toBe(fnBlock(schema, fn));
   }
   for (const line of [
@@ -151,13 +157,14 @@ test('패치를 소유자 역할로 두 번 적용: 성공, 기존 행·응답 �
   const snap = async () =>
     q(
       `select p.oid::regprocedure::text fn, proacl::text acl, proowner::regrole::text owner, md5(prosrc) src from pg_proc p
-        where pronamespace = 'public'::regnamespace and proname in ('submit_diagnosis','purge_unclaimed_diagnosis_pii','get_my_diagnosis_results','delete_my_diagnosis_result') order by 1`,
+        where pronamespace = 'public'::regnamespace and proname in ('submit_diagnosis','purge_unclaimed_diagnosis_pii','get_my_diagnosis_results','delete_my_diagnosis_result','claim_diagnosis') order by 1`,
     );
   await applyAsOwner(patch);
   const first = await snap();
   await applyAsOwner(patch);
   expect(await snap()).toEqual(first);
   expect(first.map((r) => r.fn)).toEqual([
+    'claim_diagnosis(uuid)',
     'delete_my_diagnosis_result(uuid,boolean)',
     'get_my_diagnosis_results()',
     'purge_unclaimed_diagnosis_pii()',
@@ -165,6 +172,13 @@ test('패치를 소유자 역할로 두 번 적용: 성공, 기존 행·응답 �
   ]);
   expect(first.every((r) => r.owner === 'bara_edu_service')).toBe(true);
   expect(await resultCount()).toBe(4);
+  // backfill: 귀속된 결과의 비회원 문의만 결과 회원에게 묶인다. 미귀속 결과의 문의는 그대로, 두 번째 적용은 0행
+  const owners = async () => q('select id, user_id from diagnosis_leads order by name');
+  expect(await owners()).toEqual([
+    { id: legacy.claimedGuestLead, user_id: memberId },
+    { id: legacy.guestLead, user_id: null },
+    { id: legacy.memberLead, user_id: memberId },
+  ]);
   expect(Number((await q('select count(*) c from diagnosis_answers'))[0].c)).toBe(120);
   const col = await q(`select attname, attnotnull from pg_attribute where attrelid = 'diagnosis_results'::regclass and attname like 'sensitive_%' order by 1`);
   expect(col).toEqual([{ attname: 'sensitive_consent_version', attnotnull: false }, { attname: 'sensitive_consented_at', attnotnull: false }]);
@@ -185,12 +199,10 @@ test('패치 뒤 권한: 제출은 비회원·회원, 목록·삭제는 회원�
   }
   const cat = await loadRpcCatalog(ctx.pool);
   expect([...cat.keys()].sort()).toEqual([...RPC_ALLOW].sort());
-  // RLS는 그대로(관리자 select 정책만)
+  // 관리자 직접 select 정책은 없다(R-1). 리드 select 정책만 남는다
   const pol = await q("select tablename, policyname, cmd from pg_policies where tablename in ('diagnosis_results','diagnosis_answers','diagnosis_leads') order by 1, 2");
   expect(pol).toEqual([
-    { tablename: 'diagnosis_answers', policyname: 'diagnosis_answers_admin_select', cmd: 'SELECT' },
     { tablename: 'diagnosis_leads', policyname: 'diagnosis_leads_admin_select', cmd: 'SELECT' },
-    { tablename: 'diagnosis_results', policyname: 'diagnosis_results_admin_select', cmd: 'SELECT' },
   ]);
 });
 
@@ -222,10 +234,11 @@ test('패치 뒤 정리 전: 새 제출은 동의 기록과 함께 저장되고,
 
 test('정리 스크립트: 동의 없는 결과만 행째 삭제(응답 함께, 문의는 연결만 끊김), 건수를 NOTICE로 보고, 제약 validate·not null. 두 번째는 0건', async () => {
   const notices = await applyAsOwner(cleanup);
-  expect(notices).toEqual(['diagnosis consent cleanup: results_deleted=4 (member=2, nonmember=2), answers_deleted=120, leads_unlinked=2']);
+  expect(notices).toEqual(['diagnosis consent cleanup: results_deleted=4 (member=2, nonmember=2), answers_deleted=120, leads_unlinked=3']);
   expect(await q('select respondent_name from diagnosis_results')).toEqual([{ respondent_name: '새사람' }]);
   expect(Number((await q('select count(*) c from diagnosis_answers'))[0].c)).toBe(30);
   expect(await q('select id, result_id from diagnosis_leads order by name')).toEqual([
+    { id: legacy.claimedGuestLead, result_id: null },
     { id: legacy.guestLead, result_id: null },
     { id: legacy.memberLead, result_id: null },
   ]);
@@ -235,6 +248,8 @@ test('정리 스크립트: 동의 없는 결과만 행째 삭제(응답 함께, 
 
   expect(await applyAsOwner(cleanup)).toEqual(['diagnosis consent cleanup: results_deleted=0 (member=0, nonmember=0), answers_deleted=0, leads_unlinked=0']);
   expect(await resultCount()).toBe(1);
+  // 패치 뒤 claim_diagnosis는 비회원 문의를 묶는다(함수 본문 확인은 rpc-quiz-diagnosis.test.ts)
+  expect((await q("select prosrc ~ 'update diagnosis_leads set user_id = v_user_id' ok from pg_proc where proname = 'claim_diagnosis'"))[0].ok).toBe(true);
   // 정리 뒤에 패치를 다시 적용해도 된다(제약 not valid 재생성 없음, 최종 상태 유지)
   await applyAsOwner(patch);
   expect(await q("select convalidated from pg_constraint where conname = 'diagnosis_results_sensitive_consent_required'")).toEqual([{ convalidated: true }]);

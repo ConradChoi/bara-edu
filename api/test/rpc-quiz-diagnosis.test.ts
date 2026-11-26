@@ -243,6 +243,28 @@ test('claim_diagnosis: 미귀속 결과를 최초 1회 귀속, 본인 재호출�
   expect((await ownerOf(d.access_token)).claimed_at).toEqual(after.claimed_at);
 });
 
+test('claim_diagnosis: 귀속 때 이 결과에 연결된 비회원 문의도 본인에게 묶인다(다른 결과 문의·이미 본인 것인 문의는 그대로)', async () => {
+  const d = await submitDiagnosis();
+  const o = await submitDiagnosis();
+  const rid = async (t: string) => (await q('select id from diagnosis_results where access_token = $1', [t]))[0].id as string;
+  const ins = async (resultId: string, userId: string | null) =>
+    (await q("insert into diagnosis_leads (result_id, user_id, name, contact, consent_contact) values ($1,$2,'n','c',true) returning id", [resultId, userId]))[0].id as string;
+  const mine = await ins(await rid(d.access_token), null);
+  const others = await ins(await rid(o.access_token), null);
+  const owner = (await q("insert into auth.users (email, email_confirmed_at) values ('lead-owner@example.com', now()) returning id"))[0].id as string;
+  const preLinked = await ins(await rid(d.access_token), owner);
+  const uid = async (id: string) => (await q('select user_id from diagnosis_leads where id = $1', [id]))[0].user_id;
+  expect((await rpc('claim_diagnosis', { p_token: d.access_token }, 'learner')).statusCode).toBe(200);
+  expect(await uid(mine)).toBe(users.learner.id);
+  expect(await uid(others)).toBeNull();
+  expect(await uid(preLinked)).toBe(owner);
+  // 거절된 귀속은 문의를 건드리지 않는다
+  expect((await rpc('claim_diagnosis', { p_token: o.access_token }, 'learner')).statusCode).toBe(200);
+  const late = await ins(await rid(d.access_token), null);
+  expect((await rpc('claim_diagnosis', { p_token: d.access_token }, 'other')).statusCode).toBe(400);
+  expect(await uid(late)).toBeNull();
+});
+
 test('claim_diagnosis: 이미 다른 계정에 귀속된 결과는 거절, 소유자는 바뀌지 않는다', async () => {
   const d = await submitDiagnosis();
   await rpc('claim_diagnosis', { p_token: d.access_token }, 'learner');

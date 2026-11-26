@@ -76,7 +76,7 @@ test('sc-v1 원문은 고정돼 있다(바꾸려면 새 버전을 추가한다)'
   const v1 = SENSITIVE_CONSENT_VERSIONS['sc-v1'];
   const hash = createHash('sha256').update(JSON.stringify(v1.text)).digest('hex');
   // 이 값이 바뀌었다면 배포된 동의 문구를 고친 것이다. 고치지 말고 sc-v2를 추가하고 허용 목록을 바꾼다.
-  expect(hash).toBe('ba6189b065a8ed566dfec6f1665870a010f88877ce44d6317545b9d3e482f40a');
+  expect(hash).toBe('8ec261767cfc8de065f64b825c24b601851c2c41f5a0825f4cb96eb435bb2dc6');
   // 법정 고지 4항목(목적·항목·보유 기간·거부권)이 모두 있다
   expect(v1.text.items.map((i) => i.key)).toEqual(['purpose', 'items', 'period', 'refuse']);
   expect(v1.text.withdraw).toContain('마이페이지');
@@ -227,14 +227,14 @@ test('셀프 삭제: 내 결과는 행째(응답·동의 기록 포함) 지워�
   const d = await submit('me');
   const id = (await rowOf(d.access_token)).id;
   const myLead = await lead(id, users.me.id, 'mine');
-  const guestLead = await lead(id, null, 'guest');
+  const guestLead = await lead(id, users.me.id, 'guest'); // 귀속 때 묶인 비회원 문의(claim_diagnosis가 user_id를 채운다, privacy M-1)
   logLines.length = 0;
   const r = await del(d.access_token, true, 'me');
   expect(r.json()).toEqual({ data: true });
   expect(await rowOf(d.access_token)).toBeUndefined();
   expect(Number((await q('select count(*) c from diagnosis_answers where result_id = $1', [id]))[0].c)).toBe(0);
   expect(await leadRow(myLead)).toBeUndefined(); // 본인 문의는 함께 삭제
-  expect(await leadRow(guestLead)).toEqual({ result_id: null }); // 본인 것이 아닌 문의는 남고 연결만 끊긴다
+  expect(await leadRow(guestLead)).toBeUndefined(); // 귀속 때 묶인 문의도 함께 삭제
   const s = await rpc('get_diagnosis_summary', { p_token: d.access_token });
   expect(s.json().error).toMatchObject({ code: 'db_error', message: 'result not found' });
   expect((await del(d.access_token, true, 'me')).json()).toEqual({ data: false });
@@ -296,4 +296,19 @@ test('90일 파기: 진단 90일 지난 비회원 결과는 행째 삭제(응답
   expect(Number((await q('select count(*) c from diagnosis_answers where result_id = any($1::uuid[])', [[old1, old2]]))[0].c)).toBe(0);
   expect(await leadRow(l)).toEqual({ result_id: null });
   expect(await runJob(ctx.pool, 'purge_unclaimed_diagnosis_pii')).toBe(0);
+});
+
+test('셀프 삭제 + 귀속 연동: 비회원 때 낸 문의는 claim 뒤 has_lead에 잡히고 p_delete_leads=true로 지워진다. 다른 결과의 문의는 그대로', async () => {
+  const d = await submit();
+  const id = (await rowOf(d.access_token)).id;
+  const other = await submit();
+  const otherId = (await rowOf(other.access_token)).id;
+  const guestLead = await lead(id, null, 'g1');
+  const otherLead = await lead(otherId, null, 'g2');
+  expect((await rpc('claim_diagnosis', { p_token: d.access_token }, 'me')).statusCode).toBe(200);
+  const mine = await rpc('get_my_diagnosis_results', {}, 'me');
+  expect(mine.json().data.find((x: { access_token: string }) => x.access_token === d.access_token).has_lead).toBe(true);
+  expect((await del(d.access_token, true, 'me')).json()).toEqual({ data: true });
+  expect(await leadRow(guestLead)).toBeUndefined();
+  expect(await leadRow(otherLead)).toEqual({ result_id: otherId });
 });
