@@ -912,7 +912,7 @@ export type AdminMemberDetail = {
 };
 
 // 제8조 5항(개인정보처리시스템 접속기록) 대응. 위변조 방지를 위해 RLS에 update/delete 정책이
-// 없고, 유일한 삭제 경로는 1년 경과분만 지우는 purge_old_admin_access_logs() RPC(pg_cron)뿐이다.
+// 없고, 유일한 삭제 경로는 2년 경과분만 지우는 purge_old_admin_access_logs() RPC(pg_cron)뿐이다.
 // 일반 조회는 기록 실패가 조회 자체를 막지 않지만(가용성 우선), 마스킹 해제(PII 원문 열람)는
 // 기록에 성공했을 때만 허용해야 하므로 성공 여부를 돌려준다(privacy-security-officer 점검, 2026-11-19).
 export async function logAdminAccess(

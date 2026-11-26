@@ -113,7 +113,7 @@ export default function ProfileEditHistory({
           {expanded ? '처음 5건만 보기' : loading ? '불러오는 중이에요' : '더 보기'}
         </button>
       )}
-      <p className="text-[14px] text-n-6">접속 기록은 1년 동안 보관돼요. 이전·이후 값은 기록하지 않아요.</p>
+      <p className="text-[14px] text-n-6">접속 기록은 2년 동안 보관돼요. 이전·이후 값은 기록하지 않아요.</p>
     </section>
   );
 }
