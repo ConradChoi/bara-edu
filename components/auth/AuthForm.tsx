@@ -8,7 +8,7 @@ import ResendConfirmationForm from '@/components/auth/ResendConfirmationForm';
 import PasswordField from '@/components/auth/PasswordField';
 import { ConfirmNote, usePasswordConfirm } from '@/components/auth/usePasswordConfirm';
 import { AlertIcon } from '@/components/error/icons';
-import { LINK_CLASS } from '@/components/error/styles';
+import { LINK_CLASS, LINK_INLINE_CLASS } from '@/components/error/styles';
 
 const initialState: AuthFormState = undefined;
 
@@ -81,7 +81,7 @@ export default function AuthForm({ mode, redirectTo, defaultEmail }: AuthFormPro
           {/* 가입 여부를 암시하는 "이미"·"다시"를 쓰지 않는다(카피 EP-SIGNUP-DONE) */}
           <p className="text-[12.5px] text-n-6">
             비밀번호가 기억나지 않으면{' '}
-            <Link href="/forgot-password" className={LINK_CLASS}>
+            <Link href="/forgot-password" className={LINK_INLINE_CLASS}>
               비밀번호 찾기
             </Link>
             를 눌러 주세요.
