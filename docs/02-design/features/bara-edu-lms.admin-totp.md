@@ -724,3 +724,507 @@ flowchart TD
 - Q4: 복구 코드를 인쇄해 두 곳에 보관하고, 서버 직접 초기화 절차를 문서로 두고 한 번 연습한다. 가능하면 두 번째 관리자를 둔다.
 - Q5: Google Authenticator 또는 Microsoft Authenticator로 안내한다. 백업은 관리자 이메일과 다른 계정으로 한다.
 - Q6: 이번에는 관리자만. 일반 회원은 후속.
+
+## 디자인 스펙
+
+> 작성: ui-ux-designer / 2026-11-26 / 상태: Draft (F8 문구 검수 대기, privacy-security-officer 병행 검토 중)
+> 입력: 위 3장(화면 정의 M1~M6)·4장(API)·5장(엣지케이스)과 "대표 결정", `app/(auth)/sign-in/page.tsx`, `components/auth/{AuthForm,PasswordField,ResetPasswordForm,ForgotPasswordForm}.tsx`, `components/auth/styles.ts`, `components/error/styles.ts`, `components/admin/{AdminShell,Notice,MemberProfileEditor}.tsx`, `components/ui/ConfirmDialog.tsx`, `bara-edu-lms.password-reset-request.md`의 '## 디자인 스펙'(P-0~P-8, 같은 형식).
+> **문구는 쓰지 않는다.** 아래 `[슬롯 이름]`은 ux-writer가 `bara-edu-lms.admin-totp-copy.md`에서 채운다. 3장의 문구 표는 구조 검증용 초안이며, 슬롯 이름은 화면 ID(M1~M6) + 요소로 붙인다(예: `[M1 제목]`, `[M1 오류-틀림]`). 줄 수 가정(360px에서 제목 2줄, 안내 4줄 이내)이 깨지면 다시 확인한다.
+> 새 디자인 토큰은 만들지 않는다. `@theme`의 `indigo`, `danger`, `warning`, `success`, `info`, `n-0~9`, `arc-1`, `rounded-md/lg/pill`과 Tailwind 기본 스케일만 쓴다. 코드는 바꾸지 않았다.
+> 클래스 약칭: `PRIMARY_BTN`·`SECONDARY_BTN`·`LINK_CLASS`·`LINK_INLINE_CLASS`(`components/error/styles.ts`), `ADMIN_PRIMARY_BTN`·`ADMIN_SECONDARY_BTN`·`ADMIN_TEXT_LINK`(같은 파일), `FOCUS_RING`·`INPUT_LG`(`PasswordField.tsx`), `NOTICE`·`NOTICE_INFO`·`STATUS_TITLE_CLASS`·`STATUS_DESC_CLASS`·`PAGE_TITLE_CLASS`(`components/auth/styles.ts`).
+
+### T-0. 핵심 행동과 설계 결정
+
+| 화면 | 단 하나의 핵심 행동 |
+|---|---|
+| M1 6자리 입력 | 인증 앱의 번호를 입력하고 [확인]을 누른다 |
+| M2 복구 코드 | 종이에 적어 둔 코드 하나를 입력하고 [로그인]을 누른다 |
+| M3-a 앱 준비 | 앱이 설치돼 있으면 [다음]을 누른다 (앱이 없으면 스토어로 간다) |
+| M3-b 등록 코드 | 전화로 받은 8자리를 입력한다 |
+| M3-c QR | 앱으로 QR을 찍고 앱에 뜬 6자리를 입력한다 |
+| M3-d 복구 코드 | 복구 코드를 종이에 옮긴 뒤 "보관했어요"를 체크하고 [관리자 화면으로]를 누른다 |
+| M4 내 보안 설정 | 상태를 확인한다(필요할 때만 버튼 사용) |
+| M5 초기화 | 상대를 전화로 확인하고 내 번호를 넣어 [초기화]를 누른다 |
+| M6 배너 | 안내 한 가지에 맞는 버튼 하나를 누른다 |
+
+| # | 결정 | 이유 |
+|---|---|---|
+| 1 | 로그인 2단계·등록(M1~M3)은 비밀번호 찾기와 같은 "큰 글씨 계열"로 만든다: `INPUT_LG`에서 `pr-[76px]`를 뺀 칸(56px), `PRIMARY_BTN`·`SECONDARY_BTN`(56px), 본문 16~18px. `AuthForm`의 13px·`bg-pink` 계열은 쓰지 않는다 | 시니어 관리자 기준, 핑크 위 흰 글씨는 AA 근소 미달, 16px 미만 입력은 iOS에서 확대 |
+| 2 | 관리자 화면 안(M4~M6)은 관리자 기준 크기를 유지한다: 버튼 48px(`ADMIN_*_BTN`), 본문 14~15px, 칸 `h-12`, 알림은 기존 `Notice`. 다만 **6자리 칸과 코드 표시(복구 코드·등록 코드)만은 관리자 화면에서도 큰 글자(`text-xl` 이상, 고정폭)** 로 한다 | 숫자는 한 글자 오독이 곧 실패이고, 시니어가 종이에 옮겨 적는 값이라 크게 보여야 한다 |
+| 3 | 채운 버튼은 화면(또는 단계)마다 1개. 나머지는 윤곽선 버튼·텍스트 링크 | 비밀번호 찾기 P-0 #2와 같은 규칙 |
+| 4 | 모달·토스트·하단 고정 버튼을 쓰지 않는다. 안내·결과는 폼 흐름 안에 둔다 | 인앱 브라우저·키보드·JS 지연 대비, 토스트는 시니어가 놓친다. M5 초기화도 모달 대신 같은 카드 안 단계로 한다(칸 3개·체크가 있어 `<dialog>`에 넣기에 길다. `ConfirmDialog`는 쓰지 않는다) |
+| 5 | 오류·경고 글자색은 `n-9`/`n-8`. `danger`·`warning`은 아이콘과 왼쪽 굵은 선에만 쓴다 | `danger` 약 3.9:1은 본문 글씨 미달(비밀번호 찾기 P-0 #5) |
+| 6 | **오류 뒤에는 입력값을 지운다**(비밀번호 찾기와 반대). 6자리·복구 코드·등록 코드는 틀린 값을 남겨 두면 고치려 지우는 수고만 는다 | 6자리는 30초마다 바뀌므로 이전 입력은 재사용 가치가 없다(3장 공통 규칙). 단 `연결 불가(503)`는 서버가 판정하지 못한 경우라 지우지 않는다 |
+| 7 | 위험 동작(M5 초기화)의 [초기화] 버튼도 **`danger` 바탕을 쓰지 않고** `ADMIN_PRIMARY_BTN`(인디고)을 쓴다. 위험하다는 신호는 위쪽 `Notice tone="warning"`과 단계 제목으로 준다 | `bg-danger` 위 흰 15px 글씨는 AA 미달. 새 토큰 없이 해결하는 방법이 이것뿐이다(T-12 #3) |
+| 8 | 단계 사이 이동은 모두 서버 액션 + 같은 URL 안에서 화면 교체. 상태(등록 코드 통과, 등록 대기, QR 확인 완료)는 **서버가 기억**하고 새로고침하면 서버 상태에 맞는 단계로 돌아온다. 복구 코드 단계만 새로고침해도 다시 보여 주지 않는다 | 5.2 "QR 새로고침은 같은 등록 대기를 다시 그린다"와 맞춘다 |
+
+### T-1. 6자리 번호 입력 칸 (`OtpCodeField`): 한 칸 vs 여섯 칸
+
+**권고: 한 칸.** 3장 공통 규칙을 확정한다.
+
+| 비교 | 한 칸 | 여섯 칸 |
+|---|---|---|
+| 붙여넣기 | 그대로 된다. 공백·하이픈은 제거 | 칸마다 나눠 넣는 스크립트가 필요. 인앱 브라우저에서 자주 깨짐 |
+| `autocomplete="one-time-code"` | 칸 하나에만 의미가 있다. 여섯 칸은 첫 칸에만 달면 나머지를 채우지 못하는 브라우저가 있다 | 불리 |
+| 스크린리더 | 라벨 하나, 입력값 그대로 읽힘 | "6칸 중 3번째" 반복, 칸 이동이 포커스를 흔듦 |
+| 확대(200%)·360px | 한 칸 폭 312px로 충분. 칸이 줄 바꿈될 일 없음 | 6칸 + 간격이 312px에서 칸당 약 44px, 확대하면 줄이 깨짐 |
+| 시니어 | 틀린 숫자를 고치기 쉽다(커서가 보통 칸에서 이동) | 지우기 키가 앞 칸으로 가는 동작이 직관적이지 않음 |
+| 단점 | 숫자 경계가 한눈에 안 보임 | 보기에는 좋음 |
+
+단점 보완: 글자 간격을 벌려 6자리가 한눈에 세어지게 한다.
+
+| 속성 | 값 | 이유 |
+|---|---|---|
+| 요소 | `<input type="text">` (`type="number"` 금지) | number는 스피너·앞자리 0 제거·휠 증감 문제 |
+| `inputMode` | `numeric` | 숫자 키패드 |
+| `autoComplete` | `one-time-code` | 인증 앱 번호는 자동 채움 대상이 아니지만, 비밀번호 관리자가 이 칸에 비밀번호를 채우는 것을 막는다(5.1). 문자 수신 제안이 뜰 수 있음은 5.1대로 수용 |
+| `pattern` | `[0-9 ]*` | 모바일 키패드 힌트. 검증은 직접 한다 |
+| `maxLength` | 7 | 숫자 6 + 공백 1(복사값 `123 456` 허용). 붙여넣은 값은 숫자만 남겨 6자로 자른다 |
+| `name` / `id` | `code` / `otp-code` (M5 안에서는 `reset-otp-code`) | 한 화면에 여럿 쓸 일은 없지만 M5가 같은 컴포넌트를 쓰므로 `id` prop |
+| `autoCapitalize` `spellCheck` `autoCorrect` | `none` `false` `off` | 숫자 칸 자동 교정 방지 |
+| `required` | 아니오(직접 검증) | 브라우저 말풍선 대신 칸 아래 오류(T-6) |
+| 글자 | `font-mono text-2xl tabular-nums tracking-[0.3em]`, 왼쪽 정렬, `INPUT_LG` 기준 `h-14` | 큰 숫자 + 간격. 가운데 정렬은 쓰지 않는다(입력 위치가 흔들려 커서를 놓친다) |
+| 자동 제출 | **하지 않는다** | 3장 규칙. 맞게 쳤는지 눈으로 확인할 시간 |
+| 라벨 | 칸 위 보이는 `<label>` `[M1 칸 라벨]` + 도움말 `[M1 칸 도움말]`(`field-hint`, `id=otp-code-hint`) | placeholder에 의존하지 않는다 |
+| 크기 변형 | `size="lg"`(로그인 화면 `h-14`, `text-2xl`) / `size="admin"`(M4·M5 `h-12`, `text-xl`, 폭 `max-w-[220px]`) | 같은 로직, 크기만 다름 |
+
+신규 컴포넌트: `components/auth/OtpCodeField.tsx`(9.2의 목록과 같음). 입력 정규화(숫자 외 제거)·형식 검사 `[숫자 6자리 오류]`는 이 컴포넌트가 한다. `FOCUS`는 `INPUT_LG`의 `focus:ring-2 focus:ring-indigo` 그대로(윤곽선 3px가 아닌 링 2px + 테두리 인디고, 기존 칸과 동일).
+
+### T-2. 공통 틀 (로그인 중 화면 M1·M2·M3)
+
+바깥은 `app/(auth)/layout.tsx` 그대로(`max-w-[440px] px-6 py-10`, 카드 테두리 없는 흰 바탕 한 열, 좌측 정렬, 칸 간격 `gap-5`). 360px에서 칸·버튼 폭 312px.
+
+| 요소 | 클래스·속성 |
+|---|---|
+| 제목 `h1` | `PAGE_TITLE_CLASS` + `tabIndex={-1}`, 상태 화면(잠김·만료)은 `STATUS_TITLE_CLASS` + 원형 아이콘 칸 |
+| 안내 | `STATUS_DESC_CLASS`에서 `text-lg` → 입력 화면은 `mt-3 text-base leading-[1.7] text-n-7 break-keep`(비밀번호 찾기와 같은 크기 단계) |
+| 서버 오류 알림 | `NOTICE`(`role="alert"`, `AlertIcon size-6 text-danger`), 폼 위 |
+| 칸 오류 | 칸 아래 `AlertIcon size-5` + 글 `text-base text-n-9`, `role="alert"`, `id=otp-code-error` |
+| 보조 링크 | `LINK_CLASS`(44px 이상), 링크 사이 `gap-1` 이상, 모두 칸·버튼 아래 |
+| 상태 화면 원형 아이콘 | `size-14 rounded-pill bg-n-1` + 아이콘(`ClockIcon`/`AlertIcon`/`CheckIcon`), 비밀번호 찾기 P-1.3과 같은 틀 |
+| 헤더(보안) | 3장 공통 규칙: `no-store`·`noindex`·`no-referrer` |
+
+### T-3. M1 `/sign-in/otp`: 6자리 입력
+
+#### T-3.1 기본
+
+```
+h1#otp-title          [M1 제목]
+p#otp-desc            [M1 안내]            (대기표 5분 안내는 이 단락 끝에 한 번: [M1 5분 안내])
+form  action={verifyOtp}  className="mt-8 flex flex-col gap-5"
+  OtpCodeField size=lg  label=[M1 칸 라벨]  hint=[M1 칸 도움말]
+                aria-describedby="otp-desc otp-code-hint [otp-code-error]"
+  button[submit]  PRIMARY_BTN  [M1 주 버튼] / 제출 중 [M1 제출 중]
+div.flex.flex-col.mt-2
+  a  /sign-in/recovery  LINK_CLASS  [M1 복구 코드 링크]
+  form(action=처음부터) button  LINK_CLASS(버튼이므로 type=submit에 같은 클래스)  [M1 처음부터 링크]
+details  (summary: [M1 도움말 제목], 도움말 [M1 도움말 본문] 두 항목)
+         summary  min-h-12 flex items-center text-base text-indigo underline underline-offset-4 + FOCUS_RING
+```
+
+- 이유: 칸 하나 + 버튼 하나. 복구 코드 링크는 휴대폰을 잃은 사람이 찾는 자리인 버튼 바로 아래에 둔다. "처음부터 다시 로그인"은 가장 아래(되돌릴 수 있게).
+- `details`는 닫힌 채 시작한다. 틀림이 한 번이라도 일어나면(재사용·틀림 모두) **열어 준다**(`open`). 시계 오차가 가장 흔한 원인(3장)이라 두 번째 시도 전에 보이게 하려는 것이다.
+- 인증 앱 이름 링크·스토어 링크는 이 화면에 두지 않는다(로그인 중에 외부로 나가면 대기표 5분이 흐른다).
+
+#### T-3.2 상태별 표 (3.2 상태 목록에 대응)
+
+| 상태 | 표시 | 포커스 | 입력값 | 버튼·링크 |
+|---|---|---|---|---|
+| 기본 | T-3.1 | 자동 포커스 없음(`autofocus` 금지). 첫 탭이 칸 | — | — |
+| 제출 중 | 버튼만 바뀜: `disabled`(opacity-60) + `aria-busy` + `RefreshIcon animate-spin motion-reduce:animate-none` + `[M1 제출 중]`. 칸은 읽기 전용으로 만들지 않는다 | 이동 없음 | 유지 | 링크 그대로 |
+| 형식 오류(숫자 6자리 아님, 클라이언트) | 칸 아래 `[M1 오류-형식]` + 칸 `aria-invalid` | 칸 | 유지(고쳐 쓰게) | — |
+| 틀림 `wrong_code` | 칸 아래 오류 `[M1 오류-틀림]`(남은 횟수 `{n}` 포함). `details` 열림 | 칸 | **지움** | 그대로 |
+| 방금 쓴 번호(재사용) | 서버가 `wrong_code`로 주므로 위와 같은 화면. 횟수가 줄지 않으므로 `{n}`이 그대로다 | 칸 | 지움 | — |
+| 마지막 한 번 남음(`attemptsLeft=1`) | 틀림 오류에 `[M1 오류-마지막 기회]`를 추가(같은 `<p>`, 줄 하나 더) | 칸 | 지움 | 복구 코드 링크가 눈에 띄게: 링크 앞에 `NOTICE_INFO` 한 줄은 두지 않는다(채운 버튼·알림이 늘어난다) |
+| IP 한도 429 | 폼 위 `NOTICE` `[M1 429]` | 이동 없음, `role=alert`가 읽음 | 유지 | 그대로 다시 누를 수 있음 |
+| 연결 불가 503·기타 | 폼 위 `NOTICE` `[M1 연결 불가]`(번호가 바뀌었을 수 있다는 한 줄은 `[M1 연결 불가-번호]`) | 이동 없음 | 유지 | 그대로 |
+| **계정 한도(429 `mfa_locked`) = 잠김** | **폼을 상태 화면으로 대체**(T-3.3) | 제목 | — | — |
+| **대기표 5회 실패** | 상태 화면으로 대체(T-3.3) | 제목 | — | — |
+| **대기표 만료·없음(`challenge_invalid`)** | 상태 화면으로 대체(T-3.3) | 제목 | — | — |
+| 성공 | 화면 없음, 서버 리다이렉트(`redirect` 값 또는 `/admin`) | — | — | — |
+
+#### T-3.3 상태 화면 3종 (폼 대체)
+
+모두 같은 틀: 원형 아이콘 칸 → `h1.STATUS_TITLE_CLASS`(`tabIndex=-1`) → `p.STATUS_DESC_CLASS`(text-base로 낮춤) → 액션 영역(`ACTIONS_CLASS`: `mt-8 flex flex-col gap-3`).
+
+| 상태 | 아이콘 | 제목·본문 슬롯 | 액션 |
+|---|---|---|---|
+| 만료(`challenge_invalid`) | `ClockIcon` | `[M1 만료 제목]` `[M1 만료 본문]` | `PRIMARY_BTN` → `/sign-in` `[M1 만료 버튼]`(`bara_mfa` 지우기는 서버가 이미 함) |
+| 5회 실패 | `AlertIcon` | `[M1 5회 제목]` `[M1 5회 본문]` | `PRIMARY_BTN` → `/sign-in` `[M1 5회 버튼]` |
+| 잠김(15분) | `AlertIcon` | `[M1 잠김 제목]` `[M1 잠김 본문]`(15분 뒤, 본인이 아니라면 비밀번호 변경) | **채운 버튼 없음.** `SECONDARY_BTN` → `/sign-in` `[M1 잠김 로그인 버튼]`, 아래 `LINK_CLASS` → `/forgot-password` `[M1 잠김 비밀번호 링크]` |
+
+- 이유: 잠김 때는 지금 할 수 있는 일이 없다. 채운 버튼을 두면 15분 안에 다시 눌러 한도를 더 키운다. 폼을 없애는 것이 가장 단순한 차단이다.
+- 만료는 리다이렉트하지 않고 안내를 보여 준다(3.1 `proxy.ts` 규칙). 포커스는 새로 그려진 제목으로 간다.
+- 잠김 화면에는 남은 분을 숫자로 표시하지 않는다(서버가 정확히 알려 주지 않으며 초 단위 카운트다운은 스크린리더에 부담).
+
+### T-4. M2 `/sign-in/recovery`: 복구 코드로 로그인
+
+```
+h1#rec-title     [M2 제목]
+p#rec-desc       [M2 안내]
+form  action={verifyRecoveryCode}  mt-8 flex flex-col gap-5
+  label[for=recovery-code]  [M2 칸 라벨]
+  p#recovery-hint  [M2 칸 도움말]              (형식 예시는 [M2 형식 예시] 슬롯, 문구가 아니라 자리표시 형식)
+  input#recovery-code  name=recoveryCode  type=text  INPUT_LG(pr 제거)
+        inputMode=text  autoComplete=off  autoCapitalize=characters  autoCorrect=off  spellCheck=false
+        maxLength=20  font-mono text-xl uppercase tracking-wider
+  button[submit]  PRIMARY_BTN  [M2 주 버튼] / [M2 제출 중]
+a  /sign-in/otp  LINK_CLASS  [M2 앱 번호로 돌아가기]
+form(처음부터)  LINK_CLASS  [M2 처음부터 링크]
+hr border-t border-n-3 + p [M2 하단 안내: 복구 코드도 없을 때]   text-base leading-[1.7] text-n-7
+```
+
+- `autoComplete="off"`: 이 칸에는 비밀번호 관리자·문자 제안이 뜨지 않게 한다. 복구 코드는 종이를 보고 손으로 입력하므로 `inputMode`는 `text`(영문+숫자). 대문자는 `uppercase`(보이는 것만)로 보여 주고 서버가 정규화한다(대소문자·하이픈·공백 무시, 4.3).
+- 자동으로 하이픈을 끼워 넣지 않는다(커서 이동·삭제 오류가 시니어에게 더 불편). 형식은 도움말과 예시로 알려 준다.
+- 종이를 보고 입력할 때 0/O·1/I 오독은 코드 알파벳에서 이미 제거했다(2.4). 화면에서 추가로 할 일은 없다.
+- 상태는 M1과 같은 표(T-3.2)를 쓰고 다음만 다르다.
+
+| 상태 | M2 표시 |
+|---|---|
+| 틀림 | 칸 아래 `[M2 오류-틀림]`(이미 쓴 코드일 수 있다는 힌트, 남은 횟수 `{n}`), 칸 지움, 칸 포커스. **M1과 같은 대기표 실패 횟수를 같이 센다** → `{n}`이 M1에서 본 값에서 이어진다 |
+| 잠김·만료·5회·연결 불가·429 | M1과 같은 상태 화면·알림(T-3.3). 상태 화면의 버튼 목적지는 동일 |
+| 성공 | `/admin`으로 이동, M6 배너(T-9) |
+
+### T-5. M3 등록(`/sign-in/otp-setup` 로그인 중, `/admin/security` 안에서는 입구 A·C)
+
+#### T-5.0 단계 틀과 진행 표시
+
+| 입구 | 단계 | 진행 표시 |
+|---|---|---|
+| B (로그인 중, 강제 이후) | a 앱 준비 → b 등록 코드 → c QR → d 복구 코드 | 4단계 |
+| A (유예 기간, 관리자 화면 안) | a → c → d | 3단계 |
+| C (기기 바꾸기) | e 지금 번호 확인 → a → c → d(복구 코드는 선택) | 4단계 |
+
+```
+nav[aria-label=[등록 진행 라벨]]
+  p  text-sm font-semibold text-n-7   [진행 텍스트 "{현재}/{전체}단계: {단계 이름}"]   ← 눈·스크린리더 모두 이 글을 읽는다
+  div[aria-hidden=true]  flex gap-1.5 mt-2   각 단계 h-1.5 flex-1 rounded-pill  (완료·현재 bg-indigo, 남은 bg-n-3)
+```
+
+- 이유: 숫자와 단계 이름을 글로 둔다. 색 막대는 보조(색만으로 구분하지 않음). 단계 이름은 3글자 안팎으로 ux-writer가 정한다.
+- 단계마다 [이전](`LINK_CLASS`, 왼쪽 맨 위가 아니라 주 버튼 아래). 복구 코드 단계(d)에는 [이전]이 없다(이미 등록 확정).
+- 단계가 바뀌면 포커스는 그 단계의 `h1`(`tabIndex=-1`)로(T-8).
+- `/admin/security` 안에서는 로그인 화면 틀이 아니라 관리자 카드 안에 같은 단계 컴포넌트를 그린다(T-7). 단계 내용·`OtpSetupSteps`는 동일, 버튼·칸 크기만 `size` prop으로 바뀐다.
+
+#### T-5.1 단계 a 앱 준비
+
+```
+h1  [M3a 제목]
+p   [M3a 안내]
+ul  권장 앱 두 개(Google Authenticator, Microsoft Authenticator)  list-none  flex flex-col gap-3
+    li  rounded-md border border-n-3 p-4  앱 이름 text-base font-semibold + 공식 스토어 링크 2개(iOS, Android) LINK_CLASS
+NOTICE_INFO  [M3a 백업 계정 안내: 이메일과 다른 계정으로 백업]      (Q5)
+button  PRIMARY_BTN  [M3a 주 버튼 "앱을 설치했어요"]
+```
+
+- 스토어 링크는 `target="_blank" rel="noopener noreferrer"`와 "새 창" 안내(`[M3a 새 창 안내]`, 링크 이름 뒤 `sr-only`). 이 화면은 대기표 15분이 흐르므로 새 창이 맞다(같은 창에서 나가면 대기표를 잃을 위험).
+- 백업 안내는 `NOTICE_INFO`(아이콘 없음, 알림 아님). 위험도가 높지만 `role="alert"`로 놀라게 하지 않는다(3장 "초대하듯이").
+
+#### T-5.2 단계 b 등록 코드 (입구 B만)
+
+```
+h1  [M3b 제목]
+p   [M3b 안내]
+form action={startOtpSetup}
+  label[for=ticket-code]  [M3b 칸 라벨]
+  p#ticket-hint  [M3b 칸 도움말]
+  input#ticket-code  name=ticket  type=text  inputMode=numeric  autoComplete=off  pattern=[0-9 ]*  maxLength=9
+         font-mono text-2xl tabular-nums tracking-[0.3em]  INPUT_LG(pr 제거)
+  button[submit]  PRIMARY_BTN  [M3b 주 버튼]
+p   [M3b 코드가 없나요]   (hr 아래, text-base text-n-7, 연락처는 적지 않음)
+```
+
+| 상태 | 표시 |
+|---|---|
+| 틀림 | 칸 아래 `[M3b 오류-틀림]`(남은 `{n}`), 칸 지움·포커스 |
+| 5회 또는 24시간 경과 | 칸·버튼 제거, 상태 화면(원형 `AlertIcon` + `[M3b 사용 불가 제목]` `[M3b 사용 불가 본문]`), 액션: `SECONDARY_BTN` → `/sign-in` `[M3b 로그인으로]`. 채운 버튼 없음(지금 할 일이 전화) |
+| 만료된 등록 대기표(15분) | T-3.3 만료 화면과 같다 |
+
+- `autoComplete="off"`: 전화로 받은 숫자이므로 `one-time-code`(문자 제안)를 쓰지 않는다.
+
+#### T-5.3 단계 c QR + 확인 번호
+
+```
+h1  [M3c 제목]
+ol  [M3c 순서 안내 2줄]  list-decimal pl-5 text-base leading-[1.7] text-n-8 break-keep
+div  QR 칸
+     <svg role="img" aria-label=[M3c QR alt]>   size-[208px] bg-n-0 p-4 rounded-md border border-n-3    (흰 여백 16px = 조용한 영역)
+     모양: 가운데 정렬(mx-auto), 흑백 고대비만, 로고·색 입히기 금지
+NOTICE_INFO  [M3c 화면 공유 주의]    text-sm 이상이 아니라 text-base(큰 글씨 계열)
+details  QR을 찍을 수 없나요? (summary [M3c 수동 입력 제목], min-h-12)
+  dl  [M3c 계정 이름] [M3c 종류] 각 한 줄
+  div  수동 입력 키   grid grid-cols-2 gap-x-4 gap-y-1 (md:grid-cols-4)   각 칸 4글자 font-mono text-xl tracking-wide
+       aria-hidden 시각 표시 + sr-only 띄어 읽기 문자열(T-8)
+  button[type=button]  SECONDARY_BTN  [M3c 키 복사]  + #copy-status(aria-live=polite) [M3c 복사 완료]
+  a[href=otpauth://...]  SECONDARY_BTN  [M3c 이 휴대폰에 추가]   md:hidden  (휴대폰 폭에서만)
+form action={confirmOtpSetup}
+  OtpCodeField size=lg  label=[M3c 칸 라벨]  hint=[M3c 칸 도움말]
+  button[submit]  PRIMARY_BTN  [M3c 주 버튼]
+LINK_CLASS  [이전]
+```
+
+- 이유(배치): 위에서 아래로 "찍기 → 못 찍으면 펼치기 → 번호 입력" 순서가 곧 해야 할 순서다. 확인 칸이 QR 아래라 휴대폰 키보드가 올라와도 이미 QR은 앱으로 찍은 뒤다.
+- QR은 208px(요구 200px 이상) + 조용한 영역 16px = 240px가 312px 폭 안에 들어간다. 확대·작은 화면에서 줄이지 않는다(`size-[208px]` 고정, 폭이 모자라면 가로 스크롤이 아니라 줄바꿈 없는 중앙 정렬).
+- 수동 입력 키 32글자는 한 줄에 못 들어가므로 4글자 묶음을 360px에서는 2열, `md` 이상에서는 4열 격자로 둔다(묶음 사이 공백은 선택·복사에 포함하지 않는다).
+- `[M3c 이 휴대폰에 추가]`는 `md:hidden`. 데스크톱에서는 숨겨 동작하지 않는 링크를 보이지 않는다. 눌러도 앱이 안 열리면 아무 일도 안 일어나므로(5.2) 바로 위 수동 입력 키가 열려 있도록, 이 버튼을 눌렀을 때 `details`를 자동으로 연다.
+- 복사: `navigator.clipboard`가 없으면(인앱 브라우저) 버튼을 숨기고 키 영역에 `select-all`만 둔다. 복사에 성공하면 `#copy-status`에 한 줄. 키는 `user-select: all`로 한 번에 선택된다.
+- 화면 공유 주의(`[M3c 화면 공유 주의]`)는 QR·키 노출에 대한 경고이며 privacy-security-officer 6장의 "스크린 공유·캡처 주의 안내"에 대응한다.
+
+| 상태 | 표시 | 포커스 | 입력값 |
+|---|---|---|---|
+| 기본 | 위 | 자동 없음 | — |
+| 제출 중 | 버튼 `[M3c 제출 중]` | — | 유지 |
+| 형식 오류 | 칸 아래 `[숫자 6자리 오류]` | 칸 | 유지 |
+| 틀림(남은 횟수 있음) | 칸 아래 `[M3c 오류-틀림]`(앱에 항목이 추가됐는지, 시간이 자동인지) + `{n}` | 칸 | 지움 |
+| 5회 또는 10분 경과(`enrollment_expired`) | QR·칸·버튼을 숨기고 `NOTICE`(role=alert) `[M3c 만료]` + `SECONDARY_BTN` `[M3c QR 새로 만들기]`(새 등록 대기, 이전 QR 무효). 이 버튼이 이 상태의 유일한 행동이라 채운 버튼으로 올린다 | 알림(`tabIndex=-1`) | — |
+| 대기표 만료(15분) | T-3.3 만료 화면 | 제목 | — |
+| 서버 생성 실패 503 | `NOTICE` `[M3c 연결 불가]`, 기존 QR 유지 | 이동 없음 | 유지 |
+
+#### T-5.4 단계 d 복구 코드 (한 번만 보여 줌)
+
+```
+h1#rc-title   [M3d 제목]
+p             [M3d 안내]
+NOTICE (warning 선, role=note, AlertIcon text-warning)   [M3d 한 번만 경고]
+section[aria-labelledby=rc-title]
+  ol#rc-list  rounded-md border-2 border-n-5 bg-n-1 p-4  grid grid-cols-1 gap-y-2 (sm:grid-cols-2 sm:gap-x-6)
+    li  flex items-baseline gap-3
+        span[aria-hidden]  w-6 text-n-6 text-base   "1."   (번호, 읽지 않음: <ol>이 순서를 안다)
+        span[aria-hidden]  font-mono text-xl tracking-wide text-n-9   ABCDE-FGHJK
+        span.sr-only       "A B C D E, F G H J K"  (T-8: 띄어 읽기)
+div.flex.flex-col.gap-3.mt-6
+  button[type=button]  SECONDARY_BTN  [M3d 인쇄]
+  button[type=button]  SECONDARY_BTN  [M3d 복사]    + #rc-copy-status(aria-live=polite)
+p   [M3d 저장 금지 주의]   text-base text-n-7   (사진첩·메일·메신저)
+label.row   rounded-md border-2 border-n-5 p-4 min-h-14 flex items-start gap-3  has-[:focus-visible]:outline-[3px] outline-indigo
+   input[type=checkbox]#rc-kept  name=kept  required  size-6 accent-indigo shrink-0 mt-0.5
+   span  text-base text-n-9  [M3d 보관했어요]
+p#rc-kept-hint  text-sm text-n-6  [M3d 체크 전 안내]      (버튼이 꺼진 이유)
+button  PRIMARY_BTN  aria-disabled={!kept}  aria-describedby="rc-kept-hint"  [M3d 주 버튼 "관리자 화면으로"]
+p   [M3d 예전 항목 삭제 안내]   (등록에 옛 항목이 있었을 때만, 5.2)
+```
+
+- 이유(360px에서 한 열): 코드는 `text-xl` 고정폭 11글자 ≈ 135px + 번호 24px가 한 행이다. 2열이면 한 열이 약 150px라 줄이 접힌다. 접힘은 "A와 O" 같은 오독 위험이라 1열 10줄(약 400px)을 택한다. `sm`(640px) 이상에서만 2열. 3장의 "2열"은 데스크톱 기준으로 읽는다.
+- 인쇄: 버튼은 `window.print()`. 인쇄 전용 스타일(`print:`)로 화면의 헤더·푸터·버튼·체크를 숨기고, 인쇄물에는 `[M3d 인쇄 제목]`, 발급 날짜(`2026년 12월 1일`), 코드 10개(각 앞에 쓴 코드를 표시할 빈 네모 □), `[M3d 인쇄 보관 안내]`만 둔다. **인쇄물에 이메일·이름을 넣지 않는다**(분실 시 어느 계정 것인지 드러나지 않게; 서비스명 정도는 둔다). 글자는 인쇄에서 `text-2xl`, 줄 간격 넓게. 이 절차는 privacy-security-officer 확인 대상(T-12 #2).
+- 복사: 10개를 줄바꿈으로 한 번에 복사. 성공하면 `#rc-copy-status`에 `[M3d 복사 완료]`. 클립보드 API가 없으면 복사 버튼을 숨기고 목록을 `select-all` 가능하게 한다. 복사는 클립보드 기록·동기화에 남을 수 있으므로 `[M3d 저장 금지 주의]` 문구에 복사 후 지우라는 뜻이 포함되게 ux-writer에 요청(T-12 #2).
+- **[파일로 받기]는 이 스펙에서 뺀다.** 3.4·2.4 단계 5는 `.txt` 다운로드를 두었지만, 파일은 다운로드 폴더·클라우드 동기화에 남아 "사진첩·메일에 저장하지 마세요" 안내와 모순된다(T-12 #1에서 확정 요청).
+- 보관 확인:
+  - 체크 전 [관리자 화면으로]는 `aria-disabled="true"`(`disabled` 아님: 포커스를 잃지 않게, 이유 문장을 `aria-describedby`로 연결). 시각은 `opacity-60`, `cursor-not-allowed`.
+  - 체크 전에 누르면 이동하지 않고 포커스를 체크 박스로 옮기고 `#rc-kept-error`(`role=alert`, `AlertIcon` + `[M3d 체크 오류]`)를 체크 아래에 보인다.
+  - JS가 없으면 `required`와 브라우저 검증이 같은 역할을 한다.
+  - 체크 박스 행 전체가 눌린다(라벨). 박스는 24px, 행은 56px 이상.
+  - "복사했어요·인쇄했어요"를 체크 조건으로 삼지 않는다: 종이에 손으로 적는 사람을 막는다.
+- 이탈 방지: 체크 전에 창을 닫으려 하면 `beforeunload` 확인(브라우저 기본 문구). 인앱 브라우저는 무시할 수 있으므로 보조 수단이다. 새로고침·뒤로 가기로 돌아오면 목록 대신 `[M3d 다시 볼 수 없음]` 안내 + `PRIMARY_BTN` [관리자 화면으로](3.4 "복구 코드" 행 마지막 규칙). 이때 M6 배너가 "복구 코드를 받아 두지 않았다면 새로 받아 주세요"를 이어 알린다(5.2).
+- 입구 C에서 "복구 코드를 새로 받을지" 선택 항목(3.4 마지막 문단)은 단계 c 위에 `fieldset` 체크 하나(`[M3e 복구 코드 새로 받기]`, 기본 해제)로 둔다. 해제면 단계 d를 건너뛰고 `[M3e 완료]` 상태 화면으로 간다.
+- 코드 목록·인쇄·복사·체크는 M4의 [복구 코드 새로 받기]에서도 같은 컴포넌트(`RecoveryCodeList`)를 쓴다.
+
+### T-6. 오류·알림 공통 규칙
+
+| 규칙 | 값 |
+|---|---|
+| 칸 오류 위치 | 칸 바로 아래. 서버 알림(429·503·한도)은 폼 위 `NOTICE` |
+| 두 층 | 칸 오류와 서버 알림은 동시에 뜨지 않는다(형식 오류는 서버를 부르지 않음) |
+| `aria` | 칸 `aria-invalid="true"`, `aria-describedby="{힌트 id} {오류 id}"`. 오류 `<p>`는 `role="alert"`(Enter 제출로 포커스가 이미 칸에 있을 때도 읽히게. 비밀번호 찾기 P-5와 같은 이유) |
+| 색 | 아이콘 + 글(`n-9`). 칸 테두리 `danger`는 `INPUT_LG`의 `aria-[invalid=true]`가 처리 |
+| 횟수 안내 | `{n}번 더 시도할 수 있어요` 같은 숫자는 오류 문장 안에 포함. 별도 카운터 UI 없음 |
+| 오류 문구 톤 | 사용자를 탓하지 않고 단정적이지 않게(F8) |
+| 성공 | 화면 이동이 곧 피드백. 별도 성공 토스트 없음. 복사 성공만 `aria-live=polite` 한 줄 |
+
+### T-7. M4 `/admin/security` (내 보안 설정)
+
+관리자 레이아웃(`AdminShell`의 사이드바 + `main p-6`) 안. 최소 폭 1280px 전제(관리자는 PC 전용)로 설계하고 360px 규칙은 적용하지 않는다. 카드는 `MemberProfileEditor`의 `cardCls`(`rounded-lg border border-n-3 bg-n-0 p-5`)와 같다.
+
+```
+h1  관리자 페이지 제목 스타일(다른 관리자 페이지와 같음)  [M4 제목]
+section(상태 카드)  aria-labelledby=sec-title
+  h2#sec-title   [M4 상태 카드 제목]
+  dl  상태 / 등록일 / 마지막 사용 / 남은 복구 코드     (표시 형식은 "2026년 12월 1일", "오늘 오후 2시 12분")
+      상태: StatusBadge(등록됨=success 톤, 미등록=warning 톤)  ← 글자로도 표시(색 단독 금지)
+      남은 복구 코드: "{n}개" — 3개 이하이면 warning 아이콘 + 글 [M4 복구 코드 적음]
+  div.flex.flex-wrap.gap-3
+     미등록(유예)일 때: ADMIN_PRIMARY_BTN [M4 지금 등록하기]
+     등록됨: ADMIN_SECONDARY_BTN [M4 인증 앱 바꾸기]   ADMIN_SECONDARY_BTN [M4 복구 코드 새로 받기]
+  Notice tone=info role=note  [M4 끌 수 없음 안내]      (해제 버튼은 두지 않음)
+```
+
+- 채운 버튼은 한 개: 미등록일 때만 [지금 등록하기]. 등록 후에는 정보 화면이라 채운 버튼이 없다.
+- 단계 화면(등록·기기 바꾸기·복구 코드 새로 받기)은 **같은 카드 안에서 상태 카드를 대체**한다(페이지 이동 없음). 단계 헤더에 `h2`로 단계 제목, 포커스는 그 제목(T-8). 대체 중에는 상태 카드의 [이전]이 상태 카드로 돌아가는 `ADMIN_TEXT_LINK`이다.
+- [인증 앱 바꾸기]·[복구 코드 새로 받기]는 먼저 `OtpCodeField size=admin` 하나만 있는 재확인 단계(`e`)를 거친다. 재확인 틀림·재사용·잠김 문구는 M1과 같다(`[M1 오류-*]` 슬롯 재사용 + 재사용 전용 `[M4 방금 쓴 번호]`: 이 재확인은 로그인 직후 30초 안에 하면 같은 번호가 거절되므로 2.8의 문구를 이 자리에 쓴다).
+- 상태 조회 실패: 카드에 `Notice tone=danger role=alert` `[M4 조회 실패]`, 버튼 숨김.
+
+### T-8. 포커스와 aria-live
+
+원칙: 화면(단계)이 바뀌면 새 제목으로, 오류는 칸으로, 서버 알림은 `role="alert"`가 읽는다. `autofocus`는 쓰지 않는다. 포커스 링은 모든 버튼·링크에 `FOCUS_RING`/`ADMIN` 계열(3px 인디고, offset 2), 칸은 `INPUT_LG`의 링.
+
+| 시점 | 포커스 | 알림 |
+|---|---|---|
+| M1·M2 진입 | 없음, 첫 탭이 칸 | — |
+| 형식 오류(클라이언트) | 칸 | 칸 아래 `<p role="alert">` |
+| 틀림(서버) | 칸(입력값 지움) | 같은 `<p role="alert">`. 지운 칸이 비었다는 사실은 라벨이 말하므로 별도 알림 없음 |
+| 429·503·기타 | 이동 없음 | 폼 위 `NOTICE role="alert"` |
+| 상태 화면(만료·5회·잠김)으로 전환 | 새 `h1`(`tabIndex=-1`) | `aria-live`를 따로 달지 않음(포커스 이동이 곧 읽기) |
+| M3 단계 전환(a→b→c→d) | 새 단계의 `h1`/`h2`(`tabIndex=-1`, `scroll-mt-20`) | 진행 텍스트 `[진행 텍스트]`는 `h1` 직전에 있어 제목 뒤에 이어서 읽히지 않는다 → 진행 텍스트를 `h1` 안에 `sr-only`로 앞붙임("2/4단계: ..." + 제목) |
+| M3 [이전] | 이전 단계 제목 | — |
+| M3c 키 복사·M3d 복사 | 버튼 유지 | `#copy-status`/`#rc-copy-status` `aria-live="polite"`(항상 DOM에 존재하고 내용만 갱신) |
+| M3c 5회 실패로 QR 대체 | 알림(`tabIndex=-1`) | `role=alert` |
+| M3d 체크 전 버튼 누름 | 체크 박스 | `#rc-kept-error` `role=alert` |
+| M3d 진입 | 제목 | 제목에 이어 경고 `NOTICE`는 `role=note`(읽혀야 하지만 즉시 알림은 아님) |
+| M5 열기 | 카드 안 첫 제목 | — (T-9.3) |
+| M5 결과 | 결과 제목 | — |
+| M6 배너(페이지 로드) | 이동 없음 | `role="status"`(페이지가 처음 그려질 때 한 번) |
+
+띄어 읽기: 복구 코드·등록 코드·수동 입력 키는 화면에 `aria-hidden` 표시를 두고 같은 자리에 `sr-only`로 글자 사이를 공백(또는 `, `)으로 띄운 텍스트를 둔다. `ABCDE-FGHJK`를 그대로 읽으면 단어로 발음되거나 숫자 8자리를 "천이백삼십사만..."으로 읽기 때문이다. `components/auth/SpokenCode.tsx`(신규, 10줄 내외)로 한 번만 구현한다.
+
+### T-9. M5 관리자 회원 상세의 "2단계 인증" 카드, M6 배너
+
+#### T-9.1 M5 카드 (대상이 `role='admin'`·`active`일 때만)
+
+`MemberProfileEditor`와 같은 카드 틀(`rounded-lg border border-n-3 bg-n-0 p-5`)로 기본 정보 카드 아래에 둔다. 편집 중에는 `border-2 border-indigo`로 바뀌는 기존 규칙(`cardCls`)을 그대로 쓴다.
+
+```
+h2  [M5 카드 제목]
+dl  상태(StatusBadge: 등록됨/미등록/초기화됨) / 등록일 / 마지막 사용 / (초기화됨이면) 등록 코드 만료 시각
+     버튼 영역:
+       대상이 나 자신: 버튼 숨김 + 링크 ADMIN_TEXT_LINK  [M5 내 보안 설정 링크]
+       그 외: ADMIN_SECONDARY_BTN  [M5 초기화 시작 버튼]       (채운 버튼 아님)
+```
+
+- 대상 상태가 "미등록"이어도 초기화는 허용한다(등록 코드 발급이 목적일 수 있음). 이때는 [M5 초기화 시작 버튼] 문구만 다르게 둘지 ux-writer에게 묻는다(T-12 #4).
+- 운영자 목록 `/admin/operators`의 "2단계 인증" 열: 글자 3종(등록됨·미등록·초기화됨) + `StatusBadge`, 색만으로 구분하지 않는다. 행 클릭은 상세로 간다.
+
+#### T-9.2 초기화 폼 (같은 카드 안, 모달 아님)
+
+[초기화 시작 버튼]을 누르면 같은 카드가 편집 상태(`border-2 border-indigo`)로 바뀌고 아래가 열린다. 폼이 길어 `<dialog>`에 넣지 않는다(T-0 #4).
+
+```
+Notice tone=warning role=note  title=[M5 경고 제목]   [M5 경고 본문: 전화·대면 확인, 메일 요청만으로 하지 않기, 모든 기기 로그아웃]
+form  action={adminResetMfa}  flex flex-col gap-4
+  label.row(체크)  [M5 본인 확인 체크: "{이름}님과 전화 또는 대면으로 확인했어요"]   input checkbox size-6 required  (행 min-h-12)
+  fieldset#reset-reason  legend [M5 사유 라벨]   radio 4개(휴대폰 분실/교체/앱 삭제/기타)  각 행 min-h-12  (MemberProfileEditor의 사유 fieldset과 같은 모양)
+  textarea#reset-memo  [M5 메모 라벨] [M5 메모 도움말: 개인정보 적지 않기]   기타 선택 시만 표시·필수, maxLength=200, 글자수 {n}/200
+  OtpCodeField size=admin  id=reset-otp-code  label=[M5 내 번호 라벨]  hint=[M5 내 번호 도움말: 내 인증 앱의 번호, 대상의 번호 아님]
+  div.flex.flex-wrap.gap-3
+     ADMIN_PRIMARY_BTN  [M5 초기화 버튼] / 제출 중 [M5 제출 중]
+     ADMIN_SECONDARY_BTN  [M5 취소]   (닫기. 입력은 폐기, 확인 대화상자 없음: 되돌릴 것이 없다)
+```
+
+- 이유: 한 화면에서 "누구에게 무엇을 하는가"(체크) → "왜"(사유) → "나임을 증명"(내 번호) 순서. 맨 아래 칸이 내 번호이므로 30초 안에 입력하도록 앞의 입력을 끝낸 뒤 마지막에 둔다(번호가 입력 도중 바뀌면 틀림이 난다).
+- [초기화] 버튼은 필수 항목(체크·사유·메모(기타)·6자리)이 비면 `aria-disabled`로 둔다. 눌렀을 때 첫 비어 있는 항목으로 포커스, 해당 칸 아래 오류 `[M5 오류-*]`, 상단 `Notice tone=danger`로 "입력을 확인해 주세요 ({n}곳)"(`MemberProfileEditor`와 같은 요약 규칙).
+- `ADMIN_PRIMARY_BTN`(인디고). 위험은 경고 `Notice`로 전한다(T-0 #7).
+
+| 상태 | 표시 | 포커스 |
+|---|---|---|
+| 열림 | 위 | 경고 `Notice` 제목(`tabIndex=-1`) |
+| 제출 중 | [초기화]만 `aria-busy`·스피너·`opacity-60`, 취소 `aria-disabled`. 칸은 유지 | — |
+| 내 번호 틀림 | 칸 아래 `[M1 오류-틀림]` 재사용(대상 아닌 "내 번호" 맥락 문구는 `[M5 오류-내 번호]`로 별도 요청), 칸만 지움, 다른 입력 유지 | 내 번호 칸 |
+| 방금 쓴 번호(재사용) | `[M4 방금 쓴 번호]`(2.8 문구) | 내 번호 칸 |
+| 잠김 `mfa_locked` | 카드 위 `Notice tone=danger role=alert` `[M5 잠김]`, [초기화] 비활성 | 알림 |
+| 대상이 이미 관리자 아님·탈퇴(409) | `Notice tone=warning role=alert` `[M5 대상 변경됨]` + [새로고침]은 `ADMIN_SECONDARY_BTN` | 알림 |
+| 기록 실패 503 `log_failed` | `Notice tone=danger role=alert` `[M5 기록 실패]`(초기화되지 않았음을 명시), 폼 유지 | 알림 |
+| 연결 불가 | `Notice tone=danger role=alert` `[M5 연결 불가]`, 입력 유지 | 알림 |
+
+#### T-9.3 결과(등록 코드는 한 번만)
+
+성공하면 폼을 같은 카드 안에서 결과 화면으로 대체한다(상태 배지는 서버 재조회 후 "초기화됨").
+
+```
+h2#reset-done-title  [M5 결과 제목]     (포커스)
+Notice tone=warning role=note  [M5 전달 방법 경고: 전화로만, 메일·문자·메신저 금지]
+div  등록 코드  rounded-md border-2 border-n-5 bg-n-1 p-6 text-center
+     p  [M5 등록 코드 라벨]  text-[14px] font-semibold text-n-8
+     p  aria-hidden  font-mono text-4xl tabular-nums tracking-[0.2em] text-n-9   "1234 5678"
+     p.sr-only  "1 2 3 4, 5 6 7 8"
+     p  [M5 유효 시각: "내일 오후 2시 12분까지"]  text-[15px] text-n-7
+p   [M5 다시 볼 수 없음]   text-[15px]
+ADMIN_PRIMARY_BTN  [M5 확인했어요]
+```
+
+- **복사 버튼을 두지 않는다.** 이 값은 전화로만 전달돼야 하고, 복사 버튼은 메신저에 붙여 넣는 행동을 유도한다(2.7.2).
+- 닫기 전 이탈 방지: [확인했어요] 전에 창을 닫으려 하면 `beforeunload` 확인.
+- [확인했어요]를 누르면 카드는 상태 화면으로 돌아가고 코드는 DOM에서 지운다. 다시 열 수 없다(재초기화로 새 코드).
+- 이 카드를 스크린 캡처·공유 중에 열지 않도록 하는 경고는 `[M5 전달 방법 경고]`에 포함하도록 ux-writer에 요청.
+
+#### T-9.4 M6 배너 (`AdminShell` 상단)
+
+`AdminShell`의 `<main>` 맨 위(페이지 제목 위)에 `Notice`(기존 컴포넌트)를 둔다. 폭은 페이지 콘텐츠와 같고, 스크롤하면 함께 올라간다(고정·`sticky` 금지: 표·폼을 가린다).
+
+| 조건 | 톤 | `role` | 버튼 |
+|---|---|---|---|
+| 복구 코드 0개이고 복구 코드로 로그인한 세션 | `danger`(선·아이콘) | `status` | `ADMIN_PRIMARY_BTN` [M6 인증 앱 다시 등록] |
+| 복구 코드로 로그인한 세션(남은 개수 있음) | `warning` | `status` | `ADMIN_SECONDARY_BTN` [M6 인증 앱 다시 등록] |
+| 유예 기간, 미등록 | `info` | `status` | `ADMIN_PRIMARY_BTN` [M6 지금 등록하기] |
+| 복구 코드 3개 이하 | `warning` | `status` | `ADMIN_SECONDARY_BTN` [M6 복구 코드 새로 받기] |
+| 복구 코드를 받았다는 체크 없이 나감 | `warning` | `status` | `ADMIN_SECONDARY_BTN` [M6 복구 코드 새로 받기] |
+
+- **한 번에 한 개만 보인다.** 우선순위: 복구 코드 0개 → 복구 코드로 로그인 → 유예 기간 미등록 → 체크 없이 나감 → 3개 이하. 배너가 겹쳐 쌓이면 시니어가 읽지 않는다.
+- 닫기(X)를 두지 않는다. 해야 할 일이 해결되면 사라진다(서버 상태로 결정). 이유: 닫은 뒤 다시 찾을 방법이 없고(되돌릴 수 있게 원칙), 3장의 "과한 안내 지양"은 조건 자체를 좁혀서 지킨다(등록 후 7일 안내 없음).
+- 배너 안 버튼은 `/admin/security`로 이동해 해당 흐름을 바로 시작한다(`?start=enroll`·`?start=recovery-codes` 같은 쿼리는 상태가 아닌 화면 선택일 뿐 비밀을 싣지 않는다).
+- `role="status"`: 페이지가 로드될 때 한 번 읽힌다. 포커스는 옮기지 않는다.
+- 레이아웃: `Notice`는 `flex gap-3`. 버튼은 본문 아래 `mt-3`(관리자 최소 폭 1280px에서는 본문 오른쪽 `ml-auto`로 올려도 된다. `Notice`에 `action` 슬롯이 없으면 `children` 안에 둔다).
+
+### T-10. 모바일 360px (로그인 중 화면 M1·M2·M3)
+
+관리자 화면 M4~M6는 PC 전용(최소 1280px)이라 해당 없음. 아래는 `(auth)` 화면.
+
+| 항목 | 값 |
+|---|---|
+| 카드 폭 | 360 - 48(`px-6`) = **312px**, 입력·버튼 `w-full`, `max-w-[440px]` 유지 |
+| 6자리 칸 | `h-14`, `text-2xl font-mono tracking-[0.3em]`: 숫자 6개 ≈ 6 × (14 + 7) = 126px, 칸 안 여유 충분 |
+| 복구 코드 칸 | 입력 11글자(`text-xl`, `tracking-wider`) ≈ 180px < 312 - 32(패딩) = 280px. 공백·하이픈을 넣어 20글자여도 줄 바꿈 없이 가로로 흐른다(`overflow-x-auto` 필요 없음) |
+| QR | 208px + 여백 16px×2 = 240px, 가운데 정렬. 확대 시에도 크기 고정 |
+| 수동 입력 키 | 4글자 묶음 2열 격자(4행), 묶음 폭 ≈ 4 × 12 = 48px, 간격 16px |
+| 복구 코드 목록 | 1열 10줄(위 T-5.4) |
+| 버튼 | `min-h-14`, 문구가 길면 줄 바꿈(`h-` 고정 금지). 버튼·링크 사이 간격 8px 이상(`gap-3`) |
+| 링크 | `LINK_CLASS` `min-h-11`(44px) |
+| 제목 | `text-2xl`, 2줄 이내(진행 텍스트는 제목 위 별도 한 줄) |
+| 키보드 | 하단 고정 버튼 없음. 칸 포커스 시 `scroll-mt-20`로 라벨이 보이게 스크롤. 확인 버튼이 키보드에 가려지면 스크롤하면 닿는다(`overflow` 숨김 없음) |
+| 가로 스크롤 | 없음 |
+| 인쇄 | 모바일 브라우저에서 [인쇄]가 지원되지 않을 수 있다. `window.print`가 없으면 [인쇄] 버튼을 숨기고, 안내 `[M3d 인쇄 대안]`(PC에서 하거나 종이에 적기)을 보여 준다 |
+| 확대 200% | 제목·버튼이 줄 바꿈될 뿐 잘리지 않는다 |
+| 인앱 브라우저 | JS가 느리거나 없을 때도 `<form action>`으로 동작(2.2). 복사·인쇄처럼 JS가 필요한 보조 기능은 점진적으로 숨긴다 |
+
+### T-11. 컴포넌트 매핑 (publisher·frontend-developer용)
+
+| 용도 | 쓸 것 | 신규 여부 |
+|---|---|---|
+| 큰 칸 | `INPUT_LG`(`pr-[76px]` 제거: `.replace(' pr-[76px]', '')`, 비밀번호 찾기 P-6과 같음) | 재사용 |
+| 포커스 링 | `FOCUS_RING` | 재사용 |
+| 주·보조 버튼(인증 화면) | `PRIMARY_BTN`, `SECONDARY_BTN` | 재사용 |
+| 주·보조 버튼(관리자) | `ADMIN_PRIMARY_BTN`, `ADMIN_SECONDARY_BTN`, `ADMIN_TEXT_LINK` | 재사용 |
+| 링크 | `LINK_CLASS`, `LINK_INLINE_CLASS` | 재사용 |
+| 오류·안내 상자(인증) | `NOTICE`, `NOTICE_INFO`(`components/auth/styles.ts`) | 재사용 |
+| 제목 | `PAGE_TITLE_CLASS`, `STATUS_TITLE_CLASS`, `STATUS_DESC_CLASS` | 재사용 |
+| 알림(관리자) | `components/admin/Notice.tsx` (`tone`, `role`, `title`, `tabIndex`, `ref`) | 재사용 |
+| 상태 배지 | `components/admin/StatusBadge.tsx` | 재사용(등록됨·미등록·초기화됨 값만 추가 여부는 구현 때 확인) |
+| 관리자 카드·사유 라디오·메모·요약 오류 | `MemberProfileEditor`의 `cardCls`, 사유 `fieldset`, 요약 규칙 | 재사용(복사가 아니라 파일 안 상수를 `components/admin/` 공용으로 올리는 것을 권장. 두 번째 사용처) |
+| 아이콘 | `components/error/icons`의 `AlertIcon`, `CheckIcon`, `ClockIcon`, `RefreshIcon` | 재사용 |
+| 6자리 칸 | `OtpCodeField`(`size="lg" \| "admin"`) | **신규** `components/auth/OtpCodeField.tsx` (T-1) |
+| 복구 코드 목록·인쇄·복사·체크 | `RecoveryCodeList` | **신규** `components/auth/RecoveryCodeList.tsx` |
+| 등록 단계 | `OtpSetupSteps` (진행 표시 + 단계 a~e) | **신규** `components/auth/OtpSetupSteps.tsx` |
+| 띄어 읽기 | `SpokenCode` | **신규** `components/auth/SpokenCode.tsx` |
+| M5 카드 | `AdminMfaCard` | **신규** `components/admin/AdminMfaCard.tsx` |
+| M6 배너 | `Notice` + `AdminShell` 안 한 블록 | 재사용 + `AdminShell.tsx` 수정 |
+| 복사 버튼(클립보드) | 구현 시 `navigator.clipboard` + 상태 문구. 없으면 숨김 | 신규(위 컴포넌트 안에 포함) |
+
+디자인 토큰: 신규 없음. 확정 전 TBD 없음. 구현자는 임의 px·색을 쓰지 않는다. 단, 아래는 토큰이 아닌 **임의 수치 클래스**라 구현 때 `@theme` 스케일에 있는지 확인한다: `tracking-[0.3em]`, `tracking-[0.2em]`, `size-[208px]`(Tailwind 임의값). 기존 코드에 이미 `text-[15px]` 같은 임의값이 쓰이고 있어 허용으로 본다.
+
+### T-12. 확인·결정이 필요한 점과 사용성 위험
+
+1. **복구 코드 [파일로 받기]**: 이 스펙에서는 뺐다(위 T-5.4). 기획서 2.4·3.4와 어긋나므로 service-planner·대표 확정이 필요하다. 남긴다면 파일 이름에 서비스명·이메일을 넣지 않고 "저장 위치 주의" 문구를 붙여야 한다.
+2. **복구 코드 복사·인쇄의 개인정보 판단**: 클립보드 기록·인쇄 대기열·화면 캡처로 코드가 남을 수 있다. 인쇄물에 이메일을 넣지 않는 것과 복사 후 안내 문구(T-5.4)가 충분한지 privacy-security-officer 확인을 요청한다.
+3. **[초기화] 버튼 색**: `danger` 바탕을 쓰지 못하는 이유는 대비다. 위험 버튼을 따로 보이고 싶다면 대비 4.5:1 이상인 `danger` 어두운 변형 토큰이 필요하다(새 토큰). 지금은 인디고 + 경고 박스로 간다. 대표·F2 확인이 필요하다.
+4. **미등록 관리자의 [초기화]**: 상태가 미등록일 때 같은 버튼으로 "등록 코드 발급"만 하게 되는 흐름이다. 문구를 따로 둘지 ux-writer에게 묻는다. 기능상은 같은 API(`mfa-reset`)다.
+5. **6자리 칸이 `autocomplete="one-time-code"`**: 문자(SMS) 코드 제안이 뜰 수 있음을 5.1에서 수용했다. 인앱 브라우저·삼성 인터넷 등에서 제안 UI가 입력을 덮는지 QA 실기기 확인 필요.
+6. **인쇄 버튼**: 모바일 인앱 브라우저에서 동작하지 않는다. 대안 문구와 "PC에서 하기" 안내가 필요하다(T-10).
+7. **관리자 화면 큰 글씨 예외(T-0 #2)**: 코드·등록 코드만 `text-xl` 이상으로 하는 것은 기존 관리자 화면 규칙(14~15px)과 어긋난다. 구분이 눈에 띄는 것이 목적이라 예외로 두었다. 반대 의견이 있으면 알려 달라.
+8. **진행 표시 "1/4"**: 입구마다 단계 수가 3~4로 달라진다. 3장의 "1/4"를 고정으로 읽지 않고 입구에 맞게 계산한다.
+9. **Figma**: 이 절은 텍스트 와이어프레임(F3~F6의 대체가 아닌 Draft)이다. Figma 시안·`Dev Mode` 링크(F10)는 별도 작업이다.
+
+### T-13. F1~F8 반영 상태 (이 기능)
+
+| 단계 | 상태 |
+|---|---|
+| F2 토큰 | 기존 `@theme` 사용, 신규 없음(T-11). 위험 버튼 색은 T-12 #3 보류 |
+| F3~F6 와이어프레임 | 이 절의 텍스트 와이어프레임(T-2~T-9) Draft. Figma 시안은 별도 |
+| F7 모바일 | T-10 Draft (인증 화면만. 관리자 화면은 PC 전용) |
+| F8 카피 | ux-writer 검수 대기(`bara-edu-lms.admin-totp-copy.md`) |
