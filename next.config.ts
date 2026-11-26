@@ -8,9 +8,18 @@ export const CONFIRM_PAGE_HEADERS = [
   { key: "X-Robots-Tag", value: "noindex" },
 ];
 
+// /forgot-password: URL에 토큰·이메일이 없어 Referer 차단은 필요 없지만, 검색 노출이 필요 없고 입력 결과 화면을 캐시하지 않는다(정의서 2장).
+export const FORGOT_PAGE_HEADERS = [
+  { key: "Cache-Control", value: "private, no-store" },
+  { key: "X-Robots-Tag", value: "noindex" },
+];
+
 const nextConfig: NextConfig = {
   async headers() {
-    return [{ source: "/auth/confirm", headers: CONFIRM_PAGE_HEADERS }];
+    return [
+      { source: "/auth/confirm", headers: CONFIRM_PAGE_HEADERS },
+      { source: "/forgot-password", headers: FORGOT_PAGE_HEADERS },
+    ];
   },
   experimental: {
     // 휴대폰 사진(2~5MB)이 수강신청·정보수정 폼과 함께 올라오도록 기본 1MB에서 늘린다.

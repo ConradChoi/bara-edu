@@ -9,7 +9,15 @@ test('/auth/confirm 응답 헤더: Cache-Control private, no-store / Referrer-Po
   expect(h).toEqual({ 'Cache-Control': 'private, no-store', 'Referrer-Policy': 'no-referrer', 'X-Robots-Tag': 'noindex' });
 });
 
-test('가입 링크 경로 말고 다른 경로에는 이 헤더 규칙을 걸지 않는다', async () => {
+test('/forgot-password 응답 헤더: no-store·noindex (URL에 토큰·이메일이 없어 Referer 규칙은 없다)', async () => {
   const rules = await nextConfig.headers!();
-  expect(rules.map((r) => r.source)).toEqual(['/auth/confirm']);
+  const rule = rules.find((r) => r.source === '/forgot-password');
+  expect(rule).toBeDefined();
+  const h = Object.fromEntries(rule!.headers.map((x) => [x.key, x.value]));
+  expect(h).toEqual({ 'Cache-Control': 'private, no-store', 'X-Robots-Tag': 'noindex' });
+});
+
+test('헤더 규칙은 정해 둔 경로에만 건다', async () => {
+  const rules = await nextConfig.headers!();
+  expect(rules.map((r) => r.source)).toEqual(['/auth/confirm', '/forgot-password']);
 });

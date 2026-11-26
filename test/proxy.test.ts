@@ -216,3 +216,16 @@ test('proxy: API 장애면 쿠키를 연장하지 않는다', async () => {
   fetchMock.mockRejectedValueOnce(new Error('down'));
   expect(setCookie(await proxy(request('/courses', 'tok')))).toBe('');
 });
+
+test('proxy: /forgot-password·/reset-password는 공개 경로 — 로그인 전에도, 로그인한 상태에서도 /my로 보내지 않고 통과', async () => {
+  for (const path of ['/forgot-password', '/reset-password?token=t1']) {
+    expect(passedThrough(await proxy(request(path)))).toBe(true);
+    fetchMock.mockResolvedValueOnce(session({ role: 'user', status: 'active' }));
+    const res = await proxy(request(path, 'tok'));
+    expect(passedThrough(res)).toBe(true);
+    expect(location(res)).toBeNull();
+    // 관리자도 막지 않는다(대표 결정 2)
+    fetchMock.mockResolvedValueOnce(session({ role: 'admin', status: 'active' }));
+    expect(passedThrough(await proxy(request(path, 'tok')))).toBe(true);
+  }
+});
