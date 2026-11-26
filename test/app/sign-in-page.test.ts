@@ -17,7 +17,7 @@ vi.mock('react', async (orig) => {
 import SignInPage from '@/app/(auth)/sign-in/page';
 import SignUpPage from '@/app/(auth)/sign-up/page';
 
-const signIn = async (params: { redirect?: string; reset?: string } = {}) =>
+const signIn = async (params: { redirect?: string; reset?: string; ended?: string } = {}) =>
   renderToStaticMarkup((await SignInPage({ searchParams: Promise.resolve(params) })) as ReactElement);
 const signUp = async () => renderToStaticMarkup((await SignUpPage({ searchParams: Promise.resolve({}) })) as ReactElement);
 
@@ -74,4 +74,22 @@ test('가입 직후 안내(source 없음): 보조 [비밀번호 찾기] 링크, 
   expect(h.indexOf('border-t border-n-3 pt-4')).toBeLessThan(h.indexOf('href="/forgot-password"'));
   expect(h).not.toContain('가입도 함께 끝나요');
   expect(h).not.toContain('비밀번호 새로 정하기');
+});
+
+test('자동 로그아웃 이유(?ended=max|idle, 기획서 4.9): MFA-SESSION-MAX/IDLE + 관리자 경로면 WHY + NOTE, 기존 배너 대신', async () => {
+  const max = await signIn({ redirect: '/admin/members', ended: 'max' });
+  expect(max).toContain('role="status"');
+  expect(max).toContain('로그인한 지 12시간이 지나서 로그아웃했어요. 다시 로그인해 주세요.');
+  expect(max).toContain('관리자 계정은 개인정보를 지키려고 로그인 시간을 짧게 두었어요.');
+  expect(max).toContain('다시 로그인하면 하던 화면으로 돌아와요. 입력하던 내용은 저장되지 않았을 수 있어요.');
+  expect(max).not.toContain('세션이 만료되었어요');
+  const idle = await signIn({ redirect: '/my', ended: 'idle' });
+  expect(idle).toContain('1시간 동안 사용하지 않아서 로그아웃했어요. 다시 로그인해 주세요.');
+  expect(idle).not.toContain('관리자 계정은 개인정보를');
+  // 모르는 값은 무시하고 기존 배너 그대로, redirect만 있으면 기존 배너
+  for (const p of [{ redirect: '/admin', ended: 'evil' }, { redirect: '/admin' }]) {
+    const h = await signIn(p);
+    expect(h).toContain('세션이 만료되었어요');
+    expect(h).not.toContain('로그아웃했어요');
+  }
 });

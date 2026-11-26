@@ -2,6 +2,11 @@
 
 import { redirect } from 'next/navigation';
 import * as auth from '@/lib/db/auth';
+import * as mfa from '@/lib/db/mfa';
+import { clearMfaChallenge, readMfaChallenge } from '@/lib/db/session-cookie';
+import { isOtp, isTicket, normalizeOtp, normalizeTicket } from '@/lib/mfa-format';
+import { enrollEndOf, lockOf, noticeOf, profileNameFor, qrView, todayLong } from '@/lib/mfa-setup';
+import type { MfaLoginState, SetupView } from '@/lib/mfa-setup-types';
 import { siteConfig } from '@/data/site-config';
 import { getSiteOrigin } from '@/lib/site-origin';
 import { FIELD_MESSAGES, LIMITS, MSG_PASSWORD_MISMATCH, MSG_RATE_LIMITED, MSG_UNAVAILABLE, isApiEmail } from '@/lib/form-messages';
@@ -45,15 +50,16 @@ const UNSAFE_REDIRECT_CHARS = /[\u0000-\u001f\u007f-\u009f\s\\]/;
 const FALLBACK_REDIRECT = '/my';
 const MAX_REDIRECT_LENGTH = 2048;
 
-function safeRedirect(path: string | null): string {
-  if (!path || path.length > MAX_REDIRECT_LENGTH) return FALLBACK_REDIRECT;
-  if (UNSAFE_REDIRECT_CHARS.test(path)) return FALLBACK_REDIRECT;
-  if (!path.startsWith('/') || path.startsWith('//') || path.includes('://')) return FALLBACK_REDIRECT;
+// fallback: 관리자 2단계를 마친 뒤에는 '/admin'(기획서 2.2 "2단계 성공").
+function safeRedirect(path: string | null, fallback: string = FALLBACK_REDIRECT): string {
+  if (!path || path.length > MAX_REDIRECT_LENGTH) return fallback;
+  if (UNSAFE_REDIRECT_CHARS.test(path)) return fallback;
+  if (!path.startsWith('/') || path.startsWith('//') || path.includes('://')) return fallback;
   try {
     const base = 'http://redirect-check.invalid';
-    if (new URL(path, base).origin !== base) return FALLBACK_REDIRECT;
+    if (new URL(path, base).origin !== base) return fallback;
   } catch {
-    return FALLBACK_REDIRECT;
+    return fallback;
   }
   return path;
 }
@@ -188,7 +194,174 @@ export async function login(
     return { error: '잠시 후 다시 시도해 주세요' };
   }
 
+  // 관리자: 세션 대신 대기표(bara_mfa 쿠키는 lib가 이미 썼다). redirect 값은 안전한 경로일 때만 다음 화면으로 넘긴다(2.2).
+  // 응답에 mfa가 없으면(지금의 운영 API 포함) 아래 기존 흐름 그대로다(배포 순서 호환, 7.1).
+  if ('mfa' in r) {
+    const raw = formData.get('redirect') as string | null;
+    const q = new URLSearchParams();
+    if (raw && safeRedirect(raw, '') === raw) q.set('redirect', raw);
+    if (r.mfa === 'enroll_required' && r.enrollReason === 'reset') q.set('reason', 'reset');
+    const qs = q.toString();
+    redirect(`/sign-in/${r.mfa === 'required' ? 'otp' : 'otp-setup'}${qs ? `?${qs}` : ''}`);
+  }
+
   redirect(redirectTo);
+}
+
+// ---- 관리자 로그인 2단계(M1·M2, 기획서 3.2·3.3, 디자인 스펙 T-3·T-4) ----
+// 6자리·복구 코드·대기표는 상태에 담지 않는다. 대기표는 httpOnly 쿠키에서만 읽는다(2.2).
+
+function mfaLoginFailure(f: mfa.MfaFailure, field: 'otp' | 'recovery'): MfaLoginState {
+  switch (f.reason) {
+    case 'wrong_code':
+      return { kind: 'field', error: 'wrong', ...(f.attemptsLeft !== undefined ? { attemptsLeft: f.attemptsLeft } : {}) };
+    case 'code_reused':
+      // 재사용은 횟수를 세지 않는다(1.3 D1). 복구 코드는 재사용 구분이 없다(이미 쓴 코드 = 틀림)
+      return field === 'otp' ? { kind: 'field', error: 'used' } : { kind: 'field', error: 'wrong' };
+    case 'validation':
+      return { kind: 'field', error: 'format' };
+    case 'challenge_invalid':
+    case 'unauthenticated':
+      return { kind: 'screen', screen: 'expired' };
+    case 'challenge_exhausted':
+      return { kind: 'screen', screen: 'exhausted' };
+    case 'account_changed':
+    case 'not_admin':
+      return { kind: 'screen', screen: 'demoted' };
+    case 'mfa_locked':
+      return { kind: 'screen', screen: 'locked', ...lockOf(f) };
+    case 'rate_limited':
+      return { kind: 'notice', notice: 'rate_limited' };
+    case 'unavailable':
+    case 'log_failed':
+      return { kind: 'notice', notice: 'unavailable' };
+    default:
+      return { kind: 'notice', notice: 'failed' };
+  }
+}
+
+async function finishMfaLogin(f: mfa.MfaFailure, field: 'otp' | 'recovery'): Promise<MfaLoginState> {
+  const state = mfaLoginFailure(f, field);
+  // 상태 화면(만료·5회·계정 변경·잠김)에서는 이 대기표를 다시 쓸 일이 없다 — 쿠키를 지운다.
+  if (state?.kind === 'screen') await clearMfaChallenge();
+  return state;
+}
+
+export async function verifyOtp(_prev: MfaLoginState, formData: FormData): Promise<MfaLoginState> {
+  const code = normalizeOtp((formData.get('code') as string | null) ?? '');
+  if (!isOtp(code)) return { kind: 'field', error: 'format' };
+  const challenge = await readMfaChallenge();
+  if (!challenge) return { kind: 'screen', screen: 'expired' };
+  const r = await mfa.verifyMfa(challenge, code);
+  if (!r.ok) return finishMfaLogin(r, 'otp');
+  redirect(safeRedirect(formData.get('redirect') as string | null, '/admin'));
+}
+
+export async function verifyRecoveryCode(_prev: MfaLoginState, formData: FormData): Promise<MfaLoginState> {
+  // 대소문자·하이픈·공백은 서버가 정규화한다(4.3). 앞뒤 공백만 지우고 길이만 본다.
+  const code = ((formData.get('recoveryCode') as string | null) ?? '').trim();
+  if (!code || code.length > 40) return { kind: 'field', error: 'format' };
+  const challenge = await readMfaChallenge();
+  if (!challenge) return { kind: 'screen', screen: 'expired' };
+  const r = await mfa.recoverMfa(challenge, code);
+  if (!r.ok) return finishMfaLogin(r, 'recovery');
+  redirect(safeRedirect(formData.get('redirect') as string | null, '/admin'));
+}
+
+// [처음부터 다시 로그인]: 대기표를 버리고 비밀번호 단계로(3.2 보조 링크 2).
+export async function restartLogin(): Promise<void> {
+  await clearMfaChallenge();
+  redirect('/sign-in');
+}
+
+// ---- 관리자 2단계 인증 등록, 로그인 중(입구 B, M3 /sign-in/otp-setup, 기획서 3.4·4.4, T-5) ----
+// 한 액션이 단계를 옮긴다(intent). 이전 상태에 기대지 않고 폼 값과 서버(enroll/current)만으로 다음 화면을 정한다 —
+// JS 없이 제출해도, 새로고침해도 같은 단계가 나온다(T-0 #8).
+
+async function endEnroll(view: SetupView): Promise<SetupView> {
+  await clearMfaChallenge();
+  return view;
+}
+
+async function enrollQrOrExpired(challenge: string, extra: { error?: 'format' | 'wrong' | 'used'; attemptsLeft?: number } = {}): Promise<SetupView> {
+  const cur = await mfa.getCurrentEnrollment(challenge);
+  if (cur.ok) return { step: 'qr', entry: 'B', qr: qrView(cur.enrollment), rotateDefault: false, ...extra };
+  if (cur.reason === 'no_enrollment') return { step: 'qr_expired', entry: 'B' };
+  const end = enrollEndOf(cur);
+  return end ? endEnroll(end) : { step: 'qr_expired', entry: 'B', notice: noticeOf(cur) };
+}
+
+async function startEnrollB(challenge: string, renew: boolean, onFail: SetupView): Promise<SetupView> {
+  const r = await mfa.startMfaEnroll({ challenge, renew });
+  if (r.ok) return { step: 'qr', entry: 'B', qr: qrView(r.enrollment), rotateDefault: false };
+  if (r.reason === 'ticket_not_verified') return { step: 'ticket' };
+  const end = enrollEndOf(r);
+  if (end) return endEnroll(end);
+  return { ...onFail, notice: noticeOf(r) } as SetupView;
+}
+
+export async function otpSetupStep(_prev: SetupView, formData: FormData): Promise<SetupView> {
+  const intent = formData.get('intent');
+  if (intent === 'ack') {
+    // 체크 뒤 이동. 보관 확인 기록이 실패해도 이동은 막지 않는다(M6 배너가 다시 알린다, T-5.4).
+    await mfa.ackRecoveryCodes();
+    redirect(safeRedirect(formData.get('redirect') as string | null, '/admin'));
+  }
+  if (intent === 'back') return { step: 'prep', entry: 'B' };
+
+  const challenge = await readMfaChallenge();
+  if (!challenge) return { step: 'end', screen: 'expired' };
+
+  if (intent === 'next') {
+    const cur = await mfa.getCurrentEnrollment(challenge);
+    if (cur.ok) return { step: 'qr', entry: 'B', qr: qrView(cur.enrollment), rotateDefault: false };
+    if (cur.reason === 'no_enrollment') return cur.ticketVerified ? startEnrollB(challenge, false, { step: 'prep', entry: 'B' }) : { step: 'ticket' };
+    const end = enrollEndOf(cur);
+    return end ? endEnroll(end) : { step: 'prep', entry: 'B', notice: noticeOf(cur) };
+  }
+
+  if (intent === 'ticket') {
+    const ticket = normalizeTicket((formData.get('ticket') as string | null) ?? '');
+    if (!isTicket(ticket)) return { step: 'ticket', error: 'format' };
+    const r = await mfa.checkEnrollTicket(challenge, ticket);
+    if (r.ok) return startEnrollB(challenge, false, { step: 'ticket' });
+    if (r.reason === 'ticket_invalid') return { step: 'ticket', error: 'wrong', ...(r.attemptsLeft !== undefined ? { attemptsLeft: r.attemptsLeft } : {}) };
+    if (r.reason === 'validation') return { step: 'ticket', error: 'format' };
+    const end = enrollEndOf(r);
+    return end ? endEnroll(end) : { step: 'ticket', notice: noticeOf(r) };
+  }
+
+  if (intent === 'renew') return startEnrollB(challenge, true, { step: 'qr_expired', entry: 'B' });
+
+  if (intent === 'confirm') {
+    const enrollmentId = ((formData.get('enrollmentId') as string | null) ?? '').trim();
+    const code = normalizeOtp((formData.get('code') as string | null) ?? '');
+    if (!enrollmentId || !isOtp(code)) return enrollQrOrExpired(challenge, { error: 'format' });
+    const r = await mfa.confirmMfaEnroll({ enrollmentId, code, challenge });
+    if (r.ok) {
+      // 세션은 lib가 이미 썼고 대기표 쿠키는 지웠다. 이 화면(같은 컴포넌트)이 복구 코드를 한 번만 보여 준다.
+      if (!r.recoveryCodes?.length) redirect(safeRedirect(formData.get('redirect') as string | null, '/admin'));
+      return {
+        step: 'codes',
+        codes: r.recoveryCodes,
+        issuedOn: todayLong(),
+        name: await profileNameFor(r.sessionToken, r.userId),
+        reason: formData.get('reason') === 'reset' ? 'reenroll' : 'enroll',
+      };
+    }
+    if (r.reason === 'wrong_code') return enrollQrOrExpired(challenge, { error: 'wrong', ...(r.attemptsLeft !== undefined ? { attemptsLeft: r.attemptsLeft } : {}) });
+    if (r.reason === 'code_reused') return enrollQrOrExpired(challenge, { error: 'used' });
+    if (r.reason === 'validation') return enrollQrOrExpired(challenge, { error: 'format' });
+    if (r.reason === 'enrollment_expired' || r.reason === 'not_found' || r.reason === 'no_enrollment' || r.reason === 'unsupported') {
+      return { step: 'qr_expired', entry: 'B' };
+    }
+    const end = enrollEndOf(r);
+    if (end) return endEnroll(end);
+    const again = await enrollQrOrExpired(challenge);
+    return { ...again, notice: noticeOf(r) } as SetupView;
+  }
+
+  return { step: 'prep', entry: 'B' };
 }
 
 export async function logout() {

@@ -42,7 +42,7 @@ async function newUser(name: string, role = 'learner') {
       c.release();
     }
   }
-  const { token } = await createSession(ctx.pool, id, 30);
+  const { token } = await createSession(ctx.pool, id, 30, { mfaMethod: 'totp' });
   return { id, token };
 }
 

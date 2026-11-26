@@ -8,11 +8,12 @@ import type { Storage } from './storage/storage.js';
 import { S3Storage } from './storage/s3.js';
 import { startScheduler } from './jobs/scheduler.js';
 import { devFakes } from './dev-fakes.js';
-import { resolveServiceKey } from './secrets.js';
+import { resolveMfaKeyring, resolveServiceKey } from './secrets.js';
+import { initMfa } from './auth/mfa-mode.js';
 import { readTls } from './tls.js';
 
 async function main(): Promise<void> {
-  const config = loadConfig(process.env, { serviceKey: await resolveServiceKey(process.env) });
+  const config = loadConfig(process.env, { serviceKey: await resolveServiceKey(process.env), mfaKeyring: await resolveMfaKeyring(process.env) });
   const https = readTls(config);
   const pool = createPool(config.databaseUrl);
   const fakes = devFakes(process.env, config.siteOrigins);
@@ -42,6 +43,8 @@ async function main(): Promise<void> {
         };
   const app = buildApp({ config, pool, mailer, storage, logger: { level: config.logLevel }, https });
   if (config.plaintextAllowed) app.log.warn(PLAINTEXT_WARNING);
+  // 키 검증 실패·DB 오류면 시작하지 않는다(기획서 2.6·2.14). 모드가 바뀐 첫 시작이면 비밀번호만의 관리자 세션을 지운다.
+  await initMfa(pool, config.mfa, app.log);
 
   let scheduler: { stop(): void } | undefined;
   app.addHook('onClose', async () => scheduler?.stop());

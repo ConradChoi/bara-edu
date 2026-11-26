@@ -4,6 +4,7 @@ import { withService } from '../db/context.js';
 import { hashPassword } from './passwords.js';
 import { invalidateEmailTokensIn, lockUserSignupIn } from './tokens.js';
 import { revokeAllSessionsIn } from './sessions.js';
+import { clearUserMfaIn, lockUserMfaIn } from './mfa.js';
 
 // 학습 이력 파기 대상(회원 본인 행만). 거래(enrollments)·수료(certificates)는 법정 보존이라 지우지 않는다.
 const DELETE_TABLES = ['progress', 'quiz_submissions', 'assignment_submissions', 'course_exam_submissions', 'course_exam_attempt_resets', 'diagnosis_leads'];
@@ -42,6 +43,9 @@ export async function withdrawAccount(pool: pg.Pool, userId: string, input: With
     const locked = await tx.query('select 1 from auth.users where id = $1 for update', [userId]);
     if (locked.rowCount === 0) return 'not_found';
 
+    // 락 순서: 사용자 -> mfa_* -> profiles. 지우는 것은 진행 중 수강 확인 뒤(그 전에 끝나면 이 트랜잭션은 아무것도 바꾸지 않고 커밋된다).
+    await lockUserMfaIn(tx, userId);
+
     // 프로필 행을 잠가 둔다: enrollments.apply가 profiles를 FOR SHARE로 읽으므로, 이미 신청이 진행 중이면 그 커밋을 기다린 뒤
     // 아래 진행 중 수강 확인에 그 신청이 보이고, 반대로 탈퇴가 먼저면 신청이 탈퇴 후 상태(inactive)를 본다.
     await tx.query('select 1 from profiles where id = $1 for update', [userId]);
@@ -66,6 +70,10 @@ export async function withdrawAccount(pool: pg.Pool, userId: string, input: With
         where id = $1 and status = 'active'`,
       [userId, anonymizedEmail, input.reason, input.detail],
     );
+    // 2단계 인증 데이터(등록·대기·복구 코드·대기표·등록 코드)와 계정 이력을 함께 지운다(기획서 2.7.4). auth.users 행은 남으므로 cascade로는 지워지지 않는다.
+    await clearUserMfaIn(tx, userId);
+    await tx.query('delete from auth.mfa_account_state where user_id = $1', [userId]);
+    await tx.query("delete from auth.rate_events where key = $1 and bucket like 'mfa-%'", [userId]);
     await revokeAllSessionsIn(tx, userId);
     return 'ok';
   });

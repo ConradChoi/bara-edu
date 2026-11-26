@@ -21,9 +21,9 @@ beforeAll(async () => {
   const a = (await ctx.adminPool.query("insert into auth.users (email, email_confirmed_at) values ('adm@example.com', now()) returning id")).rows[0].id;
   // role 보호 트리거를 피해 관리자로 만든다
   await ctx.adminPool.query(`begin; set local session_replication_role = replica; update profiles set role='admin' where id='${a}'; commit`);
-  admin = (await createSession(ctx.pool, a, 30)).token;
+  admin = (await createSession(ctx.pool, a, 30, { mfaMethod: 'totp' })).token;
   const l = (await ctx.adminPool.query("insert into auth.users (email, email_confirmed_at) values ('lrn@example.com', now()) returning id")).rows[0].id;
-  learnerToken = (await createSession(ctx.pool, l, 30)).token;
+  learnerToken = (await createSession(ctx.pool, l, 30, { mfaMethod: 'totp' })).token;
 });
 afterAll(async () => {
   await app.close();

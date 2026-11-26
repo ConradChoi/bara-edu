@@ -33,6 +33,7 @@ graph TD
   ROOT --> AUTH["(auth) 인증"]
   AUTH --> A1["/sign-up 회원가입"]
   AUTH --> A2["/sign-in 로그인"]
+  A2 --> A2a["/sign-in/otp · /sign-in/recovery · /sign-in/otp-setup 관리자 2단계 (2026-11-26)"]
 
   ROOT --> USER["(user) 로그인 학습자 전용"]
   USER --> U1["/my 마이페이지"]
@@ -59,6 +60,7 @@ graph TD
   ADMIN --> M6["/admin/categories 카테고리 관리 (최대 3Depth)"]
   ADMIN --> M7["/admin/cms 약관·정책 CMS"]
   ADMIN --> M8["/admin/selfcheck 진단 결과 조회 (별도 문서 — 2.13)"]
+  ADMIN --> M9["/admin/security 내 보안 설정 (2단계 인증, 2026-11-26)"]
   M8 --> M8a["/admin/selfcheck/leads 강사과정 관심 문의"]
 ```
 
@@ -68,7 +70,7 @@ graph TD
 |---|---|---|
 | **Public Header** | (public), (auth) | 로고 · 강좌안내 · 신청방법 · 우측 CTA(로그인 또는 마이페이지 1개) |
 | **User App Bar** | (user) | 로고 · 강좌안내 링크 · 마이페이지 · 우측 로그아웃 |
-| **Admin Shell** | (admin) | 상단 GNB(로고+검색) + 좌측 사이드바(대시보드/강좌관리/회원관리/신청·입금관리/수료관리/**카테고리 관리**/**CMS**) — YLIA "운영 콘솔" archetype. 사이드바는 NavItem 컴포넌트 인스턴스 7개로 조립 (기존 5개에서 확장) |
+| **Admin Shell** | (admin) | 상단 GNB(로고+검색) + 좌측 사이드바(대시보드/강좌관리/회원관리/신청·입금관리/수료관리/**카테고리 관리**/**CMS**) — YLIA "운영 콘솔" archetype. 사이드바는 NavItem 컴포넌트 인스턴스 7개로 조립 (기존 5개에서 확장). 2026-11-26: 맨 아래 "내 보안 설정"(2단계 인증 API가 있을 때만), `<main>` 맨 위 2단계 인증 배너(F-ADM-8) |
 
 > 이 3종 네비게이션은 **Figma 컴포넌트로 1회만 만들고 모든 화면에서 인스턴스로 재사용**한다 (화면마다 로고 텍스트를 새로 그리지 않는다).
 
@@ -102,6 +104,7 @@ graph TD
 | F-AUTH-3 | 공통 | 세션 만료 처리 | 보호 페이지 접근 시 로그인으로 리다이렉트 후 복귀. 세션은 httpOnly 쿠키(`bara_session`, 발급 후 30일) (2026-11-23 서버 이전 반영) | Must | bara-edu API(`/v1/auth/session`) |
 | F-AUTH-4 | 비밀번호 재설정 | 메일 링크로 새 비밀번호 설정 | 재설정 메일의 링크 `/reset-password?token=`에서 새 비밀번호 입력. 메일은 회원이 직접 요청(F-AUTH-5)하거나 관리자가 보낸다(F-ADMM-6). 링크는 1시간 유효·1회용 (2026-11-23 서버 이전 반영). **2026-11-26**: 두 칸 [보기]/[숨기기]·"변경하면 모든 기기에서 로그아웃돼요" 안내·큰 글씨 정리, 토큰 없음·만료 화면에 [재설정 메일 다시 받기](→ `/forgot-password`), 연결 불가 문구 분리, 성공 배너에 "다른 기기에서는 다시 로그인해야 해요". 성공하면 미인증 계정은 인증도 함께 끝나고 모든 세션·가입 시도가 지워지며, 로그인 실패 기록이 풀리고 "비밀번호가 바뀌었어요" 알림 메일이 간다. `/reset-password`에 no-store·no-referrer·noindex 헤더 | Must | bara-edu API(`/v1/auth/reset-password`) |
 | F-AUTH-5 | 비밀번호 찾기 | 재설정 메일 셀프 요청 (2026-11-26) | `/forgot-password`에서 가입한 이메일만 입력하면 재설정 메일(F-AUTH-4 링크)을 받는다. 휴대폰 본인인증·이름·연락처는 묻지 않는다(대표 결정). 가입 여부와 관계없이 화면은 늘 "메일함을 확인해 주세요"로 같다(이메일 열거 방지). 오류는 IP 제한(429)·연결 불가·기타 실패만 구분하고 입력은 유지. 보냄 화면의 [메일 다시 받기]는 60초 뒤 활성. 진입: 로그인 [비밀번호를 잊으셨나요?], 인증 대기 화면, 가입 직후 안내, 가입 마무리 잠김·만료·"기억나지 않아요", `/reset-password` 오류, "이미 가입된 이메일이에요" 메일. 이메일은 URL로 넘기지 않는다. 로그인 상태에서도 열린다. 설계는 `bara-edu-lms.password-reset-request.md` | Must | bara-edu API(`/v1/auth/request-reset`) |
+| F-AUTH-6 | 관리자 로그인 2단계 | 인증 앱 6자리·복구 코드·로그인 중 등록 (2026-11-26) | 비밀번호가 맞은 관리자는 세션 대신 대기표(httpOnly 쿠키 `bara_mfa`, 5분, 등록은 15분)를 받고 `/sign-in/otp`(6자리), `/sign-in/recovery`(복구 코드), `/sign-in/otp-setup`(등록 코드 → QR → 복구 코드 10개, 초기화된 계정은 다시 등록 문구)으로 간다. 틀림·재사용·대기표 만료·5회·잠김(15분/24시간)·계정 변경을 화면 상태로 나누고, 모든 단계가 JS 없이 동작한다. 관리자 세션은 12시간·1시간 미사용으로 끝나며 로그인 화면이 이유를 알린다(`?ended=max|idle`). 새 화면 모두 no-store·no-referrer·noindex. 응답에 2단계 필드가 없으면(옛 API) 지금 로그인과 같다. 정의서 `bara-edu-lms.admin-totp.md` | Must | bara-edu API(`/v1/auth/login`·`/v1/auth/mfa/*`) |
 
 ### 2.3 (user) 마이페이지 `/my`
 
@@ -140,6 +143,8 @@ graph TD
 | F-ADM-3 | 대시보드 | 최근 가입자 목록 | 최신 가입 **10명**, 표시 항목: 이름 · 마스킹 이메일(`ab***@gmail.com`) · 가입일시 · 인증상태 배지. 행 클릭 시 `/admin/members/[id]`. `role='admin'`, `status='withdrawn'` 제외(익명화된 이름이라 목록 노출 무의미). 0건이면 빈 상태 문구(2026-09-09 추가) | Must | `profiles` |
 | F-ADM-4 | 대시보드 | 이메일 미인증 회원 수 | `auth.users.email_confirmed_at is null` 카운트 + 그중 **가입 7일 초과 방치** 건수 보조 표기. 이 프로젝트는 Confirm email ON이라 미인증 = 로그인 불가 = 실질 미가입, 즉 F-ADM-2/5 수치의 **보정값**이라 함께 노출해야 의미가 성립. `lib/supabase/admin.ts`의 `createAdminClient()` + `auth.admin.listUsers()` 서버 전용 호출, 실시간성 불필요하므로 **60초 캐시** 필수(매 대시보드 로드마다 전체 페이지네이션 순회 금지)(2026-09-09 추가). (2026-11-23 서버 이전 반영) 관리자 전용 API `/v1/admin/users/confirmations`로 조회 | Should | `auth.users`(bara-edu API) |
 | F-ADM-5 | 대시보드 | 가입 추이 그래프 | 최근 **30일 일별** 가입자 수 막대 차트, 기간 토글 없음. 집계 기준은 F-ADM-2와 동일(탈퇴 포함/관리자 제외). 차트 라이브러리 신규 도입 금지 — CSS/인라인 SVG 막대로 구현(현재 `package.json`에 차트 의존성 없음)(2026-09-09 추가) | Should | `profiles.created_at` |
+| F-ADM-7 | 대시보드 | 최근 7일 보안 이벤트 (2026-11-26) | 관리자 계정의 2단계 인증 등록·초기화·등록 코드 발급·잠김·잠금 해제·복구 코드 로그인·비밀번호 재설정 최신 20건(일시·대상 이름·사건, 초기화는 사유, 알림을 본인에게만 보냈으면 표시). IP·detail 원문 없음, 조회 기록 없음. 조회 실패는 카드만 안내. 2단계 인증 이전 API에서는 숨김 | Must | `admin_access_logs`, `profiles` |
+| F-ADM-8 | 관리자 공통 | 2단계 인증 배너·내 보안 설정 (2026-11-26) | 관리자 화면 맨 위에 안내 하나(모드 꺼짐 > 복구 코드 0개로 로그인 > 복구 코드로 로그인 > 유예 기간 미등록 > 복구 코드 보관 미확인 > 복구 코드 3개 이하 > 준비 기간 안내), 닫기 없음. 사이드바 "내 보안 설정"(`/admin/security`): 상태·남은 복구 코드, [지금 등록하기](유예 기간), [인증 앱 바꾸기](6자리 또는 복구 코드로 재확인), [복구 코드 새로 받기](6자리 재확인), 내 보안 이벤트. 끌 수 없음 | Must | bara-edu API(`/v1/auth/mfa/status`·`enroll/*`·`recovery-codes*`) |
 | F-ADM-6 | 대시보드 | 미인증 회원 목록 + 인증메일 재전송 | 미인증자 개별 목록과 재전송 액션. 메일 발송 남용 방지(rate limit)와 privacy-security-officer 점검이 선행 필요해 이번 범위에서 제외 | **Won't (Later)** | `auth.users` |
 
 > **F-ADM-2~5 공통 제약 (2026-09-09, 구현 전 반드시 확인)**
@@ -195,6 +200,7 @@ graph TD
 | F-ADMM-5 | 상세 패널 | 이메일 인증 상태·인증완료 처리 | 회원 상세에 이메일 인증 상태 배지(인증완료/가입 마무리 전). 가입 마무리 전 회원은 비밀번호가 없어 관리자가 대신 인증할 수 없다 → "인증완료 처리" 버튼 대신 안내 박스와 [비밀번호 재설정 메일 발송](링크를 쓰면 인증도 함께 완료). API 409 `password_not_set`는 "비밀번호가 없는 계정은 인증 처리를 할 수 없어요" 안내 (2026-11-25 개편) | Should | bara-edu API(`/v1/admin/users/:id/confirm-email`·`confirmations`) |
 | F-ADMM-6 | 상세 패널 | 비밀번호 재설정 메일 발송 | 관리자가 회원에게 재설정 메일 발송 → 회원은 F-AUTH-4 링크로 새 비밀번호 설정 (2026-11-23 서버 이전 반영) | Should | bara-edu API(`/v1/admin/users/:id/send-reset`) |
 | F-ADMM-7 | 상세 패널 | 이름·연락처 수정 + 정보 수정 이력 | 기본 정보 카드에서 보기→편집→확인→결과(`MemberProfileEditor`). 고치는 이유 필수(기본값 없음, 기타는 메모 필수), 본인 확인(가입 이메일) 체크 필수. 확인 단계에 변경 전후 값·수료 이력(종이 수료증)·입금 대기 경고. 수정 불가: 탈퇴·운영자 계정·가입 마무리 전·인증 상태 불명·이메일 없음(사유를 글자로 표시). 동시 편집(stale)은 현재 값으로 다시 채움. 저장하면 회원 가입 이메일로 변경 안내 메일(값 없음). 이력은 최근 5건(값 없음), [더 보기]는 서버 액션으로 목록만 조회. 접속 기록(`정보수정`)은 API가 같은 트랜잭션에서 기록. 정의서 `bara-edu-lms.admin-profile-edit.md` (2026-11-26) | Must | `profiles`, `admin_access_logs`, bara-edu API(`admin.updateMemberProfile`, `admin.listMemberProfileEdits`) |
+| F-ADMM-8 | 상세 패널 | 관리자 2단계 인증 초기화·등록 코드 만들기 (2026-11-26) | 대상이 활성 관리자면 "2단계 인증" 카드(등록됨/미등록/초기화됨). 같은 카드 안에서 경고 → 전화·대면 본인 확인 체크 → 사유(기타면 메모 5자 이상, 메모는 저장하지 않음) → 내 인증 앱 6자리 → [초기화하기](인디고). 결과 등록 코드 8자리는 한 번만, 복사 버튼 없음(전화로만). 나 자신은 [내 보안 설정] 링크. 운영자 목록(`/admin/operators`)에 "2단계 인증" 열 | Must | bara-edu API(`/v1/admin/users/:id/mfa`·`mfa-reset`·`/v1/admin/mfa/overview`) |
 | F-ADMM-3 | 목록 | 탈퇴 회원 조회 | status='withdrawn' 필터, 개인식별정보는 이미 익명화된 상태로 표시 | Should | `profiles` |
 
 ### 2.8 (admin) 신청·입금 관리 `/admin/enrollments`

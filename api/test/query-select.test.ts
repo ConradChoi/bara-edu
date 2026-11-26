@@ -32,7 +32,7 @@ beforeAll(async () => {
     [M, '관리자', 'admin@example.com'],
   ]) {
     await db.query('insert into auth.users (id, email, raw_user_meta_data) values ($1, $2, $3)', [id, email, JSON.stringify({ name })]);
-    tokens[id] = (await createSession(ctx.pool, id, 30)).token;
+    tokens[id] = (await createSession(ctx.pool, id, 30, { mfaMethod: 'totp' })).token;
   }
   await db.query(`begin; set local session_replication_role = replica; update profiles set role='admin' where id='${M}'; commit`);
   await db.query(`insert into categories (id, name, depth) values ($1, '심리', 1)`, [CAT]);

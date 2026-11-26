@@ -2,12 +2,15 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import AdminTable from '@/components/admin/AdminTable';
 import StatusBadge from '@/components/admin/StatusBadge';
+import { adminMfaOverview, type AdminMfaState } from '@/lib/db/mfa';
+import { MFA_COPY } from '@/lib/mfa-copy';
 import { getAdminMembers } from '@/lib/supabase/admin-queries';
 import type { ProfileStatus } from '@/lib/types';
 
 export const metadata: Metadata = { title: '운영자 관리 | 관리자' };
 
 const STATUS_LABEL: Record<ProfileStatus, string> = { active: '활동중', withdrawn: '탈퇴' };
+const MFA_TONE: Record<AdminMfaState, 'success' | 'warning' | 'info'> = { enrolled: 'success', not_enrolled: 'warning', reset_pending: 'info' };
 
 // 회원 관리(/admin/members)에 운영자(role='admin')와 일반 회원이 섞여 있던 걸 분리한
 // 읽기 전용 화면이다(관리자 요청, 2026-08-25). 권한 부여/해제는 이 화면에서 하지 않으며
@@ -18,11 +21,16 @@ export default async function AdminOperatorsPage({
   searchParams: Promise<{ q?: string; status?: string }>;
 }) {
   const { q, status } = await searchParams;
-  const operators = await getAdminMembers({
-    q,
-    status: status === 'withdrawn' ? 'withdrawn' : status === 'active' ? 'active' : 'all',
-    role: 'admin',
-  });
+  const [operators, mfa] = await Promise.all([
+    getAdminMembers({
+      q,
+      status: status === 'withdrawn' ? 'withdrawn' : status === 'active' ? 'active' : 'all',
+      role: 'admin',
+    }),
+    // "2단계 인증" 열(기획서 3.6). 실패·옛 API면 null — 열을 그리지 않는다(지금 표와 같다).
+    adminMfaOverview(),
+  ]);
+  const cols = mfa ? 6 : 5;
 
   return (
     <div className="flex flex-col gap-4">
@@ -61,12 +69,13 @@ export default async function AdminOperatorsPage({
             <th>연락처</th>
             <th>등록일</th>
             <th>상태</th>
+            {mfa && <th>{MFA_COPY['MFA-RESET-COL']}</th>}
           </tr>
         </thead>
         <tbody>
           {operators.length === 0 ? (
             <tr>
-              <td colSpan={5} className="py-10 text-center text-n-6">
+              <td colSpan={cols} className="py-10 text-center text-n-6">
                 검색 결과가 없어요
               </td>
             </tr>
@@ -86,6 +95,15 @@ export default async function AdminOperatorsPage({
                     {STATUS_LABEL[m.status]}
                   </StatusBadge>
                 </td>
+                {mfa && (
+                  <td>
+                    {mfa.has(m.id) ? (
+                      <StatusBadge tone={MFA_TONE[mfa.get(m.id)!]}>{MFA_COPY['MFA-RESET-COL-VALUES'][mfa.get(m.id)!]}</StatusBadge>
+                    ) : (
+                      '-'
+                    )}
+                  </td>
+                )}
               </tr>
             ))
           )}

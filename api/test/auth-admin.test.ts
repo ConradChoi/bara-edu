@@ -6,6 +6,7 @@ import { MemoryStorage } from '../src/storage/storage.js';
 import { loadConfig } from '../src/config.js';
 import { MemoryMailer, type Mailer } from '../src/mail/mailer.js';
 import { issueEmailToken } from '../src/auth/tokens.js';
+import { createSession } from '../src/auth/sessions.js';
 import { setupTestDb } from './helpers/db.js';
 
 const KEY = 'k'.repeat(32);
@@ -66,7 +67,8 @@ async function addUser(opts: { confirmed?: boolean; admin?: boolean } = {}) {
   return { email, id };
 }
 const sessionOf = async (email: string) => (await login(email)).json().sessionToken as string;
-const adminSession = async () => sessionOf((await addUser({ admin: true })).email);
+// 관리자 로그인은 2단계 인증을 거쳐야 세션이 생긴다(test/admin-mfa*.test.ts). 여기서는 2단계를 통과한 세션을 바로 만든다.
+const adminSession = async () => (await createSession(ctx.pool, (await addUser({ admin: true })).id, 30, { mfaMethod: 'totp' })).token;
 const sessionStatus = async (t: string) => (await call('GET', '/v1/auth/session', undefined, t)).statusCode;
 
 test('학습자가 confirm-email 호출 → 403, email_confirmed_at 그대로', async () => {

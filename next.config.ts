@@ -15,12 +15,17 @@ export const FORGOT_PAGE_HEADERS = [
   { key: "X-Robots-Tag", value: "noindex" },
 ];
 
+// /admin/members/:id: 회원 상세(M5)의 2단계 인증 초기화 결과로 일회용 등록 코드가 화면에 나온다(같은 헤더).
+export const MFA_PAGE_PATHS = ["/sign-in/otp", "/sign-in/recovery", "/sign-in/otp-setup", "/admin/security", "/admin/members/:id"];
+
 const nextConfig: NextConfig = {
   async headers() {
     return [
       { source: "/auth/confirm", headers: CONFIRM_PAGE_HEADERS },
       { source: "/reset-password", headers: CONFIRM_PAGE_HEADERS },
       { source: "/forgot-password", headers: FORGOT_PAGE_HEADERS },
+      // 관리자 2단계 인증 화면: 대기표(쿠키)·QR·설정 키·복구 코드가 오가는 화면이라 캐시·색인·Referer를 막는다(기획서 3장 공통 규칙).
+      ...MFA_PAGE_PATHS.map((source) => ({ source, headers: CONFIRM_PAGE_HEADERS })),
     ];
   },
   experimental: {

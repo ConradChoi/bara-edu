@@ -73,3 +73,20 @@ dialog {
     display: none !important;
   }
 }
+
+/* 복구 코드 인쇄용 안내지(관리자 2단계 인증, 디자인 스펙 T-5.4·카피 8장). 안내지가 있는 화면을 인쇄하면
+   안내지만 남긴다 — 화면의 헤더·사이드바·버튼·체크와 코드 목록(화면용)은 인쇄되지 않는다. A4 한 장, 본문 14pt·코드 18pt. */
+@media print {
+  body:has(.mfa-print-sheet) * {
+    visibility: hidden;
+  }
+  body:has(.mfa-print-sheet) .mfa-print-sheet,
+  body:has(.mfa-print-sheet) .mfa-print-sheet * {
+    visibility: visible;
+  }
+  body:has(.mfa-print-sheet) .mfa-print-sheet {
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 100%;
+  }
+}

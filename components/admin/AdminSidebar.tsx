@@ -22,12 +22,16 @@ const NAV_ITEMS = [
 // 활성 메뉴 표시를 위해 usePathname()만 쓰는 최소한의 client 컴포넌트
 // (이 프로젝트는 client 컴포넌트를 최소화하는 컨벤션이지만, 사이드바 활성 상태 표시는
 // 서버 컴포넌트만으로 할 수 없어 예외로 둔다).
-export default function AdminSidebar() {
+// 내 보안 설정(2단계 인증, 기획서 3.5): 옛 API와 함께 도는 동안(경로 없음)은 숨긴다(배포 순서 호환).
+const SECURITY_ITEM = { href: '/admin/security', label: '내 보안 설정' };
+
+export default function AdminSidebar({ showSecurity = false }: { showSecurity?: boolean }) {
   const pathname = usePathname();
+  const items = showSecurity ? [...NAV_ITEMS, SECURITY_ITEM] : NAV_ITEMS;
 
   return (
     <nav className="flex w-[200px] shrink-0 flex-col gap-1 border-r border-n-3 bg-n-0 p-4">
-      {NAV_ITEMS.map((item) => {
+      {items.map((item) => {
         // `/admin/selfcheck`와 `/admin/selfcheck/leads`는 중첩 경로라 단순 startsWith면
         // 리드 화면에서 두 메뉴가 동시에 활성 표시된다 — "진단 결과 조회"는 /leads 하위는
         // 제외하도록 별도 처리한다(2026-09-14 추가 시 발견).
