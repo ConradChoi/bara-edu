@@ -12,7 +12,8 @@
     "test": "vitest run",
     "build": "tsc && tsc -p tsconfig.scripts.json",
     "start": "node dist/server.js",
-    "migrate:supabase": "npm run build && node dist/scripts/migrate-from-supabase.js"
+    "migrate:supabase": "npm run build && node dist/scripts/migrate-from-supabase.js",
+    "admin-mfa": "node dist/scripts/admin-mfa.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1173.0",
