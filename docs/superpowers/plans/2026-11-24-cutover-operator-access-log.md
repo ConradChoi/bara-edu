@@ -48,6 +48,13 @@
 | 11-26 17:5x | Amplify 앱 | 배포 | main `afc948b`(관리자 2단계 인증 화면, 옛 API와 호환) #77 SUCCEED, 주요 화면 정상, API 5xx 0건. API 릴리스 `afc948b`는 WAS에 빌드만 해 둠(21:00 전환 예정) |
 | 11-26 20:35 | WAS `bara-edu-api` | 변경 | 대표 지시로 21:00 대신 즉시 전환: API 릴리스 `afc948b` 설치·재시작(직전 `76c75fa` 보존). 시작 로그 `mfa_mode=optional`, 키 버전 1, `mfa_mode_changed`(지운 관리자 세션 0건), healthz 200, API 5xx 0건. 복구 CLI `admin-mfa mfa-report --operator claude-deploy` 운영 실행 확인(활성 관리자 1명, 미등록) |
 | 11-26 20:42 | WAS `/app/bara-edu/shared/api.env`·`bara-edu-api` | 변경 | 대표가 20:40 등록·복구 코드 보관 확인·20:41 6자리 로그인 완료(`mfa-report`로 확인, 같은 IP) → 대표 사전 승인(등록 확인 즉시 필수)에 따라 `ADMIN_MFA_MODE=optional`→`enforce`, 재시작. 시작 로그 `mfa_mode=enforce`, `mfa_mode_changed`(비밀번호만의 관리자 세션 0건 삭제), healthz 200 |
+| 11-26 21:4x | `bara_edu` | 조회 | 자가진단 민감정보 동의 배포 전 대표 보고용 건수(읽기 전용 트랜잭션, 값 출력 없음): diagnosis_results 4건(회원 2·비회원 2), answers 120건, 연결된 문의 0건 |
+| 11-26 21:4x | AWS RDS·WAS·로컬 | 조회 | 개인정보 점검 M-3: `ylia-pg-01` 자동 백업 보관 7일·저장 암호화 켜짐, 수동 스냅샷 0개(describe만). WAS·로컬에서 덤프·CSV 파일 검색 0건 |
+| 11-26 22:01 | `bara_edu` | 변경 | 패치 `2026-11-26-diagnosis-consent.sql` 적용(`begin; set local role bara_edu_service;` 파일 안 `lock_timeout 5s`, COMMIT). 동의 컬럼 4개, 검사 제약(not valid), 함수 4개, diagnosis_results/answers 관리자 select 정책 제거, 비회원 문의 연결 backfill. 카탈로그 조회로 확인 |
+| 11-26 22:01 | WAS `bara-edu-api` | 변경 | API 릴리스 `d5528af` 설치·재시작(직전 `afc948b` 보존), healthz 200 |
+| 11-26 22:24 | CMS(대표) | 변경 | 대표가 개인정보처리방침 v10 게시. DB에서 v10 게시·v9 비게시, 본문의 B-1·백업 문장 포함을 읽기 전용으로 확인 |
+| 11-26 22:24 | GitHub·Amplify 앱 | 배포 | main `6157e56`(민감정보 동의 화면, 오늘 문서 커밋 포함) 푸시, Amplify #78 SUCCEED(22:28). /selfcheck·/selfcheck/start에 동의 안내, /legal/privacy에 v10 확인 |
+| 11-26 22:28 | `bara_edu` | 변경(파기) | 정리 스크립트 `2026-11-26-diagnosis-consent-cleanup.sql` 실행(대표 승인 21:5x): NOTICE `results_deleted=4 (member=2, nonmember=2), answers_deleted=120, leads_unlinked=0`. 제약 validate·not null 확인, diagnosis_results 0건. 파기 관리대장 기록 대상. 자동 백업에서는 최대 7일 뒤(12-03경) 사라짐. 배포 후 API 5xx 0건 |
 
 ## 같은 날 함께 정리한 것
 
