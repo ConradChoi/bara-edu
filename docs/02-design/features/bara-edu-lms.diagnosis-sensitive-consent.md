@@ -757,3 +757,117 @@ revoke execute on function public.delete_my_diagnosis_result(uuid, boolean) from
 - v10 시행일은 앱 배포일로 한다(7일 전 고지는 실 운영 전이라 대표 결정으로 생략).
 - 제8조 (1)의 접근 통제(RLS) 문장: 이전 뒤 API도 행 수준 보안 정책(withUser + RLS)을 쓰므로 유지. 개인정보·보안 점검에서 재확인.
 - 새 오류 코드 `SC-ERR-CONSENT`에 대응하는 API 오류(동의 없음)와 선택 문구 SC-SENS-WITHDRAW는 backend-developer가 API 계약에서 확정한다.
+
+## API 계약 (backend-developer 확정, 2026-11-26)
+
+9장 스케치와 대표 결정, 문구 문서(SC-*)를 기준으로 확정한 요청·응답·오류다. frontend-developer는 이 절을 기준으로 연동한다. 9장과 다른 곳은 맨 아래 "9장과 다른 점"에 이유와 함께 적었다.
+
+공통: 모든 경로는 앱 서버만 부른다(`x-bara-service-key`, 로그인이면 `x-bara-session`). 오류 응답은 `{ "error": { "code", "message", ...추가 필드 } }`. `message`는 화면에 그대로 쓰지 않는다(화면 문구는 SC-* 슬롯).
+
+### C1. 결과 만들기 `POST /v1/rpc/submit_diagnosis` (비회원·회원)
+
+요청 `{ "args": { ... } }`. 기존 인자 + 새 인자 2개(둘 다 **필수**, 기본값 없음).
+
+| 인자 | 타입 | 필수 | 비고 |
+|---|---|---|---|
+| `p_name`, `p_phone`, `p_email`, `p_learning_experience`, `p_certificate_level` | 기존 | 기존 | 변경 없음 |
+| `p_consent_privacy` | boolean | O | ① 개인정보 수집·이용 |
+| `p_consent_privacy_doc_version` | integer \| null | O | 게시 중인 처리방침 버전(기존) |
+| `p_consent_sensitive` | boolean | O | **신규.** ② 민감정보 처리 동의. `true`만 통과 |
+| `p_consent_sensitive_version` | string | O | **신규.** 화면이 그린 동의 문구 버전. 지금 허용 값은 `"sc-v1"` 하나(`data/diagnosis/consent.ts`의 `CURRENT_SENSITIVE_CONSENT_VERSION`) |
+| `p_age_confirmed`, `p_answers`, `p_utm_*` | 기존 | 기존 | 변경 없음 |
+
+성공 200: `{ "data": [{ "access_token": uuid, "recommended_tier": string, "total_score": number }] }` (기존과 같다). 저장되는 행에는 `sensitive_consent_version = p_consent_sensitive_version`, `sensitive_consented_at = 서버 now()`(제출 트랜잭션 시각, 클라이언트 시각은 받지 않는다)가 들어간다.
+
+오류(서버 검사 순서대로, 첫 번째 실패 하나만 돌려준다):
+
+| 순서 | 조건 | 응답 | 앱이 돌려보낼 코드(`/selfcheck/start?error=`) |
+|---|---|---|---|
+| 0 | 새 인자 누락·모르는 인자·형식 오류(옛 앱 포함) | 400 `{ code: "validation" }` (`field` 없음) | `submit-failed` (SC-ERR-FAILED) |
+| 1 | `p_consent_privacy`가 true 아님 | 400 `{ code: "validation", field: "consent", reason: "privacy" }` | **`consent-required`** (SC-ERR-CONSENT) |
+| 2 | `p_consent_sensitive`가 true 아님 | 400 `{ code: "validation", field: "consent", reason: "sensitive" }` | **`consent-required`** (SC-ERR-CONSENT) |
+| 3 | `p_consent_sensitive_version`이 허용 목록에 없음(null 포함) | 400 `{ code: "validation", field: "consent_version" }` | `consent-outdated` (SC-ERR-OUTDATED) |
+| 4~ | 만 14세 확인, 이름, 연락처, 30문항, 5분 중복 등 기존 검사 | 400 `{ code: "db_error", sqlstate: "P0001", message: <기존 문구> }` (기존과 같다) | 기존대로 `validation` / `incomplete` / `submit-failed` |
+
+- "동의 없음" 오류는 `field: "consent"` 하나로 정했다(SC-ERR-CONSENT가 ①·② 구분 없이 한 문구). `reason`은 어느 체크박스에 포커스를 줄지 고를 때만 쓴다. 앱은 `consent-required` 코드를 새로 둔다(문구 문서 3장 "선택"을 채택).
+- 동의 문구 버전을 올릴 때(sc-v2)는 DB 함수의 허용 목록과 `consent.ts`의 현재 버전을 같은 배포에서 바꾼다. 옛 버전 화면에서 낸 제출은 3번 오류가 된다.
+- DB 규칙: `diagnosis_results`에는 동의 버전·시각이 없는 행이 들어갈 수 없다(검사 제약 `diagnosis_results_sensitive_consent_required`, 정리 스크립트 뒤에는 두 컬럼 `not null`). RPC 말고 직접 insert해도 막힌다.
+
+### C2. 내 결과 지우기(동의 철회) `POST /v1/rpc/delete_my_diagnosis_result` (회원 전용, 신규)
+
+요청 `{ "args": { "p_token": uuid, "p_delete_leads": boolean } }` — `p_token`은 결과 링크의 `access_token`. `p_delete_leads`가 true면 그 결과에 연결된 **본인이 낸**(`user_id` = 나) 강사과정 문의를 먼저 지운다(SC-DEL-CONFIRM-LEAD). false면 문의는 남고 `result_id`만 비워진다(1년 뒤 파기, SC-DEL-CONFIRM-LEAD-HELP).
+
+| 상황 | 응답 |
+|---|---|
+| 내 결과(`user_id` = 나)를 지움. 30문항 응답·동의 기록 함께 삭제 | 200 `{ "data": true }` |
+| 없는 토큰, 이미 지운 결과, 남의 결과, 미연결 비회원 결과 | 200 `{ "data": false }` (구분하지 않는다, 정의서 11.3) |
+| 세션 없음 | 401 `{ code: "unauthenticated" }` |
+| `p_token` 형식 오류·인자 누락 | 400 `{ code: "validation" }` |
+
+- 앱 처리: `true` → `/my?tab=diagnosis&deleted=1`(SC-MY-DEL-DONE). `false`·오류 → SC-MY-DEL-FAIL, 목록 유지.
+- 기록: 동의 기록은 결과 행과 함께 사라진다(5.1, 별도 동의 테이블 없음). 철회 처리 사실은 API 서버 로그에 한 줄 남긴다(`event: "diagnosis_consent_withdrawn"`, `userId`, `deleted`, `leadsDeleted`). 토큰·점수·이름은 남기지 않는다. 관리자 접속 기록(`admin_access_logs`)에는 남기지 않는다(관리자 처리가 아님).
+
+### C3. 내 결과 목록 `POST /v1/rpc/get_my_diagnosis_results` (회원)
+
+응답 행에 `has_lead: boolean` 추가: `{ access_token, recommended_tier, total_score, created_at, has_lead }`. `has_lead`는 그 결과에 본인이 낸 강사과정 문의가 있는지다. 화면은 이 값이 true인 행만 삭제 대화상자에 SC-DEL-CONFIRM-LEAD 체크박스(기본 체크)를 보인다. 결과 상세 화면(`/selfcheck/result/[token]`)에서 지울 때도 같은 목록 값을 쓴다(상세 RPC는 바꾸지 않는다).
+
+### C4. 관리자 진단 목록 `POST /v1/op/admin.listDiagnosisResults` (신규 op, 관리자)
+
+앱의 `getAdminDiagnosisResults`가 `/v1/query`로 `diagnosis_results`를 직접 읽던 것을 이 op로 바꾼다. 마스킹을 API가 하므로 앱 서버에도 원문 이름이 오지 않는다.
+
+요청 `{ "params": { "tier"?: "all" | "level2" | "level1" | "supervision" | "instructor_candidate", "memberOnly"?: "all" | "member" | "non_member", "revealId"?: uuid } }`
+
+- `revealId`: 앱이 기존 reveal 토큰(HMAC, `verifyRevealToken('diagnosis_result', id, adminId, token, exp)`)을 검증한 뒤에만 넘긴다. API는 그 행의 이름·휴대전화·이메일을 원문으로 돌려주고, **같은 트랜잭션에서** 접속 기록 1건을 남긴다: `action = '조회'`, `detail = '진단 결과 개인정보 열람(<id>) fields=name,contact'`, `target_user_id` = 그 행의 `user_id`.
+
+성공 200 `{ "data": { "result": "ok", "rows": [ { "id", "createdAt"(ISO), "respondentName", "phone", "email", "isRevealed", "learningExperience", "totalScore"(number), "recommendedTier", "userId" } ] } }` (최신순)
+
+| 필드 | 가린 값(기본) | 원문(`revealId` 행) |
+|---|---|---|
+| `respondentName` | 첫 글자 + `**` (`홍**`, `N**`, 글자 수와 무관, SC-ADM-MASK-FORMAT). 값 없음은 `-` | 원문(없으면 `-`) |
+| `phone` | `010-****-5678`(숫자 7자리 미만 `***`, 없음 `-`) — 기존 앱 규칙 | 원문(없으면 `-`) |
+| `email` | `ab***@domain`(앞부분 2자 이하 `***@domain`, 없음 `-`) — 기존 앱 규칙 | 원문(없으면 `-`) |
+
+| 상황 | 응답 |
+|---|---|
+| 관리자가 아님 | 200 `{ "data": { "result": "forbidden" } }` |
+| 세션 없음 | 401 `unauthenticated` |
+| `revealId`가 없는 행 | 200 `ok`, 모든 행 가림, 접속 기록 없음 |
+| 접속 기록 실패 | 503 `{ code: "unavailable", message: "log_failed" }`, 원문 없음(롤백) |
+| 파라미터 형식 오류 | 400 `validation` |
+
+목록만 여는 것은 접속 기록을 남기지 않는다(기존과 같다, 이름이 가려져 있으므로).
+
+### C5. 관리자 진단 상세 `POST /v1/op/admin.getDiagnosisResultDetail` (기존 op)
+
+응답 `data`에 3개 추가(그 밖은 그대로): `sensitiveConsentVersion: string | null`, `sensitiveConsentedAt: string(ISO) | null`, `privacyDocVersion: number | null`. 화면은 SC-ADM-CONSENT-VALUE로 그리고, `sensitiveConsentVersion`이 null이면 SC-ADM-CONSENT-NONE(정리 스크립트 전 짧은 구간에만 가능), `privacyDocVersion`이 null이면 SC-ADM-CONSENT-NODOC.
+
+### C6. 동작만 바뀌는 곳(계약 변화 없음)
+
+| 대상 | 바뀐 동작 |
+|---|---|
+| 매일 03:20 `purge_unclaimed_diagnosis_pii()` | 이름·연락처만 비우던 것을 **결과 행 삭제**로(진단일 90일 지난 비회원 결과, 응답 함께). 연결된 문의는 남고 `result_id`만 null. 함수 이름은 스케줄러 등록명 때문에 유지 |
+| 회원 탈퇴 `POST /v1/auth/withdraw` | 그 회원의 결과 행 **전체 삭제**(응답 함께). 문의 삭제는 기존과 같다 |
+
+### SC-SENS-WITHDRAW 결정
+
+**넣는다**(sc-v1 원문에 포함). 동의는 화면 체크로 받는데 철회 방법을 동의 상자에 적지 않으면 "받을 때보다 어렵게"(2.1절 동의 철회 줄)로 보일 수 있고, 회원 셀프 삭제(C2)가 이번에 실제로 생기므로 문장이 사실과 맞는다. 원문은 `data/diagnosis/consent.ts`의 `sc-v1`에 고정했다(privacy-security-officer 점검에서 빼기로 하면 배포 전에만 고친다. 배포 뒤에는 새 버전).
+
+### 배포 순서 (9.3절 수정)
+
+1. 처리방침 v10 CMS 게시(대표).
+2. **DB 패치** `api/db/patches/2026-11-26-diagnosis-consent.sql` (`begin; set local role bara_edu_service; <파일>; commit;`). 이 순간부터 옛 앱·옛 API의 제출은 실패한다(인자 불일치). 그 밖의 옛 API 경로는 그대로 동작한다.
+3. **API 배포**(재시작해 RPC 카탈로그를 다시 읽는다).
+4. 앱 배포(동의 상자, 액션, 초안 v2, 마이페이지 삭제, 관리자 목록 op·상세 동의 줄).
+5. 기존 결과 정리: 먼저 `api/db/patches/2026-11-26-diagnosis-consent-cleanup.sql` 머리말의 건수 쿼리(읽기 전용)를 돌려 대표에게 보고 → 같은 파일을 2와 같은 방식으로 실행. 출력된 건수(`NOTICE diagnosis consent cleanup: ...`)를 운영자 접근 기록에 적는다.
+6. 스모크: 비회원 제출, 회원 제출, 미체크 거부(`consent-required`), 버전 불일치(`consent-outdated`), 셀프 삭제, 관리자 목록 마스킹·개인정보 보기, 상세 동의 줄.
+
+### 9장과 다른 점
+
+| 항목 | 9장 | 확정 | 이유 |
+|---|---|---|---|
+| 배포 순서 | API → 패치 | 패치 → API | 새 API는 RPC 카탈로그를 읽을 때 허용 함수(`delete_my_diagnosis_result`)가 DB에 없으면 모든 `/v1/rpc` 호출을 실패시킨다(퀴즈·시험 포함). 관리자 op도 새 컬럼을 읽는다. 반대로 패치는 옛 API와 호환된다(제출만 실패, 이는 9.3이 이미 허용한 구간) |
+| 동의 없음 오류 | 일반 오류 | 400 `validation` + `field: "consent"` | SC-ERR-CONSENT 대응(문구 문서 "열린 문제 처리"에서 backend가 확정) |
+| DB 규칙 | 짝 제약 → 정리 뒤 not null | 패치에서 바로 "둘 다 있어야 함" 검사 제약(`not valid`) → 정리 스크립트에서 `validate` + `not null` | 패치 직후부터 새 행은 동의 없이 저장될 수 없다. `not valid`라 기존 행은 정리 전까지 남는다. 단 이 구간에 변경 전 결과를 **연결(claim)**하면 제약에 걸려 실패한다(그 결과는 당일 정리로 지워지므로 허용) |
+| 관리자 목록 | 앱이 마스킹 | API op(C4)가 마스킹 + reveal 접속 기록을 같은 트랜잭션으로 | 앱 서버에도 원문 이름이 오지 않고, 기록 실패 시 원문이 나가지 않는다(상세 op와 같은 원칙) |
+| `get_my_diagnosis_results` | 변경 없음 | `has_lead` 추가 | 문구 문서 8장 "상담 문의 유무를 화면이 알아야 한다" |
+| 비로그인 삭제 호출 | 401 | 401(`unauthenticated`) | 같음. 다른 로그인 전용 RPC는 기존대로 403(42501)이고 이 함수만 401로 바꿨다 |
