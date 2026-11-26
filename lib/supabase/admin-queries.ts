@@ -1616,3 +1616,66 @@ function maskContact(contact: string | null | undefined): string {
   if (contact.includes('@')) return maskEmail(contact);
   return maskPhone(contact);
 }
+
+// ---- 최근 7일 보안 이벤트(관리자 2단계 인증 M7, 기획서 3.8) ----
+// 관리자 계정의 2단계 인증·비밀번호 사건만. IP와 detail 원문은 화면에 내지 않고 사건 종류·사유 키·알림 대상 없음 표시만 뽑는다.
+// 이 조회는 회원 개인정보가 아닌 관리자 계정 보안 기록이라 별도 '조회' 접속 기록을 남기지 않는다(3.8).
+
+export type SecurityEventKind = 'enrolled' | 'reset' | 'ticket' | 'locked' | 'locked_daily' | 'unlocked' | 'recovery' | 'pwreset';
+export type SecurityEvent = { id: string; at: string; targetName: string | null; kind: SecurityEventKind; reason: string | null; selfOnly: boolean };
+
+const SECURITY_ACTIONS: Record<string, SecurityEventKind> = {
+  '2단계인증등록': 'enrolled',
+  '2단계인증초기화': 'reset',
+  '2단계인증등록코드발급': 'ticket',
+  '2단계인증잠김': 'locked',
+  '2단계인증잠금해제': 'unlocked',
+  '비밀번호재설정': 'pwreset',
+};
+
+function securityKind(action: string, detail: string): SecurityEventKind | null {
+  if (action === '로그인') return detail.startsWith('mfa=recovery') ? 'recovery' : null;
+  const kind = SECURITY_ACTIONS[action] ?? null;
+  if (kind === 'locked' && /(^|;)limit=daily(;|$)/.test(detail)) return 'locked_daily';
+  return kind;
+}
+
+// onlyUserId: 내 보안 설정(M4)은 내 계정의 사건만. 실패하면 null — 카드만 "불러오지 못했어요"(대시보드 나머지는 정상).
+export async function getAdminSecurityEvents(opts: { onlyUserId?: string; now?: number } = {}): Promise<SecurityEvent[] | null> {
+  try {
+    const supabase = await createClient();
+    const since = new Date((opts.now ?? Date.now()) - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const actions = Object.keys(SECURITY_ACTIONS).map((a) => `action.eq.${a}`);
+    let query = supabase
+      .from('admin_access_logs')
+      .select('id, target_user_id, action, detail, created_at')
+      .gte('created_at', since)
+      .or([...actions, 'and(action.eq.로그인,detail.like.mfa=recovery%)'].join(','));
+    if (opts.onlyUserId) query = query.eq('target_user_id', opts.onlyUserId);
+    const { data, error } = await query.order('created_at', { ascending: false }).limit(20);
+    if (error) return null;
+    type Row = { id: string; target_user_id: string | null; action: string; detail: string | null; created_at: string };
+    const rows = (data ?? []) as Row[];
+    const ids = [...new Set(rows.map((r) => r.target_user_id).filter((v): v is string => Boolean(v)))];
+    const names = new Map(
+      ids.length ? (await selectIn<{ id: string; name: string | null }>(supabase, 'profiles', 'id, name', 'id', ids)).map((p) => [p.id, p.name]) : [],
+    );
+    const out: SecurityEvent[] = [];
+    for (const r of rows) {
+      const detail = r.detail ?? '';
+      const kind = securityKind(r.action, detail);
+      if (!kind) continue;
+      out.push({
+        id: r.id,
+        at: r.created_at,
+        targetName: (r.target_user_id && names.get(r.target_user_id)) || null,
+        kind,
+        reason: kind === 'reset' ? (/(^|;)reason=([a-z_]+)/.exec(detail)?.[2] ?? null) : null,
+        selfOnly: /(^|;)alert=self_only(;|$)/.test(detail),
+      });
+    }
+    return out;
+  } catch {
+    return null;
+  }
+}

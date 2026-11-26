@@ -1,4 +1,5 @@
 import 'server-only';
+import { cache } from 'react';
 import { apiFetch, type ApiResult } from './api';
 import { clearMfaChallenge, readSession, writeSession } from './session-cookie';
 
@@ -218,14 +219,15 @@ function asStatus(d: unknown): MfaStatus | null {
 }
 
 // 옛 API는 경로가 없어 404 → 'unsupported'. 화면은 "준비 중"으로 두거나 숨긴다(배포 순서 호환).
-export async function getMfaStatus(): Promise<{ ok: true; status: MfaStatus } | MfaFailure> {
+// 관리자 화면 틀(배너·메뉴)과 페이지가 같은 요청에서 함께 부르므로 렌더 한 번에 한 번만 호출한다(react cache).
+export const getMfaStatus = cache(async (): Promise<{ ok: true; status: MfaStatus } | MfaFailure> => {
   const session = await readSession();
   if (!session) return { ok: false, reason: 'unauthenticated' };
   const r = await apiFetch('/v1/auth/mfa/status', { method: 'GET', session });
   if (!r.ok) return toMfaFailure(r);
   const status = asStatus(r.data);
   return status ? { ok: true, status } : { ok: false, reason: 'failed' };
-}
+});
 
 export async function regenerateRecoveryCodes(code: string): Promise<{ ok: true; recoveryCodes: string[] } | MfaFailure> {
   const r = await post<{ recoveryCodes: string[] }>('/v1/auth/mfa/recovery-codes', { code }, await readSession());

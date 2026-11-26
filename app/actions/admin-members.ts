@@ -5,6 +5,9 @@ import { redirect } from 'next/navigation';
 import { isNameChanged, isPhoneChanged, normalizeName, normalizePhone, REASONS, type ProfileSaveInput, type SaveOutcome } from '@/lib/admin-profile-edit';
 import { listMemberProfileEditsApi, updateMemberProfileApi, type ProfileEditItem, type UpdateMemberProfileInput, type UpdateMemberProfileResult } from '@/lib/db/admin-profile';
 import { adminConfirmEmail, adminSendReset } from '@/lib/db/auth';
+import { ADMIN_RESET_REASONS, adminResetMfa, type AdminResetReason } from '@/lib/db/mfa';
+import { isOtp, kstWhen, normalizeOtp } from '@/lib/mfa-format';
+import type { AdminResetField, AdminResetState } from '@/lib/mfa-setup-types';
 import { getSiteOrigin } from '@/lib/site-origin';
 import { logAdminAccess } from '@/lib/supabase/admin-queries';
 import { requireAdminClient } from '@/lib/supabase/require-admin';
@@ -130,4 +133,60 @@ export async function loadMemberProfileEdits(memberId: string, limit = 50): Prom
   if (r.ok) return { ok: true, items: r.items, hasMore: r.hasMore };
   if (r.reason === 'unauthenticated') redirect('/sign-in');
   return { ok: false };
+}
+
+// ---- 다른 관리자의 2단계 인증 초기화·등록 코드 만들기(M5, 기획서 2.7.2·3.6·4.6.1, 디자인 스펙 T-9.2) ----
+// 대상 검사·권한·기록(2단계인증초기화)은 API가 한 트랜잭션으로 한다. 앱은 입력 검사와 화면 상태만.
+// 메모는 API가 저장하지 않는다(검증만, 4.11 D-11). 등록 코드는 상태로 한 번만 돌려주고 로그·URL에 싣지 않는다.
+export async function resetAdminMfa(targetId: string, _prev: AdminResetState, formData: FormData): Promise<AdminResetState> {
+  const checked = formData.get('identityChecked') === 'on';
+  const reason = formData.get('reason');
+  const memo = ((formData.get('memo') as string | null) ?? '').trim();
+  const code = normalizeOtp((formData.get('code') as string | null) ?? '');
+
+  const fields: AdminResetField[] = [];
+  if (!checked) fields.push('check');
+  const validReason = typeof reason === 'string' && (ADMIN_RESET_REASONS as readonly string[]).includes(reason);
+  if (!validReason) fields.push('reason');
+  if (memo.length > 200) fields.push('memo_long');
+  else if ((reason === 'other' && memo.length < 5) || (memo.length > 0 && memo.length < 5)) fields.push('memo');
+  if (!isOtp(code)) fields.push('code_format');
+  if (fields.length) return { done: false, fields };
+
+  const r = await adminResetMfa(targetId, { code, reason: reason as AdminResetReason, memo: memo || null, identityChecked: true });
+  if (r.ok) {
+    revalidatePath(`/admin/members/${targetId}`);
+    revalidatePath('/admin/operators');
+    return { done: true, ticket: r.enrollTicket, validUntil: kstWhen(r.ticketExpiresAt) };
+  }
+  switch (r.reason) {
+    case 'wrong_code':
+      return { done: false, fields: ['code_wrong'] };
+    case 'code_reused':
+      return { done: false, fields: ['code_used'] };
+    case 'validation':
+      return { done: false, fields: [r.field === 'memo' ? 'memo' : r.field === 'reason' ? 'reason' : 'code_format'] };
+    case 'mfa_locked':
+      return { done: false, lock: { lockScope: r.lockScope ?? 'account', minutes: r.retryAfterMinutes ?? 15 } };
+    case 'target_not_admin':
+    case 'target_withdrawn':
+    case 'not_found':
+    case 'not_admin':
+      return { done: false, notice: 'target_changed' };
+    case 'self_reset':
+      return { done: false, notice: 'self' };
+    case 'log_failed':
+      return { done: false, notice: 'log_failed' };
+    case 'rate_limited':
+      return { done: false, notice: 'rate_limited' };
+    case 'unavailable':
+    case 'unsupported':
+      return { done: false, notice: 'unavailable' };
+    case 'unauthenticated':
+      return { done: false, notice: 'session' };
+    case 'mfa_session_required':
+      return { done: false, notice: 'need_mfa' };
+    default:
+      return { done: false, notice: 'failed' };
+  }
 }

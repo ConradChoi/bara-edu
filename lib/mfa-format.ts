@@ -98,3 +98,13 @@ export function spokenCode(code: string, groupSize?: number): string {
   const groups = code.includes('-') || code.includes(' ') ? code.split(/[-\s]+/).filter(Boolean) : groupSize ? (code.match(new RegExp(`.{1,${groupSize}}`, 'g')) ?? []) : [code];
   return groups.map((g) => [...g].join(' ')).join(', ');
 }
+
+// 관리자 화면 틀(AdminShell)의 2단계 인증 부분: 배너 하나와 "내 보안 설정" 메뉴 표시 여부.
+// 옛 API(경로 없음 404 → unsupported, 배포 순서 앱 → DB → API)에서는 배너도 메뉴도 없다 — 지금 화면과 같다.
+// 그 밖의 조회 실패는 배너만 없고 메뉴는 둔다(내 보안 설정 화면이 조회 실패를 알린다).
+export type AdminMfaChrome = { banner: MfaBanner | null; showSecurityMenu: boolean };
+
+export function adminMfaChrome(r: { ok: true; status: MfaStatus } | { ok: false; reason: string }, now: number = Date.now()): AdminMfaChrome {
+  if (!r.ok) return { banner: null, showSecurityMenu: r.reason !== 'unsupported' };
+  return { banner: pickMfaBanner(r.status, now), showSecurityMenu: true };
+}

@@ -1,9 +1,12 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import AdminTable from '@/components/admin/AdminTable';
+import SecurityEventsCard from '@/components/admin/SecurityEventsCard';
 import StatusBadge from '@/components/admin/StatusBadge';
+import { getMfaStatus } from '@/lib/db/mfa';
 import { formatKstDisplay } from '@/lib/kst';
 import {
+  getAdminSecurityEvents,
   getAdminDashboardStats,
   getNearCompletionLearners,
   getOverCapacityCourses,
@@ -26,10 +29,13 @@ export default async function AdminDashboardPage() {
   // 의존해 나머지 쿼리보다 실패 가능성이 높다 — 하나의 Promise.all에 묶으면 이 둘의 실패가
   // 신청/입금 등 기존 핵심 카드까지 함께 무너뜨린다. 별도 allSettled로 격리해 실패해도
   // 나머지 대시보드는 정상 렌더링되도록 한다(qa-reviewer 지적, 2026-09-09).
-  const [[stats, overCapacity, nearCompletion, signupSummary, signupTrend], [recentSignupsResult, unconfirmedResult]] =
+  // 보안 이벤트 카드(M7)는 실패해도 null로 끝나 카드만 "불러오지 못했어요"가 된다(나머지 대시보드는 정상).
+  const [[stats, overCapacity, nearCompletion, signupSummary, signupTrend], [recentSignupsResult, unconfirmedResult], securityEvents] =
     await Promise.all([
       Promise.all([getAdminDashboardStats(), getOverCapacityCourses(), getNearCompletionLearners(), getSignupSummary(), getSignupTrend()]),
       Promise.allSettled([getRecentSignups(), getUnconfirmedMemberStats()]),
+      // 옛 API(2단계 인증 경로 없음)와 함께 도는 동안에는 카드를 숨긴다(배포 순서 호환)
+      getMfaStatus().then((st) => (!st.ok && st.reason === 'unsupported' ? undefined : getAdminSecurityEvents())),
     ]);
 
   const recentSignups = recentSignupsResult.status === 'fulfilled' ? recentSignupsResult.value : [];
@@ -50,6 +56,8 @@ export default async function AdminDashboardPage() {
   return (
     <div className="flex flex-col gap-6">
       <h1 className="text-[20px] font-semibold text-n-9">대시보드</h1>
+
+      {securityEvents !== undefined && <SecurityEventsCard events={securityEvents} />}
 
       <section className="flex flex-col gap-2">
         <p className="text-[12px] font-semibold uppercase tracking-wide text-n-5">신청·수료</p>

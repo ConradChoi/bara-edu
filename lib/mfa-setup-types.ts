@@ -40,3 +40,12 @@ export type SetupView =
   | { step: 'changed' }
   // 로그인 중(입구 B) 상태 화면: 대기표 만료·계정 변경·등록 코드 사용 불가·복구 코드 단계 새로고침
   | { step: 'end'; screen: 'expired' | 'demoted' | 'ticket_dead' | 'reload' };
+
+// ---- M5 관리자 회원 상세의 2단계 인증 초기화(기획서 3.6, 4.6.1, 디자인 스펙 T-9.2·T-9.3) ----
+// done: 등록 코드는 이 응답 한 번만(복사 버튼 없음, 전화로만). validUntil은 서버가 만든 서울 시각 문구.
+export type AdminResetField = 'check' | 'reason' | 'memo' | 'memo_long' | 'code_format' | 'code_wrong' | 'code_used';
+export type AdminResetNotice = 'target_changed' | 'self' | 'log_failed' | 'unavailable' | 'rate_limited' | 'session' | 'need_mfa' | 'failed';
+export type AdminResetState =
+  | { done: true; ticket: string; validUntil: string }
+  | { done: false; fields?: AdminResetField[]; notice?: AdminResetNotice; lock?: LockInfo }
+  | undefined;

@@ -1,6 +1,8 @@
 import { redirect } from 'next/navigation';
 import AdminShell from '@/components/admin/AdminShell';
+import { getMfaStatus } from '@/lib/db/mfa';
 import { createClient } from '@/lib/db/server';
+import { adminMfaChrome } from '@/lib/mfa-format';
 
 // role='admin' 검증은 proxy.ts가 이미 수행하지만, 서버
 // 액션마다 requireAdminClient()로 재검증하게 만든 것과 같은 이유로 레이아웃 자체도
@@ -17,5 +19,12 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const { data: profile } = await supabase.from('profiles').select('name, role').eq('id', user.id).single();
   if (profile?.role !== 'admin') redirect('/');
 
-  return <AdminShell adminName={profile?.name ?? '관리자'}>{children}</AdminShell>;
+  // 2단계 인증 상태는 화면마다 한 번(배너·메뉴). 실패해도 관리자 화면은 그대로 그린다.
+  const mfa = adminMfaChrome(await getMfaStatus().catch(() => ({ ok: false as const, reason: 'failed' })));
+
+  return (
+    <AdminShell adminName={profile?.name ?? '관리자'} mfa={mfa}>
+      {children}
+    </AdminShell>
+  );
 }
