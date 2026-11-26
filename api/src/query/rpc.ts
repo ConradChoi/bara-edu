@@ -21,8 +21,13 @@ export const RPC_ALLOW = [
   'get_diagnosis_detail',
   'get_course_exam_readiness',
   'get_course_exam',
+  'delete_my_diagnosis_result',
   'claim_diagnosis',
 ] as const;
+
+// 세션 없이 부르면 DB까지 가지 않고 401 unauthenticated로 답하는 함수(API 계약 C2). 그 밖의 로그인 전용 함수는
+// 기존대로 실행 권한 회수(403 42501)로 막는다.
+const RPC_LOGIN_REQUIRED: ReadonlySet<string> = new Set(['delete_my_diagnosis_result']);
 
 export type RpcArg = { name: string; type: string; hasDefault: boolean };
 export type RpcFn = { name: string; args: RpcArg[]; setof: boolean; isVoid: boolean };
@@ -112,6 +117,7 @@ export function registerRpcRoutes(app: FastifyInstance, getCatalog: () => Promis
     const cat = await getCatalog();
     const fn = cat.get(req.params.fn);
     if (!fn) return sendError(reply, 'not_found', '요청한 경로를 찾을 수 없습니다.');
+    if (RPC_LOGIN_REQUIRED.has(fn.name) && !req.auth.userId) return sendError(reply, 'unauthenticated', '로그인이 필요합니다.');
     const parsed = bodySchema.safeParse(req.body ?? {});
     if (!parsed.success) return sendError(reply, 'validation', '요청 형식이 올바르지 않습니다.');
     let call: ReturnType<typeof buildRpcCall>;
@@ -129,6 +135,10 @@ export function registerRpcRoutes(app: FastifyInstance, getCatalog: () => Promis
     const userId = req.auth.userId;
     try {
       const data = userId ? await withUser(app.deps.pool, userId, exec) : await withAnon(app.deps.pool, exec);
+      // 민감정보 동의 철회(결과 셀프 삭제) 처리 사실만 남긴다: 가명 식별자(userId)와 결과·요청 여부. 토큰·점수·이름은 남기지 않는다(API 계약 C2).
+      if (fn.name === 'delete_my_diagnosis_result') {
+        req.log.info({ event: 'diagnosis_consent_withdrawn', userId, deleted: data === true, deleteLeads: parsed.data.args.p_delete_leads === true }, 'diagnosis result self-delete');
+      }
       return { data };
     } catch (err) {
       const mapped = toDbError(err);

@@ -36,3 +36,24 @@ test('상세: 성공 때만 detail을 돌려주고, 실패 결과에는 detail�
   apiFetch.mockRejectedValueOnce(new Error('down'));
   expect(await getDiagnosisResultDetailApi('r')).toEqual({ ok: false, reason: 'failed' });
 });
+
+test('목록(C4): admin.listDiagnosisResults를 params로 부르고, 가린 행을 그대로 돌려준다', async () => {
+  const { listDiagnosisResultsApi } = await import('@/lib/db/admin-diagnosis');
+  const rows = [{ id: 'r', createdAt: 'x', respondentName: '홍**', phone: '010-****-5678', email: 'ab***@d.kr', isRevealed: false, learningExperience: 'none', totalScore: 1, recommendedTier: 'level1', userId: null }];
+  apiFetch.mockResolvedValueOnce(ok({ result: 'ok', rows }));
+  expect(await listDiagnosisResultsApi({ tier: 'level1', memberOnly: 'all' })).toEqual({ ok: true, rows });
+  expect(apiFetch).toHaveBeenCalledWith('/v1/op/admin.listDiagnosisResults', { method: 'POST', session: 'tok', body: { params: { tier: 'level1', memberOnly: 'all' } } });
+  apiFetch.mockResolvedValueOnce(ok({ result: 'ok', rows }));
+  await listDiagnosisResultsApi({ revealId: 'r' });
+  expect(apiFetch.mock.calls[1][1].body).toEqual({ params: { revealId: 'r' } });
+  apiFetch.mockResolvedValueOnce(ok({ result: 'forbidden' }));
+  expect(await listDiagnosisResultsApi({})).toEqual({ ok: false, reason: 'forbidden' });
+  apiFetch.mockResolvedValueOnce({ ok: false, status: 503, error: { code: 'unavailable', message: 'log_failed' } });
+  expect(await listDiagnosisResultsApi({ revealId: 'r' })).toEqual({ ok: false, reason: 'log_failed' });
+  apiFetch.mockResolvedValueOnce({ ok: false, status: 401, error: { code: 'unauthenticated', message: 'x' } });
+  expect(await listDiagnosisResultsApi({})).toEqual({ ok: false, reason: 'unauthenticated' });
+  apiFetch.mockResolvedValueOnce({ ok: false, status: 400, error: { code: 'validation', message: 'x' } });
+  expect(await listDiagnosisResultsApi({})).toEqual({ ok: false, reason: 'failed' });
+  apiFetch.mockRejectedValueOnce(new Error('down'));
+  expect(await listDiagnosisResultsApi({})).toEqual({ ok: false, reason: 'failed' });
+});

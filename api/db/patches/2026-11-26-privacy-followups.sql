@@ -1,5 +1,7 @@
 -- 운영 DB 패치: 개인정보 후속 (2026-11-26) — 함수 1개 교체 + 리드 update 정책 제거
 --
+-- 경고: 2026-11-26-diagnosis-consent.sql 적용 후 재적용 금지 (파기 함수가 되돌아감)
+--
 -- 대상: public.purge_unclaimed_diagnosis_pii (api/db/02-schema.sql의 같은 정의와 동일, 동기화 테스트로 확인)
 -- 변경: 대상 조건을 `respondent_name is not null`에서 `(respondent_name is not null or phone is not null or email is not null)`로 넓힌다.
 --       이름이 먼저 비워진 비회원 행(정정·삭제 처리 등)도 90일이 지나면 phone·email이 파기된다(절차 문서 R2). 비우는 컬럼은 그대로다.

@@ -87,8 +87,9 @@ async function seedSource(db: Db): Promise<void> {
     insert into course_exam_submissions (user_id, course_id, score, passed, attempt_no) values ('${ids.learner}', '${ids.course}', 50, false, 1), ('${ids.learner}', '${ids.course}', 90, true, 2);
     insert into admin_access_logs (admin_id, target_user_id, action) values ('${ids.admin}', '${ids.learner}', '조회');
     insert into diagnosis_results (id, user_id, learning_experience, age_confirmed, version, score_theory, score_reading, score_analysis,
-                                   score_counseling, score_case_record, score_teaching, total_score, recommended_tier, strength_areas, consent_privacy)
-      values ('${ids.diag}', '${ids.learner}', 'none', true, 'v1', 1, 2, 3, 4, 5, 6, 87.25, 'level1', '{theory,"reading, deep"}', true);
+                                   score_counseling, score_case_record, score_teaching, total_score, recommended_tier, strength_areas, consent_privacy,
+                                   sensitive_consent_version, sensitive_consented_at)
+      values ('${ids.diag}', '${ids.learner}', 'none', true, 'v1', 1, 2, 3, 4, 5, 6, 87.25, 'level1', '{theory,"reading, deep"}', true, 'sc-v1', now());
     insert into diagnosis_answers (result_id, item_code, score) values ('${ids.diag}', 'T1', 3), ('${ids.diag}', 'T2', 4);
     update diagnosis_course_links set course_id = '${ids.course}', cta_label = '운영에서 고친 문구' where tier = 'level1';
     commit;`);

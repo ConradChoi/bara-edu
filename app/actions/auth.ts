@@ -1,5 +1,6 @@
 'use server';
 
+import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import * as auth from '@/lib/db/auth';
 import * as mfa from '@/lib/db/mfa';
@@ -7,6 +8,7 @@ import { clearMfaChallenge, readMfaChallenge } from '@/lib/db/session-cookie';
 import { isOtp, isTicket, normalizeOtp, normalizeTicket } from '@/lib/mfa-format';
 import { enrollEndOf, lockOf, noticeOf, profileNameFor, qrView, todayLong } from '@/lib/mfa-setup';
 import type { MfaLoginState, SetupView } from '@/lib/mfa-setup-types';
+import { RECENT_SUBMIT_COOKIE } from '@/data/diagnosis/config';
 import { siteConfig } from '@/data/site-config';
 import { getSiteOrigin } from '@/lib/site-origin';
 import { FIELD_MESSAGES, LIMITS, MSG_PASSWORD_MISMATCH, MSG_RATE_LIMITED, MSG_UNAVAILABLE, isApiEmail } from '@/lib/form-messages';
@@ -366,6 +368,14 @@ export async function otpSetupStep(_prev: SetupView, formData: FormData): Promis
 
 export async function logout() {
   await auth.logout();
+  // 자가진단 결과 연결용 쿠키(제출한 브라우저 표시)도 함께 지운다. 공용 기기에서 로그아웃한 뒤 남지 않게(개인정보 점검 R-4).
+  // 브라우저 임시 저장 초안(localStorage)은 서버가 못 지우므로 로그아웃 버튼(LogoutForm)이 보내기 전에 지운다.
+  try {
+    (await cookies()).delete({ name: RECENT_SUBMIT_COOKIE, path: '/selfcheck' });
+  } catch {
+    // 쿠키 삭제 실패가 로그아웃을 막으면 안 된다. 값(토큰)은 남기지 않고 한 줄만 기록한다.
+    console.error('[logout] selfcheck result cookie delete failed');
+  }
   redirect('/');
 }
 

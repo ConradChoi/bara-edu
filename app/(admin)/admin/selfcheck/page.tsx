@@ -3,7 +3,9 @@ import Link from 'next/link';
 import { hideDiagnosisResultContact, revealDiagnosisResultContact } from '@/app/actions/admin-diagnosis';
 import AdminTable from '@/components/admin/AdminTable';
 import StatusBadge from '@/components/admin/StatusBadge';
+import { redirect } from 'next/navigation';
 import { DIAGNOSIS_LEARNING_EXPERIENCE_LABELS, DIAGNOSIS_TIER_LABELS } from '@/data/diagnosis/config';
+import { ADMIN_DIAGNOSIS_COPY } from '@/data/diagnosis/consent-copy';
 import { getAdminDiagnosisResults } from '@/lib/supabase/admin-queries';
 
 export const metadata: Metadata = { title: '진단 결과 조회 | 관리자' };
@@ -34,10 +36,13 @@ export default async function AdminDiagnosisResultsPage({
   }>;
 }) {
   const { tier = 'all', memberOnly = 'all', revealPii, revealToken, revealExp, revealFailed } = await searchParams;
-  const results = await getAdminDiagnosisResults(
-    { tier, memberOnly: memberOnly as 'all' | 'member' | 'non_member' },
+  // 이름·연락처는 API가 가려서 준다(홍**). [개인정보 보기]로 검증된 한 행만 원문 + 접속 기록(API 계약 C4).
+  const page = await getAdminDiagnosisResults(
+    { tier, memberOnly },
     { id: revealPii, token: revealToken, exp: revealExp ? Number(revealExp) : undefined }
   );
+  if (!page.ok && page.reason === 'unauthenticated') redirect('/sign-in');
+  const results = page.ok ? page.rows : [];
 
   function filterHref(nextTier: string, nextMemberOnly: string) {
     const params = new URLSearchParams();
@@ -50,6 +55,17 @@ export default async function AdminDiagnosisResultsPage({
   return (
     <div className="flex flex-col gap-4">
       <h1 className="text-[20px] font-semibold text-n-9">진단 결과 조회</h1>
+
+      {page.ok && page.revealFailed && (
+        <div role="alert" className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger">
+          접속 기록을 남기지 못해 개인정보를 보여 드리지 않았어요. 잠시 후 다시 시도해 주세요.
+        </div>
+      )}
+      {!page.ok && (
+        <div role="alert" className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger">
+          {page.reason === 'forbidden' ? '진단 결과를 볼 권한이 없어요.' : '진단 결과를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.'}
+        </div>
+      )}
 
       {revealFailed === '1' && (
         <div className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger">
@@ -83,6 +99,8 @@ export default async function AdminDiagnosisResultsPage({
         ))}
       </div>
 
+      <p className="text-[12px] text-n-7">{ADMIN_DIAGNOSIS_COPY.maskHint}</p>
+
       <AdminTable>
         <thead>
           <tr>
@@ -100,12 +118,12 @@ export default async function AdminDiagnosisResultsPage({
           {results.length === 0 ? (
             <tr>
               <td colSpan={8} className="py-10 text-center text-n-6">
-                진단 결과가 없어요.
+                {page.ok ? '진단 결과가 없어요.' : '-'}
               </td>
             </tr>
           ) : (
             results.map((r) => (
-              <tr key={r.id}>
+              <tr key={r.id} className={r.isRevealed ? 'bg-warning/10' : undefined}>
                 <td>{new Date(r.createdAt).toLocaleString('ko-KR', { dateStyle: 'short', timeStyle: 'short' })}</td>
                 <td>
                   <Link href={`/admin/selfcheck/${r.id}`} className="font-medium text-indigo underline-offset-2 hover:underline">
@@ -145,8 +163,8 @@ export default async function AdminDiagnosisResultsPage({
         </tbody>
       </AdminTable>
 
-      <p className="text-[11.5px] text-n-5">
-        &quot;개인정보 보기&quot;를 누르면 연락처 원문이 표시되고, 이 열람은 접속기록(admin_access_logs)에 남습니다.
+      <p className="text-[12px] text-n-6">
+        &quot;개인정보 보기&quot;를 누르면 그 행의 이름·연락처 원문이 표시되고, 이 열람은 접속기록(admin_access_logs)에 남습니다.
       </p>
     </div>
   );

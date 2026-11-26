@@ -15,5 +15,6 @@ revoke execute on function public.get_diagnosis_detail(uuid) from bara_edu_anon;
 revoke execute on function public.purge_unclaimed_diagnosis_pii() from public, bara_edu_anon, bara_edu_authenticated;
 revoke execute on function public.purge_old_diagnosis_leads() from public, bara_edu_anon, bara_edu_authenticated;
 revoke execute on function public.get_my_diagnosis_results() from bara_edu_anon;
+revoke execute on function public.delete_my_diagnosis_result(uuid, boolean) from bara_edu_anon;
 
 reset role;

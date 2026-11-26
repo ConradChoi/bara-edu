@@ -6,6 +6,7 @@ import { defineOp, OpError } from './registry.js';
 // 관리자 도형심리 진단 기능의 접속 기록 연동(처리방침 제8조 제5항).
 //  - admin.updateDiagnosisLead: 강사과정 문의(리드)의 상태 전환·메모 수정. 변경과 접속 기록('수정')이 한 트랜잭션이다.
 //  - admin.getDiagnosisResultDetail: 진단 결과 상세 원문 조회. 조회와 접속 기록('조회')이 한 트랜잭션이다.
+//  - admin.listDiagnosisResults: 진단 결과 목록. 이름·연락처는 가려서 내려 주고, revealId 한 행만 원문 + 접속 기록('조회')을 한 트랜잭션으로.
 // 접속 기록 insert가 실패하면 OpError(503, log_failed)로 롤백한다 — 변경은 취소되고 조회 응답에는 원문이 실리지 않는다.
 // 업무 결과는 HTTP 200의 data.result로 돌려준다(admin.updateMemberProfile과 같다).
 
@@ -81,6 +82,7 @@ type ResultRow = {
   total_score: string | number; recommended_tier: string; user_id: string | null;
   score_theory: number; score_reading: number; score_analysis: number; score_counseling: number; score_case_record: number; score_teaching: number;
   strength_areas: string[] | null; improvement_areas: string[] | null;
+  sensitive_consent_version: string | null; sensitive_consented_at: Date | null; consent_privacy_doc_version: number | null;
 };
 
 export const adminGetDiagnosisResultDetail = defineOp({
@@ -94,7 +96,8 @@ export const adminGetDiagnosisResultDetail = defineOp({
     }
     const r = await tx.query<ResultRow>(
       `select id, created_at, respondent_name, phone, email, learning_experience, total_score, recommended_tier, user_id,
-              score_theory, score_reading, score_analysis, score_counseling, score_case_record, score_teaching, strength_areas, improvement_areas
+              score_theory, score_reading, score_analysis, score_counseling, score_case_record, score_teaching, strength_areas, improvement_areas,
+              sensitive_consent_version, sensitive_consented_at, consent_privacy_doc_version
          from diagnosis_results where id = $1`,
       [id],
     );
@@ -125,6 +128,103 @@ export const adminGetDiagnosisResultDetail = defineOp({
       strengthAreas: row.strength_areas ?? [],
       improvementAreas: row.improvement_areas ?? [],
       answers: a.rows.map((x) => ({ itemCode: x.item_code, score: x.score })),
+      // 동의 기록(API 계약 C5). 정리 스크립트 뒤에는 민감정보 동의 두 값이 항상 있다.
+      sensitiveConsentVersion: row.sensitive_consent_version,
+      sensitiveConsentedAt: row.sensitive_consented_at ? row.sensitive_consented_at.toISOString() : null,
+      privacyDocVersion: row.consent_privacy_doc_version,
+    };
+  },
+});
+
+// ---------------- 진단 결과 목록(이름 가림, API 계약 C4) ----------------
+
+export const REVEAL_LOG_ACTION = '조회';
+
+// 이름: 첫 글자 + '**'(글자 수와 무관, SC-ADM-MASK-FORMAT). 첫 글자는 코드 포인트 기준(확장 한자 등이 반쪽으로 잘리지 않게).
+export function maskName(name: string | null | undefined): string {
+  const t = (name ?? '').trim();
+  if (!t) return '-';
+  return `${Array.from(t)[0]}**`;
+}
+
+// 휴대전화·이메일 가림 규칙은 앱(lib/supabase/admin-queries.ts의 maskPhone·maskEmail)이 쓰던 것과 같다.
+export function maskPhone(phone: string | null | undefined): string {
+  if (!phone) return '-';
+  const digits = phone.replace(/[^0-9]/g, '');
+  if (digits.length < 7) return '***';
+  return `${digits.slice(0, 3)}-****-${digits.slice(-4)}`;
+}
+
+export function maskEmail(email: string | null | undefined): string {
+  if (!email) return '-';
+  const at = email.indexOf('@');
+  if (at <= 0) return '***';
+  const local = email.slice(0, at);
+  const domain = email.slice(at + 1);
+  if (local.length <= 2) return `***@${domain}`;
+  return `${local.slice(0, 2)}***@${domain}`;
+}
+
+const TIERS = ['level2', 'level1', 'supervision', 'instructor_candidate'] as const;
+
+type ListRow = {
+  id: string; created_at: Date; respondent_name: string | null; phone: string | null; email: string | null;
+  learning_experience: string; total_score: string | number; recommended_tier: string; user_id: string | null;
+};
+
+export const adminListDiagnosisResults = defineOp({
+  name: 'admin.listDiagnosisResults',
+  access: 'service',
+  params: z
+    .object({
+      tier: z.enum(['all', ...TIERS]).optional(),
+      memberOnly: z.enum(['all', 'member', 'non_member']).optional(),
+      // 앱이 reveal 토큰(HMAC)을 검증한 뒤에만 넘긴다. 이 행만 원문으로 내려 주고 같은 트랜잭션에서 접속 기록을 남긴다.
+      revealId: z.string().uuid().optional(),
+    })
+    .strict(),
+  async run({ tx, userId, ip, warn }, p) {
+    if (!userId || !(await isAdmin(tx, userId))) {
+      warn('admin.listDiagnosisResults forbidden');
+      return { result: 'forbidden' };
+    }
+    const where: string[] = [];
+    const values: unknown[] = [];
+    if (p.tier && p.tier !== 'all') {
+      values.push(p.tier);
+      where.push(`recommended_tier = $${values.length}::diagnosis_tier`);
+    }
+    if (p.memberOnly === 'member') where.push('user_id is not null');
+    if (p.memberOnly === 'non_member') where.push('user_id is null');
+    const r = await tx.query<ListRow>(
+      `select id, created_at, respondent_name, phone, email, learning_experience, total_score, recommended_tier, user_id
+         from diagnosis_results ${where.length ? `where ${where.join(' and ')}` : ''}
+        order by created_at desc, id`,
+      values,
+    );
+
+    // 원문을 내려 줄 행은 이번 목록 안에 있어야 한다(필터 밖 행·없는 행은 아무것도 열지 않고 기록도 남기지 않는다).
+    const target = p.revealId ? r.rows.find((x) => x.id === p.revealId) : undefined;
+    // 기록이 먼저 성공해야 응답이 나간다. 실패하면 OpError(503 log_failed)로 끝나 원문이 응답에 실리지 않는다.
+    if (target) await writeLog(tx, userId, target.user_id, REVEAL_LOG_ACTION, `진단 결과 개인정보 열람(${target.id}) fields=name,contact`, ip);
+
+    return {
+      result: 'ok',
+      rows: r.rows.map((row) => {
+        const isRevealed = row === target;
+        return {
+          id: row.id,
+          createdAt: row.created_at.toISOString(),
+          respondentName: isRevealed ? (row.respondent_name ?? '-') : maskName(row.respondent_name),
+          phone: isRevealed ? (row.phone ?? '-') : maskPhone(row.phone),
+          email: isRevealed ? (row.email ?? '-') : maskEmail(row.email),
+          isRevealed,
+          learningExperience: row.learning_experience,
+          totalScore: Number(row.total_score),
+          recommendedTier: row.recommended_tier,
+          userId: row.user_id,
+        };
+      }),
     };
   },
 });

@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { LANDING_NOTE } from '@/data/diagnosis/consent-copy';
 
 export const metadata: Metadata = { title: '도형심리 역량진단 | 바라 평생교육원' };
 
@@ -10,6 +11,8 @@ export default function DiagnosisLandingPage() {
       <h1 className="text-[24px] font-semibold text-n-9">도형심리 역량진단</h1>
       <p className="text-[14px] text-n-6">나에게 맞는 과정은 어디부터일까요?</p>
       <span className="rounded-pill bg-info/10 px-3 py-1.5 text-[12.5px] font-medium text-info">약 5분 · 30문항</span>
+      {/* 시작 전에 알려 동의하지 않을 사람이 이름을 적기 전에 판단하게 한다(정의서 4.7절). */}
+      <p className="max-w-[340px] text-[14px] leading-relaxed text-n-7">{LANDING_NOTE}</p>
       <p className="max-w-[340px] text-[12.5px] leading-relaxed text-n-6">
         6개 영역 30문항으로 지금 나에게 맞는 과정을 확인해보세요.
         <br />

@@ -111,6 +111,8 @@ export type MyDiagnosisResult = {
   recommendedTier: DiagnosisTier;
   totalScore: number;
   createdAt: string;
+  // 이 결과에 본인이 낸 강사과정 상담 문의가 있는지(API 계약 C3). true인 행만 지우기 대화상자에 "문의도 함께 지우기"를 보인다.
+  hasLead: boolean;
 };
 
 // 마이페이지 "자가진단내역"용 — 로그인한 본인 계정에 연결된(claim된) 진단 결과 전체
@@ -121,11 +123,12 @@ export async function getMyDiagnosisResults(): Promise<MyDiagnosisResult[]> {
   if (error) throw new Error(error.message);
 
   return (
-    data as { access_token: string; recommended_tier: DiagnosisTier; total_score: number; created_at: string }[]
+    data as { access_token: string; recommended_tier: DiagnosisTier; total_score: number; created_at: string; has_lead: boolean }[]
   ).map((row) => ({
     accessToken: row.access_token,
     recommendedTier: row.recommended_tier,
     totalScore: row.total_score,
     createdAt: row.created_at,
+    hasLead: row.has_lead === true,
   }));
 }

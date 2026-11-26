@@ -32,8 +32,8 @@ test('정책 수 = 원본 정책 수 - storage 정책 4개 - 의도적으로 없
   expect(storageCount).toBe(4);
   const originalCount = new Set(defs).size;
   const { rows } = await adminPool.query("select count(*)::int n from pg_policies where schemaname='public'");
-  // 원본(supabase/schema.sql)에는 있지만 이 스키마에서 의도적으로 없앤 정책: 리드 update(2026-11-26, 변경은 접속 기록과 함께 API op로만)
-  const removedOnPurpose = 1;
+  // 원본(supabase/schema.sql)에는 있지만 이 스키마에서 의도적으로 없앤 정책: 리드 update(2026-11-26, 변경은 접속 기록과 함께 API op로만), 진단 결과·응답 관리자 select 2개(2026-11-26, privacy R-1: 가림 있는 API op로만 읽음)
+  const removedOnPurpose = 3;
   expect(rows[0].n).toBe(originalCount - storageCount - removedOnPurpose);
 });
 
@@ -88,6 +88,7 @@ const REVOKED: Array<[string, string[]]> = [
   ['public.purge_unclaimed_diagnosis_pii()', ['public', 'bara_edu_anon', 'bara_edu_authenticated']],
   ['public.purge_old_diagnosis_leads()', ['public', 'bara_edu_anon', 'bara_edu_authenticated']],
   ['public.get_my_diagnosis_results()', ['public', 'bara_edu_anon']],
+  ['public.delete_my_diagnosis_result(uuid, boolean)', ['public', 'bara_edu_anon']],
 ];
 
 test.each(REVOKED)('%s 실행 권한이 회수된 역할에는 없다', async (fn, roles) => {
@@ -103,6 +104,7 @@ test('회수 대상이 아닌 역할은 실행 권한을 유지한다', async ()
   expect(await q('bara_edu_authenticated', 'public.claim_diagnosis(uuid)')).toBe(true);
   expect(await q('bara_edu_authenticated', 'public.get_diagnosis_detail(uuid)')).toBe(true);
   expect(await q('bara_edu_authenticated', 'public.get_my_diagnosis_results()')).toBe(true);
+  expect(await q('bara_edu_authenticated', 'public.delete_my_diagnosis_result(uuid, boolean)')).toBe(true);
   expect(await q('bara_edu_anon', 'public.get_diagnosis_summary(uuid)')).toBe(true);
   expect(await q('bara_edu_service', 'public.purge_unverified_signups()')).toBe(true);
 });

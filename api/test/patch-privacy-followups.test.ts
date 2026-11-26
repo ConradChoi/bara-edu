@@ -5,6 +5,8 @@ import { fileURLToPath } from 'node:url';
 import { setupTestDb } from './helpers/db.js';
 
 // 2026-11-26 패치: purge_unclaimed_diagnosis_pii()의 대상 조건 보완(이름 null + phone/email만 남은 행도 파기).
+// 같은 날 민감정보 동의 패치(2026-11-26-diagnosis-consent.sql)가 이 함수를 "행 삭제"로 다시 바꿨다. 그래서 스키마와의 글자 동기화는
+// 새 패치 쪽 테스트가 맡고, 여기서는 이 패치를 단독으로 적용했을 때의 동작(운영 적용 기록)만 확인한다.
 const dbDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'db');
 const PATCH = path.join(dbDir, 'patches', '2026-11-26-privacy-followups.sql');
 const FN = 'purge_unclaimed_diagnosis_pii';
@@ -42,16 +44,31 @@ test('스키마에는 리드 update 정책이 없다(drop만 남음)', () => {
   expect(schema).toMatch(/drop policy if exists "diagnosis_leads_admin_update" on diagnosis_leads/);
 });
 
-test('패치의 함수 정의는 02-schema.sql과 글자 그대로 같다', () => {
-  expect(block(patch, FN)).toBe(block(schema, FN));
+test('이 패치의 함수 정의는 민감정보 동의 패치가 대체했다(스키마는 새 패치와 같고 이 패치와는 다르다)', async () => {
+  const newer = await readFile(path.join(dbDir, 'patches', '2026-11-26-diagnosis-consent.sql'), 'utf8');
+  expect(block(newer, FN)).toBe(block(schema, FN));
+  expect(block(patch, FN)).not.toBe(block(schema, FN));
 });
 
-test('이름은 null이고 phone·email만 남은 90일 지난 비회원 행도 비워진다', async () => {
+const applyPatch = async () => {
+  const c = await ctx.adminPool.connect();
+  try {
+    await c.query('begin');
+    await c.query('set local role bara_edu_service');
+    await c.query(patch);
+    await c.query('commit');
+  } finally {
+    c.release();
+  }
+};
+
+test('(이 패치를 단독 적용했을 때) 이름은 null이고 phone·email만 남은 90일 지난 비회원 행도 비워진다', async () => {
+  await applyPatch();
   const mk = async (name: string | null, phone: string | null, email: string | null, days: number) =>
     (
       await q(
-        `insert into diagnosis_results (respondent_name, phone, email, certificate_level, utm_source, learning_experience, age_confirmed, version, score_theory, score_reading, score_analysis, score_counseling, score_case_record, score_teaching, total_score, recommended_tier, consent_privacy, created_at)
-         select $1,$2,$3,'lv','utm', e, true, 'v1', 1,2,3,4,5,6, 10, t, true, now() - ($4 || ' days')::interval from (select (enum_range(null::diagnosis_experience))[1] e, (enum_range(null::diagnosis_tier))[1] t) s
+        `insert into diagnosis_results (respondent_name, phone, email, certificate_level, utm_source, learning_experience, age_confirmed, version, score_theory, score_reading, score_analysis, score_counseling, score_case_record, score_teaching, total_score, recommended_tier, consent_privacy, sensitive_consent_version, sensitive_consented_at, created_at)
+         select $1,$2,$3,'lv','utm', e, true, 'v1', 1,2,3,4,5,6, 10, t, true, 'sc-v1', now(), now() - ($4 || ' days')::interval from (select (enum_range(null::diagnosis_experience))[1] e, (enum_range(null::diagnosis_tier))[1] t) s
          returning id`,
         [name, phone, email, String(days)],
       )

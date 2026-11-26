@@ -47,12 +47,19 @@ async function seed(uid: string, adminId: string, lessonId: string, courseId: st
   await q('insert into course_exam_submissions (user_id, course_id, score, passed, attempt_no) values ($1,$2,90,true,1)', [uid, courseId]);
   await q("insert into course_exam_attempt_resets (user_id, course_id, reason, reset_by) values ($1,$2,'r',$3)", [uid, courseId, adminId]);
   await q("insert into diagnosis_leads (user_id, name, contact, consent_contact) values ($1,'n','c',true)", [uid]);
-  await q(
-    `insert into diagnosis_results (user_id, respondent_name, phone, email, certificate_level, learning_experience, age_confirmed, version, score_theory, score_reading, score_analysis, score_counseling, score_case_record, score_teaching, total_score, recommended_tier, consent_privacy)
-     select $1,'이름','010','a@b.c','lv', e, true, 'v1', 1,2,3,4,5,6, 10, t, true from (select (enum_range(null::diagnosis_experience))[1] e, (enum_range(null::diagnosis_tier))[1] t) s`,
-    [uid],
-  );
+  const rid = (
+    await q(
+      `insert into diagnosis_results (user_id, respondent_name, phone, email, certificate_level, learning_experience, age_confirmed, version, score_theory, score_reading, score_analysis, score_counseling, score_case_record, score_teaching, total_score, recommended_tier, consent_privacy, sensitive_consent_version, sensitive_consented_at)
+       select $1,'이름','010','a@b.c','lv', e, true, 'v1', 1,2,3,4,5,6, 10, t, true, 'sc-v1', now() from (select (enum_range(null::diagnosis_experience))[1] e, (enum_range(null::diagnosis_tier))[1] t) s
+       returning id`,
+      [uid],
+    )
+  )[0].id as string;
+  await q("insert into diagnosis_answers (result_id, item_code, score) values ($1,'A1',3)", [rid]);
+  // 비회원 상태에서 낸 문의: claim_diagnosis가 귀속 때 user_id를 묶으므로(privacy M-1) 귀속 뒤 상태는 user_id가 있다.
+  await q("insert into diagnosis_leads (result_id, user_id, name, contact, consent_contact) values ($1,$2,'guest','g',true)", [rid, uid]);
 }
+const resultsOf = async (uid: string) => (await q('select id, respondent_name, email from diagnosis_results where user_id = $1', [uid]));
 
 const withdraw = (token: string | undefined, body: unknown = { reason: 'no_longer_needed' }) =>
   app.inject({
@@ -96,12 +103,16 @@ test('탈퇴: 한 번의 호출로 프로필·계정 익명화, 학습 이력 �
   expect(await sessionCount(a.id)).toBe(0);
   for (const t of TABLES) {
     expect(await count(t, a.id), t).toBe(0);
-    expect(await count(t, b.id), t).toBe(1);
+    expect(await count(t, b.id), t).toBe(t === 'diagnosis_leads' ? 2 : 1);
   }
-  const ra = (await q('select respondent_name, phone, email, certificate_level, score_theory from diagnosis_results where user_id = $1', [a.id]))[0];
-  expect(ra).toEqual({ respondent_name: null, phone: null, email: null, certificate_level: null, score_theory: 1 });
-  const rb = (await q('select respondent_name, email from diagnosis_results where user_id = $1', [b.id]))[0];
-  expect(rb).toEqual({ respondent_name: '이름', email: 'a@b.c' });
+  // 자가진단 결과는 행째 삭제(응답 포함), 귀속 때 묶인 비회원 문의도 함께 삭제. 다른 회원 결과·문의는 그대로
+  expect(await resultsOf(a.id)).toEqual([]);
+  const [rb] = await resultsOf(b.id);
+  expect(rb).toMatchObject({ respondent_name: '이름', email: 'a@b.c' });
+  expect(Number((await q('select count(*) c from diagnosis_answers a left join diagnosis_results r on r.id = a.result_id where r.id is null'))[0].c)).toBe(0);
+  expect(Number((await q('select count(*) c from diagnosis_answers where result_id = $1', [rb.id]))[0].c)).toBe(1);
+  expect((await q("select 1 from diagnosis_leads where name = 'guest' and user_id = $1", [a.id])).length).toBe(0);
+  expect((await q("select 1 from diagnosis_leads where name = 'guest' and result_id = $1", [rb.id])).length).toBe(1);
   const bp = (await q('select status, name from profiles where id=$1', [b.id]))[0];
   expect(bp).toMatchObject({ status: 'active', name: 'bobby' });
   expect(storage.objects.has(`${a.id}/photo`)).toBe(false);
@@ -175,8 +186,9 @@ test('탈퇴: 중간에 실패하면 전부 롤백(프로필·계정·학습 이
   const p = (await q('select name, phone, email, status from profiles where id=$1', [a.id]))[0];
   expect(p).toMatchObject({ name: 'rollback1', phone: '010', status: 'active' });
   expect((await q('select email from auth.users where id=$1', [a.id]))[0].email).toBe('rollback1@example.com');
-  for (const t of TABLES) expect(await count(t, a.id), t).toBe(1);
+  for (const t of TABLES) expect(await count(t, a.id), t).toBe(t === 'diagnosis_leads' ? 2 : 1);
   expect((await q('select respondent_name from diagnosis_results where user_id=$1', [a.id]))[0].respondent_name).toBe('이름');
+  expect(Number((await q('select count(*) c from diagnosis_answers a join diagnosis_results r on r.id = a.result_id where r.user_id = $1', [a.id]))[0].c)).toBe(1);
   expect(await sessionCount(a.id)).toBe(1);
   expect(storage.objects.has(`${a.id}/photo`)).toBe(true);
   // 장애가 풀린 뒤 다시 시도하면 성공

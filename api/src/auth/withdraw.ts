@@ -53,7 +53,9 @@ export async function withdrawAccount(pool: pg.Pool, userId: string, input: With
     if ((await tx.query<{ blocked: boolean }>(ACTIVE_ENROLLMENT_SQL, [userId])).rows[0].blocked) return 'active_enrollment';
 
     for (const t of DELETE_TABLES) await tx.query(`delete from "${t}" where user_id = $1`, [userId]);
-    await tx.query('update diagnosis_results set respondent_name = null, phone = null, email = null, certificate_level = null where user_id = $1', [userId]);
+    // 자가진단 결과는 행째 지운다(응답·점수·동의 기록 포함, 응답은 FK cascade). 이름·연락처만 비우면 user_id로 계속 이어지는
+    // 가명 민감정보가 남는다(대표 결정 2026-11-26, 민감정보 동의 기획 Q2). 위에서 이 회원의 문의는 이미 지웠다.
+    await tx.query('delete from diagnosis_results where user_id = $1', [userId]);
 
     await tx.query(
       "update auth.users set email = $2, encrypted_password = $3, raw_user_meta_data = '{}'::jsonb, updated_at = now() where id = $1",
