@@ -37,6 +37,8 @@
 | 11-26 12:33 | Amplify 앱 `d2se60288osxp1` | 변경 | 앱 환경변수 `NEXT_PUBLIC_SUPABASE_URL`·`NEXT_PUBLIC_SUPABASE_ANON_KEY`·`SUPABASE_SERVICE_ROLE_KEY` 삭제(코드 참조 없음 확인), 재빌드 #70 SUCCEED, 주요 화면 200 |
 | 11-26 12:55 | Supabase 프로젝트(서울 리전) | 삭제 | 대표가 대시보드에서 프로젝트 통째 삭제 — 데이터(DB)·Storage(사진)·API 키(anon·service_role)·DB 비밀번호가 함께 폐기됨. 대표 결정으로 예정일(12/1)보다 앞당김 |
 | 11-26 13:0x | 로컬 | 확인·삭제 | 삭제 확인: 프로젝트 API 주소 DNS 없음(REST·Storage 응답 없음), DB 풀러 접속 시 tenant not found. 로컬 `~/.config/bara-edu/supabase.env` 삭제. Amplify 빌드 캐시는 콘솔에 비우는 기능이 없어 두었음 — 남아 있을 수 있는 옛 키는 프로젝트 삭제로 무효 |
+| 11-26 13:51 | `bara_edu` | 변경 | 패치 `2026-11-26-access-log-2y.sql` 적용(`set local role bara_edu_service`) — `purge_old_admin_access_logs` 파기 기준 1년→2년, COMMIT, 소유자 `bara_edu_service` 확인 |
+| 11-26 13:52 | WAS `bara-edu-api` | 변경 | API 릴리스 `ec55c08` 설치·재시작(요청 제한 IPv6 /64 묶기, healthz 200, 직전 `d02a4ae` 보존). 앱(문구 2년)은 Amplify #72 |
 
 ## 같은 날 함께 정리한 것
 
