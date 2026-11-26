@@ -40,7 +40,7 @@
 | 11-26 13:51 | `bara_edu` | 변경 | 패치 `2026-11-26-access-log-2y.sql` 적용(`set local role bara_edu_service`) — `purge_old_admin_access_logs` 파기 기준 1년→2년, COMMIT, 소유자 `bara_edu_service` 확인 |
 | 11-26 13:52 | WAS `bara-edu-api` | 변경 | API 릴리스 `ec55c08` 설치·재시작(요청 제한 IPv6 /64 묶기, healthz 200, 직전 `d02a4ae` 보존). 앱(문구 2년)은 Amplify #72 |
 | 11-26 14:42 | WAS `bara-edu-api` | 변경 | API 릴리스 `6178b38` 설치·재시작(비밀번호 찾기: 재설정 완료 알림 메일, 재설정 성공 시 login-fail 해제, 재설정 제출 IP 제한, DB 패치 없음, healthz 200, 직전 `ec55c08` 보존). 앱은 Amplify #74 SUCCEED 14:45, 주요 화면 200, `/forgot-password`·`/reset-password` 헤더(no-store·noindex, reset은 no-referrer) 확인, API 5xx 0건 |
-| 11-26 15:1x | WAS `bara-edu-api` | 변경 | API 릴리스 `76c75fa` 설치·재시작(관리자 계정 메일 링크 재설정을 접속 기록에 남김, IP 형식 검증, DB 패치 없음, healthz 200, 직전 `6178b38` 보존). 앱(오류 안내·링크 크기 등)은 main push 후 Amplify |
+| 11-26 15:1x | WAS `bara-edu-api` | 변경 | API 릴리스 `76c75fa` 설치·재시작(관리자 계정 메일 링크 재설정을 접속 기록에 남김, IP 형식 검증, DB 패치 없음, healthz 200, 직전 `6178b38` 보존). 앱(오류 안내·링크 크기 등)은 Amplify #76 SUCCEED(ca587fc), 주요 화면 200, API 5xx 0건 |
 
 ## 같은 날 함께 정리한 것
 
