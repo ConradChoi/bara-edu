@@ -68,7 +68,7 @@
 
 ### 1.2 `/selfcheck/start` 진입 시 — 임시저장 복원 분기 (F-DIAG-5)
 
-> **변경(2026-11-26, 민감정보 별도 동의 — 정의서 `bara-edu-lms.diagnosis-sensitive-consent.md` 4.2절)**: 키는 `bara_selfcheck_draft_v2`이고 옛 `v1` 키는 읽지 않고 지운다. 동의 칸(`consentPrivacy`, `consentSensitive`, `consentSensitiveVersion`, `ageConfirmed`)은 저장하지 않고 복원하지도 않는다. [이어서 하기]는 입력값·응답만 되살리고 **항상 1페이지(동의)부터** 다시 시작한다(동의 없이 문항에 들어갈 수 없게). 대화상자에 "동의는 첫 화면에서 다시 해 주세요." / "다른 사람이 쓰던 기기라면 [새로 시작하기]를 눌러 주세요." 두 줄을 더했다. 아래 원래 설명 중 `currentPage` 복원·동의 체크 재현 부분은 이 변경으로 대체된다.
+> **변경(2026-11-26, 민감정보 별도 동의 — 정의서 `bara-edu-lms.diagnosis-sensitive-consent.md` 4.2절)**: 키는 `bara_selfcheck_draft_v2`이고 옛 `v1` 키는 읽지 않고 지운다. 동의 칸(`consentPrivacy`, `consentSensitive`, `consentSensitiveVersion`, `ageConfirmed`)은 저장하지 않고 복원하지도 않는다. [이어서 하기]는 입력값·응답만 되살리고 **항상 1페이지(동의)부터** 다시 시작한다(동의 없이 문항에 들어갈 수 없게). 대화상자에 "동의는 첫 화면에서 다시 해 주세요." / "다른 사람이 쓰던 기기라면 [새로 시작하기]를 눌러 주세요." 두 줄을 더했다. 아래 원래 설명 중 `currentPage` 복원·동의 체크 재현 부분은 이 변경으로 대체된다. 제출 성공 시 초안 삭제는 스테퍼가 결과 화면으로 가는 redirect를 보고 하고(Next는 액션 promise를 redirect 오류로 reject하므로 예전 `await` 뒤 삭제는 실행되지 않았다), 결과 화면도 제출한 브라우저(쿠키 일치)면 한 번 더 지운다. 실패 redirect에서는 초안을 남긴다.
 
 페이지 마운트 시 클라이언트가 가장 먼저 하는 일:
 

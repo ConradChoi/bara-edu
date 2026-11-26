@@ -51,5 +51,16 @@ export function parseDraft(raw: string | null, version: string, now: number): Dr
   return { version, savedAt: d.savedAt, fields };
 }
 
+// 클라이언트에서 부른 서버 액션이 redirect()하면 Next는 액션 promise를 NEXT_REDIRECT 오류로 reject한다
+// (digest "NEXT_REDIRECT;<push|replace>;<url>;<status>;"). 그래서 await 뒤의 초안 삭제는 실행되지 않는다.
+// 결과 화면으로 가는 redirect(제출 성공)인지 이 함수로 판별해 그때만 초안을 지운다(실패 redirect면 초안을 남겨 답을 되살린다).
+export function isSubmitSuccessRedirect(err: unknown): boolean {
+  if (!err || typeof err !== 'object' || !('digest' in err)) return false;
+  const digest = String((err as { digest?: unknown }).digest);
+  if (!digest.startsWith('NEXT_REDIRECT;')) return false;
+  const url = digest.split(';').slice(2, -2).join(';');
+  return /^\/selfcheck\/result\/[^/?#]+$/.test(url);
+}
+
 // 복원할 때 들어갈 페이지. 동의는 복원하지 않으므로 항상 1페이지(인덱스 0).
 export const RESTORE_PAGE = 0;

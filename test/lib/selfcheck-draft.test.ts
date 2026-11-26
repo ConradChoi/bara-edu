@@ -46,3 +46,14 @@ test('버전 불일치·24시간 경과·깨진 값은 복원하지 않는다', 
   expect(parseDraft(null, V, NOW)).toBeNull();
   expect(parseDraft(JSON.stringify({ version: V, savedAt: NOW }), V, NOW)).toBeNull();
 });
+
+test('제출 성공 redirect(결과 화면)만 초안 삭제 대상, 실패 redirect·다른 오류는 아님', async () => {
+  const { isSubmitSuccessRedirect } = await import('@/components/diagnosis/selfcheck-draft');
+  const r = (url: string) => Object.assign(new Error('NEXT_REDIRECT'), { digest: `NEXT_REDIRECT;push;${url};303;` });
+  expect(isSubmitSuccessRedirect(r('/selfcheck/result/3f1c2a9e-0000-4000-8000-000000000000'))).toBe(true);
+  expect(isSubmitSuccessRedirect(r('/selfcheck/start?error=consent-outdated'))).toBe(false);
+  expect(isSubmitSuccessRedirect(r('/selfcheck/start?error=submit-failed'))).toBe(false);
+  expect(isSubmitSuccessRedirect(r('/selfcheck/result/x?claimDenied=1'))).toBe(false);
+  expect(isSubmitSuccessRedirect(new Error('network'))).toBe(false);
+  expect(isSubmitSuccessRedirect(null)).toBe(false);
+});

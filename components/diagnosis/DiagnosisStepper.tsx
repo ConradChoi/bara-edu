@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { submitDiagnosis } from '@/app/actions/diagnosis';
 import BoldText from '@/components/diagnosis/BoldText';
-import { buildDraft, DRAFT_KEY, LEGACY_DRAFT_KEYS, parseDraft, RESTORE_PAGE, type DraftShape } from '@/components/diagnosis/selfcheck-draft';
+import { buildDraft, DRAFT_KEY, isSubmitSuccessRedirect, LEGACY_DRAFT_KEYS, parseDraft, RESTORE_PAGE, type DraftShape } from '@/components/diagnosis/selfcheck-draft';
 import { DIAGNOSIS_QUESTIONS } from '@/data/diagnosis/questions';
 import { DIAGNOSIS_AREAS, DIAGNOSIS_SCALE_LABELS, DIAGNOSIS_VERSION } from '@/data/diagnosis/config';
 import { CURRENT_SENSITIVE_CONSENT_VERSION, SENSITIVE_CONSENT_VERSIONS } from '@/data/diagnosis/consent';
@@ -136,6 +136,14 @@ export default function DiagnosisStepper({
     }
   }
 
+  function clearDraft() {
+    try {
+      window.localStorage.removeItem(DRAFT_KEY);
+    } catch {
+      // ignore
+    }
+  }
+
   function saveDraft() {
     const form = formRef.current;
     if (!form) return;
@@ -231,18 +239,12 @@ export default function DiagnosisStepper({
     try {
       const data = new FormData(e.currentTarget);
       await submitDiagnosis(data);
-      // submitDiagnosis는 성공 시 redirect()를 던지므로(Next.js가 예외로 구현) 여기 도달하면
-      // 사실상 성공 경로다. 실패 시에도 redirect()로 /selfcheck/start?error=...로 돌아가
-      // 이 컴포넌트 자체가 언마운트된다 — catch에서는 진짜 네트워크 예외만 다룬다.
-      try {
-        window.localStorage.removeItem(DRAFT_KEY);
-      } catch {
-        // ignore
-      }
     } catch (err) {
-      // next/navigation의 redirect()는 내부적으로 특수 에러를 던져 위 try가 여기로 오지
-      // 않는 게 정상 경로다. 진짜 네트워크 실패 등만 이 경로로 온다.
+      // submitDiagnosis는 성공·실패 모두 redirect()로 끝나고, Next는 그 promise를 NEXT_REDIRECT 오류로 reject한다.
+      // 그래서 성공 판별과 초안 삭제를 여기서 한다(예전에는 await 뒤에서 지워 실제로는 실행되지 않았다).
+      // 실패 redirect(/selfcheck/start?error=...)는 초안을 남겨 다시 열 때 답을 되살린다.
       if (err && typeof err === 'object' && 'digest' in err && String((err as { digest?: unknown }).digest).startsWith('NEXT_REDIRECT')) {
+        if (isSubmitSuccessRedirect(err)) clearDraft();
         throw err;
       }
       setSubmitError(true);
