@@ -1,68 +1,105 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { submitDiagnosis } from '@/app/actions/diagnosis';
+import BoldText from '@/components/diagnosis/BoldText';
+import { buildDraft, DRAFT_KEY, LEGACY_DRAFT_KEYS, parseDraft, RESTORE_PAGE, type DraftShape } from '@/components/diagnosis/selfcheck-draft';
 import { DIAGNOSIS_QUESTIONS } from '@/data/diagnosis/questions';
 import { DIAGNOSIS_AREAS, DIAGNOSIS_SCALE_LABELS, DIAGNOSIS_VERSION } from '@/data/diagnosis/config';
+import { CURRENT_SENSITIVE_CONSENT_VERSION, SENSITIVE_CONSENT_VERSIONS } from '@/data/diagnosis/consent';
+import {
+  AGE_CONFIRM_COPY,
+  DRAFT_RESTORE_COPY,
+  fill,
+  OUTDATED_ERROR_COPY,
+  PRIVACY_CONSENT_COPY,
+  SENSITIVE_REFUSAL_COPY,
+  SUBMIT_ERROR_COPY,
+  type SubmitErrorCode,
+} from '@/data/diagnosis/consent-copy';
+import { siteConfig } from '@/data/site-config';
 
 // 30문항 스테퍼(F-DIAG-3/4/5). ConfirmDialog/FormDialog와 동일한 이유로 예외적으로
 // 클라이언트 컴포넌트다 — 페이지 이동·임시저장이라는 클라이언트 상태가 꼭 필요한 화면
 // (flows.md 1.3절 "구현 방식 메모" 참고). 모든 입력을 하나의 <form> 안에 계속 마운트해두고
 // (`hidden`으로 페이지만 전환) 마지막 페이지에서만 실제 제출이 일어나게 한다 — hidden
 // 엘리먼트도 FormData에는 포함되므로 페이지별로 별도 폼을 둘 필요가 없다.
+//
+// 1페이지 동의 영역(민감정보 별도 동의, bara-edu-lms.diagnosis-sensitive-consent.md 디자인 스펙 D1~D7):
+//  ① 개인정보 수집·이용 상자 → ② 민감정보 처리 상자(sc-v1 원문, data/diagnosis/consent.ts) → ③ 만 14세 확인.
+//  세 체크 모두 기본 미체크, "모두 동의" 없음, 초안에서 복원하지 않음(selfcheck-draft.ts). 고지 4항목은 접지 않는다.
 
-const DRAFT_KEY = 'bara_selfcheck_draft_v1';
 const TOTAL_PAGES = 1 + DIAGNOSIS_AREAS.length; // 기본정보 1 + 영역 6
-
-type DraftShape = {
-  version: string;
-  savedAt: number;
-  currentPage: number;
-  fields: Record<string, string>;
-};
+const SENSITIVE = SENSITIVE_CONSENT_VERSIONS[CURRENT_SENSITIVE_CONSENT_VERSION].text;
+// 1페이지 오류 칸의 화면 순서(첫 오류로 포커스를 옮길 때 쓴다).
+const PAGE0_ORDER = ['name', 'phone', 'email', 'learningExperience', 'consentPrivacy', 'consentSensitive', 'ageConfirmed'];
 
 export default function DiagnosisStepper({
   defaultName,
   defaultPhone,
   defaultEmail,
+  serverError,
+  serverConsent,
 }: {
   defaultName?: string;
   defaultPhone?: string;
   defaultEmail?: string;
+  // /selfcheck/start?error= 코드와 consent-required의 대상 체크박스(API 계약 C1 reason)
+  serverError?: SubmitErrorCode;
+  serverConsent?: 'privacy' | 'sensitive';
 }) {
   const formRef = useRef<HTMLFormElement>(null);
   const [page, setPage] = useState(0);
-  const [errorFields, setErrorFields] = useState<Set<string>>(new Set());
+  // 서버가 동의 없음(consent-required)으로 돌려보냈으면 그 체크박스의 오류·거부 안내를 바로 보인다.
+  const [errorFields, setErrorFields] = useState<Set<string>>(() =>
+    serverError === 'consent-required' ? new Set([serverConsent === 'privacy' ? 'consentPrivacy' : 'consentSensitive']) : new Set(),
+  );
   const [showRestoreDialog, setShowRestoreDialog] = useState(false);
+  const [hasDraft, setHasDraft] = useState(false);
   const pendingDraftRef = useRef<DraftShape | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState(false);
+  // 첫 오류 칸으로 스크롤·포커스. 페이지 전환(hidden 해제)이 렌더된 뒤에 옮기려고 상태로 둔다(n은 같은 칸 재요청용).
+  const [focusTarget, setFocusTarget] = useState<{ name: string; n: number } | null>(null);
   // 진행률 바("n/30문항")용 — uncontrolled input이라 값 자체는 React state로 미러링하지
   // 않지만, "몇 개 응답했는지" 개수만 onChange 시점에 다시 세어 state로 반영한다(렌더 중
   // ref를 직접 읽지 않기 위해 — react-hooks/refs 규칙).
   const [answeredCount, setAnsweredCount] = useState(0);
 
-  // 마운트 시 저장된 draft가 있으면 복원 여부를 묻는다(F-DIAG-5).
+  // 마운트 시 저장된 draft가 있으면 복원 여부를 묻는다(F-DIAG-5). 옛 키(v1)는 읽지 않고 지운다(4.2절).
   useEffect(() => {
+    let draft: DraftShape | null = null;
     try {
+      for (const key of LEGACY_DRAFT_KEYS) window.localStorage.removeItem(key);
       const raw = window.localStorage.getItem(DRAFT_KEY);
-      if (!raw) return;
-      const draft = JSON.parse(raw) as DraftShape;
-      const withinOneDay = Date.now() - draft.savedAt < 24 * 60 * 60 * 1000;
-      if (draft.version === DIAGNOSIS_VERSION && withinOneDay) {
-        pendingDraftRef.current = draft;
-        // localStorage(외부 시스템)를 마운트 시 1회 읽어 그 결과로 다이얼로그 표시 여부를
-        // 정하는 것뿐이라 실제로 계단식 렌더를 유발하지 않는다 — 렌더 중 계산 불가능한
-        // 진짜 외부 상태 동기화 사례(React 공식 문서의 useEffect 권장 용례).
-        // eslint-disable-next-line react-hooks/set-state-in-effect
-        setShowRestoreDialog(true);
-      } else {
-        window.localStorage.removeItem(DRAFT_KEY);
-      }
+      draft = parseDraft(raw, DIAGNOSIS_VERSION, Date.now());
+      if (raw && !draft) window.localStorage.removeItem(DRAFT_KEY);
     } catch {
       // localStorage 접근 불가 — 그냥 빈 폼으로 시작.
     }
-  }, []);
+    if (draft) {
+      pendingDraftRef.current = draft;
+      // localStorage(외부 시스템)를 마운트 시 1회 읽어 그 결과로 다이얼로그 표시 여부를
+      // 정하는 것뿐이라 실제로 계단식 렌더를 유발하지 않는다 — 렌더 중 계산 불가능한
+      // 진짜 외부 상태 동기화 사례(React 공식 문서의 useEffect 권장 용례).
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setShowRestoreDialog(true);
+      setHasDraft(true);
+    } else if (serverError === 'consent-required') {
+      setFocusTarget({ name: serverConsent === 'privacy' ? 'consentPrivacy' : 'consentSensitive', n: 0 });
+    }
+  }, [serverError, serverConsent]);
+
+  useEffect(() => {
+    if (!focusTarget) return;
+    const form = formRef.current;
+    const container = document.querySelector(`[data-field="${focusTarget.name}"]`);
+    container?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const el = form?.elements.namedItem(focusTarget.name);
+    const input = el instanceof RadioNodeList ? el[0] : el;
+    if (input instanceof HTMLElement) input.focus({ preventScroll: true });
+  }, [focusTarget]);
 
   function countAnswered(form: HTMLFormElement): number {
     let count = 0;
@@ -73,6 +110,7 @@ export default function DiagnosisStepper({
     return count;
   }
 
+  // 입력값과 응답만 되살린다. 동의 칸은 parseDraft가 이미 빼 두었고, 페이지는 항상 1페이지(동의부터 다시).
   function applyDraft(draft: DraftShape) {
     const form = formRef.current;
     if (!form) return;
@@ -83,33 +121,44 @@ export default function DiagnosisStepper({
         for (const radio of Array.from(el)) {
           if (radio instanceof HTMLInputElement && radio.value === value) radio.checked = true;
         }
-      } else if (el instanceof HTMLInputElement) {
-        if (el.type === 'checkbox') el.checked = value === 'on';
-        else el.value = value;
+      } else if (el instanceof HTMLInputElement && el.type !== 'checkbox' && el.type !== 'hidden') {
+        el.value = value;
       }
     }
     setAnsweredCount(countAnswered(form));
-    setPage(draft.currentPage);
+    setPage(RESTORE_PAGE);
   }
 
-  // pageOverride: goNext()가 "다음 페이지로 넘어가는 시점"의 페이지 번호를 명시적으로 넘길 때
-  // 쓴다 — state의 page는 setPage가 비동기라 이 함수 안에서는 아직 이전 값이므로, 그냥 클로저의
-  // page를 저장하면 draft의 currentPage가 실제 이동한 페이지보다 항상 1 뒤처졌다(qa-reviewer 지적).
-  function saveDraft(pageOverride?: number) {
+  function closeRestoreDialog() {
+    setShowRestoreDialog(false);
+    if (serverError === 'consent-required') {
+      setFocusTarget({ name: serverConsent === 'privacy' ? 'consentPrivacy' : 'consentSensitive', n: Date.now() });
+    }
+  }
+
+  function saveDraft() {
     const form = formRef.current;
     if (!form) return;
     setAnsweredCount(countAnswered(form));
 
     try {
-      const data = new FormData(form);
-      const fields: Record<string, string> = {};
-      for (const [key, value] of data.entries()) {
-        if (typeof value === 'string') fields[key] = value;
-      }
-      const draft: DraftShape = { version: DIAGNOSIS_VERSION, savedAt: Date.now(), currentPage: pageOverride ?? page, fields };
+      const draft = buildDraft(new FormData(form).entries(), DIAGNOSIS_VERSION, Date.now());
       window.localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
     } catch {
       // 저장 실패(프라이빗 브라우징 등)는 조용히 무시 — 스테퍼 자체는 계속 동작해야 한다.
+    }
+  }
+
+  // 동의 체크를 켜면 그 칸의 오류(와 거부 안내)를 바로 지운다(4.1절 "체크 시 오류 해제").
+  function handleChange(e: React.FormEvent<HTMLFormElement>) {
+    saveDraft();
+    const t = e.target;
+    if (t instanceof HTMLInputElement && t.type === 'checkbox' && t.checked && errorFields.has(t.name)) {
+      setErrorFields((prev) => {
+        const next = new Set(prev);
+        next.delete(t.name);
+        return next;
+      });
     }
   }
 
@@ -121,6 +170,7 @@ export default function DiagnosisStepper({
         // 넣지 않고 validatePage()에서 따로 확인한다(최소수집 원칙, 대표 결정 2026-09-14).
         { name: 'learningExperience', required: true },
         { name: 'consentPrivacy', required: true },
+        { name: 'consentSensitive', required: true },
         { name: 'ageConfirmed', required: true },
       ];
     }
@@ -146,10 +196,10 @@ export default function DiagnosisStepper({
         missing.add('email');
       }
     }
-    setErrorFields(missing);
-    if (missing.size > 0) {
-      const firstMissing = document.querySelector(`[data-field="${[...missing][0]}"]`);
-      firstMissing?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const ordered = pageIndex === 0 ? PAGE0_ORDER.filter((n) => missing.has(n)) : [...missing];
+    setErrorFields(new Set(ordered));
+    if (ordered.length > 0) {
+      setFocusTarget({ name: ordered[0], n: Date.now() });
       return false;
     }
     return true;
@@ -158,7 +208,7 @@ export default function DiagnosisStepper({
   function goNext() {
     if (!validatePage(page)) return;
     const nextPage = Math.min(page + 1, TOTAL_PAGES - 1);
-    saveDraft(nextPage);
+    saveDraft();
     setPage(nextPage);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
@@ -170,6 +220,11 @@ export default function DiagnosisStepper({
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    // 뒤로 가기로 1페이지에 돌아가 동의를 풀고 다시 온 경우: 제출 시점 체크 상태로 판정해 1페이지 오류로 보낸다(11.1).
+    if (!validatePage(0)) {
+      setPage(0);
+      return;
+    }
     if (!validatePage(page)) return;
     setSubmitting(true);
     setSubmitError(false);
@@ -196,14 +251,21 @@ export default function DiagnosisStepper({
   }
 
   const scaleLabelById: Record<number, string> = Object.fromEntries(DIAGNOSIS_SCALE_LABELS.map((s) => [s.score, s.label]));
+  const privacyError = errorFields.has('consentPrivacy');
+  const sensitiveError = errorFields.has('consentSensitive');
+  const refusal = <RefusalBox />;
 
   return (
     <div className="mx-auto flex max-w-[520px] flex-col gap-5 px-5 py-8">
       {showRestoreDialog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-n-9/40 p-5">
-          <div className="flex w-full max-w-[320px] flex-col gap-4 rounded-lg bg-n-0 p-5 shadow-lg">
-            <h2 className="text-[15px] font-semibold text-n-9">작성하던 진단이 있어요</h2>
-            <p className="text-[12.5px] text-n-6">이어서 진행할까요?</p>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-n-9/40 p-4">
+          <div className="flex w-[min(320px,calc(100vw-32px))] flex-col gap-4 rounded-lg bg-n-0 p-5 shadow-lg">
+            <h2 className="text-[18px] font-semibold text-n-9">{DRAFT_RESTORE_COPY.title}</h2>
+            <div className="flex flex-col gap-2 text-[16px] text-n-8">
+              <p>{DRAFT_RESTORE_COPY.body}</p>
+              <p>{DRAFT_RESTORE_COPY.consent}</p>
+              <p>{DRAFT_RESTORE_COPY.shared}</p>
+            </div>
             <div className="flex gap-2">
               <button
                 type="button"
@@ -213,28 +275,43 @@ export default function DiagnosisStepper({
                   } catch {
                     // ignore
                   }
-                  setShowRestoreDialog(false);
+                  pendingDraftRef.current = null;
+                  setHasDraft(false);
+                  closeRestoreDialog();
                 }}
-                className="h-[38px] flex-1 rounded-pill border border-n-3 text-[13px] font-medium text-n-7"
+                className="min-h-12 flex-1 rounded-pill border border-n-3 text-[15px] font-medium text-n-8"
               >
-                새로 시작하기
+                {DRAFT_RESTORE_COPY.startNew}
               </button>
               <button
                 type="button"
                 onClick={() => {
                   if (pendingDraftRef.current) applyDraft(pendingDraftRef.current);
-                  setShowRestoreDialog(false);
+                  closeRestoreDialog();
                 }}
-                className="h-[38px] flex-1 rounded-pill bg-pink text-[13px] font-semibold text-white"
+                className="min-h-12 flex-1 rounded-pill bg-pink text-[15px] font-semibold text-white"
               >
-                이어서 하기
+                {DRAFT_RESTORE_COPY.continue}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      <form ref={formRef} onSubmit={handleSubmit} onChange={() => saveDraft()} className="flex flex-col gap-5">
+      {serverError === 'consent-outdated' ? (
+        <div role="alert" className="rounded-md border border-warning bg-warning/10 px-3.5 py-3 text-[16px] font-medium text-n-9">
+          {OUTDATED_ERROR_COPY.base}
+          {hasDraft && ` ${OUTDATED_ERROR_COPY.answersKept}`}
+        </div>
+      ) : (
+        serverError && (
+          <div role="alert" className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger">
+            {SUBMIT_ERROR_COPY[serverError]}
+          </div>
+        )
+      )}
+
+      <form ref={formRef} onSubmit={handleSubmit} onChange={handleChange} noValidate className="flex flex-col gap-5">
         {/* ===== 1페이지: 기본정보 ===== */}
         <div hidden={page !== 0} className="flex flex-col gap-4">
           <p className="text-[12px] font-semibold text-pink">1/{TOTAL_PAGES} · 기본정보</p>
@@ -284,35 +361,86 @@ export default function DiagnosisStepper({
 
           <TextField name="certificateLevel" label="보유 자격 수준 (선택)" placeholder="예: 도형기질활용지도자 2급" />
 
-          {/* 수집 항목·목적·보유기간·거부권을 체크박스 클릭 전에 요약 고지한다(PIPA 제22조,
-              privacy-security-officer M-6 지적 — 링크만 걸어두면 실제로 읽지 않고 넘어가기 쉽다). */}
-          <div className="flex flex-col gap-1 rounded-md bg-n-2 p-3 text-[11.5px] text-n-6">
-            <p className="font-semibold text-n-7">진단을 위해 아래 정보를 수집·이용해요</p>
-            <p>· 항목: 이름, 휴대전화 또는 이메일, 학습 경험, 30문항 응답</p>
-            <p>· 목적: 자가진단 채점·결과 제공, 추천 과정 안내, 회원 전환 시 결과 연결</p>
-            <p>· 보유기간: 회원에게 연결되지 않으면 접수 후 90일 뒤 이름·연락처만 자동 파기</p>
-            <p>· 동의를 거부할 수 있으며, 그 경우 진단 서비스 이용이 어려울 수 있어요</p>
-          </div>
-
-          <label className="flex items-start gap-2 text-[12px] text-n-7">
-            <input type="checkbox" name="consentPrivacy" className="mt-0.5 h-4 w-4 shrink-0" data-field="consentPrivacy" />
-            <span>
-              <a href="/legal/privacy" target="_blank" className="underline">
-                개인정보 수집·이용
+          {/* 동의 3개는 각자 다른 상자·체크박스·오류 문구(제22조 구분 동의). 상자 사이 24px. */}
+          <div className="mt-2 flex flex-col gap-6">
+            {/* ① 개인정보 수집·이용 */}
+            <section role="group" aria-labelledby="consent-privacy-title" className="flex flex-col gap-3 rounded-lg border-2 border-n-3 bg-n-0 p-4">
+              <div id="consent-privacy-summary" className="flex flex-col gap-2">
+                <h2 id="consent-privacy-title" className="text-[16px] font-semibold text-n-9">
+                  {PRIVACY_CONSENT_COPY.title}
+                </h2>
+                <ul className="flex flex-col gap-2 text-[16px] leading-relaxed text-n-8">
+                  {PRIVACY_CONSENT_COPY.items.map((item) => (
+                    <li key={item}>
+                      <BoldText text={item} />
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <ConsentCheck
+                name="consentPrivacy"
+                label={PRIVACY_CONSENT_COPY.check}
+                describedBy="consent-privacy-summary"
+                error={privacyError ? PRIVACY_CONSENT_COPY.error : null}
+              />
+              <a
+                href="/legal/privacy"
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={PRIVACY_CONSENT_COPY.linkSr}
+                className="inline-flex min-h-12 items-center self-start text-[14px] text-n-7 underline underline-offset-2"
+              >
+                {PRIVACY_CONSENT_COPY.link}
               </a>
-              에 동의합니다 (필수)
-            </span>
-          </label>
-          {errorFields.has('consentPrivacy') && <p className="text-[11px] text-danger">개인정보 수집·이용에 동의해야 진단을 시작할 수 있어요</p>}
+            </section>
+            {privacyError && !sensitiveError && refusal}
 
-          {/* 회원가입과 달리 이 화면은 로그인 없이 개인정보를 직접 수집하는 첫 경로라 별도의
-              연령 확인이 없었다 — 만 14세 미만은 법정대리인 동의가 필요하다(PIPA 제22조의2,
-              privacy-security-officer M-5 지적). RPC(submit_diagnosis)도 서버에서 다시 확인한다. */}
-          <label className="flex items-start gap-2 text-[12px] text-n-7">
-            <input type="checkbox" name="ageConfirmed" className="mt-0.5 h-4 w-4 shrink-0" data-field="ageConfirmed" />
-            <span>만 14세 이상입니다 (필수)</span>
-          </label>
-          {errorFields.has('ageConfirmed') && <p className="text-[11px] text-danger">만 14세 미만은 법정대리인 동의가 필요해 온라인으로 접수할 수 없어요</p>}
+            {/* ② 민감정보 처리(sc-v1 원문). 고지 4항목은 요약·자세히 모두 항상 보인다(접지 않음). */}
+            <section
+              role="group"
+              aria-labelledby="consent-sensitive-title"
+              className="flex flex-col gap-3 rounded-lg border-2 border-l-4 border-n-3 border-l-indigo bg-n-0 p-4"
+            >
+              <div id="consent-sensitive-summary" className="flex flex-col gap-2">
+                <div className="flex items-start gap-2">
+                  <span className="mt-0.5 shrink-0 rounded-pill bg-indigo/10 px-2 py-0.5 text-[14px] font-semibold text-indigo">필수</span>
+                  <h2 id="consent-sensitive-title" className="text-[16px] font-medium text-n-9">
+                    <BoldText text={SENSITIVE.title} />
+                  </h2>
+                </div>
+                <p className="text-[16px] text-n-8">{SENSITIVE.what}</p>
+                <p className="text-[16px] leading-relaxed text-n-8">
+                  <BoldText text={SENSITIVE.intro} />
+                </p>
+                <ul className="flex flex-col gap-3 text-[16px] leading-relaxed text-n-8">
+                  {SENSITIVE.items.map((item) => (
+                    <li key={item.key} className="flex flex-col gap-0.5">
+                      <span>
+                        <BoldText text={item.summary} />
+                      </span>
+                      <span>
+                        <BoldText text={item.detail} />
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                <p className="text-[16px] leading-relaxed text-n-7">{SENSITIVE.linkNotice}</p>
+              </div>
+              <input type="hidden" name="consentSensitiveVersion" value={CURRENT_SENSITIVE_CONSENT_VERSION} />
+              <ConsentCheck
+                name="consentSensitive"
+                label={SENSITIVE.check}
+                describedBy="consent-sensitive-summary"
+                error={sensitiveError ? SENSITIVE_REFUSAL_COPY.error : null}
+              />
+              <p className="text-[14px] text-n-7">{SENSITIVE.withdraw}</p>
+            </section>
+            {sensitiveError && refusal}
+
+            {/* ③ 만 14세 이상. 회원가입과 달리 이 화면은 로그인 없이 개인정보를 직접 수집하는 첫 경로라
+                별도 연령 확인이 필요하다(PIPA 제22조의2). RPC(submit_diagnosis)도 서버에서 다시 확인한다. */}
+            <ConsentCheck name="ageConfirmed" label={AGE_CONFIRM_COPY.check} error={errorFields.has('ageConfirmed') ? AGE_CONFIRM_COPY.error : null} />
+          </div>
         </div>
 
         {/* ===== 2~7페이지: 영역별 5문항 ===== */}
@@ -392,6 +520,58 @@ export default function DiagnosisStepper({
           )}
         </div>
       </form>
+    </div>
+  );
+}
+
+// 동의 체크 행: 라벨 전체가 터치 영역(56px), 24px 체크박스. 오류는 칸 바로 아래(aria-live polite, 아이콘 + 글자).
+function ConsentCheck({ name, label, describedBy, error }: { name: string; label: string; describedBy?: string; error: string | null }) {
+  const errorId = `${name}-error`;
+  const describedByIds = [describedBy, error ? errorId : null].filter(Boolean).join(' ') || undefined;
+  return (
+    <div data-field={name} className="flex flex-col gap-1">
+      <label className="flex min-h-[56px] cursor-pointer items-center gap-3 text-[16px] font-medium text-n-9">
+        <input
+          type="checkbox"
+          name={name}
+          required
+          aria-invalid={error ? true : undefined}
+          aria-describedby={describedByIds}
+          className={`h-6 w-6 shrink-0 accent-indigo focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo ${error ? 'outline outline-2 outline-danger' : ''}`}
+        />
+        <span>{label}</span>
+      </label>
+      <div aria-live="polite">
+        {error && (
+          <p id={errorId} className="flex items-start gap-1.5 text-[14px] font-medium text-danger">
+            <span aria-hidden="true">⚠</span>
+            <span>{error}</span>
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// 동의하지 않을 때의 다른 길(D2). 오류가 아니라 대안이므로 중립 톤. 포커스는 옮기지 않는다(체크박스에 남아 바로 고칠 수 있게).
+function RefusalBox() {
+  const tel = `tel:${siteConfig.phone.replace(/[^0-9+]/g, '')}`;
+  return (
+    <div role="region" aria-label={SENSITIVE_REFUSAL_COPY.altTitle} className="-mt-3 flex flex-col gap-3 rounded-lg border border-n-3 bg-n-1 p-4">
+      <p className="text-[16px] text-n-8">{SENSITIVE_REFUSAL_COPY.notSent}</p>
+      <p className="text-[16px] font-semibold text-n-9">{SENSITIVE_REFUSAL_COPY.altTitle}</p>
+      <Link
+        href="/courses"
+        className="flex min-h-12 w-full items-center justify-center rounded-pill border border-n-3 bg-n-0 px-4 text-[16px] font-medium text-n-8"
+      >
+        {SENSITIVE_REFUSAL_COPY.courses}
+      </Link>
+      <div className="flex flex-col gap-1">
+        <a href={tel} className="flex min-h-12 w-full items-center justify-center rounded-pill border border-n-3 bg-n-0 px-4 text-[16px] font-medium text-n-8">
+          {fill(SENSITIVE_REFUSAL_COPY.phone, { phone: siteConfig.phone })}
+        </a>
+        <p className="text-center text-[14px] text-n-7">{fill(SENSITIVE_REFUSAL_COPY.hours, { hours: siteConfig.supportHours })}</p>
+      </div>
     </div>
   );
 }

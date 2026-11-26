@@ -1,18 +1,17 @@
 import type { Metadata } from 'next';
 import DiagnosisStepper from '@/components/diagnosis/DiagnosisStepper';
+import { isSubmitErrorCode } from '@/data/diagnosis/consent-copy';
 import { createClient } from '@/lib/db/server';
 
 export const metadata: Metadata = { title: '도형심리 역량진단 | 바라 평생교육원' };
 
-const ERROR_MESSAGE: Record<string, string> = {
-  validation: '필수 항목을 확인해 주세요.',
-  incomplete: '아직 응답하지 않은 문항이 있어요.',
-  'submit-failed': '제출에 실패했어요. 잠시 후 다시 시도해 주세요.',
-};
-
-// F-DIAG-3/4/5. 로그인 상태면 profiles에서 이름/휴대전화/이메일을 프리필한다(수정 가능).
-export default async function DiagnosisStartPage({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
-  const { error } = await searchParams;
+// F-DIAG-3/4/5. 로그인 상태면 profiles에서 이름/휴대전화/이메일을 프리필한다(수정 가능). 동의 체크는 프리필하지 않는다.
+// 제출 오류(?error=, 문구 SC-ERR-*)는 스테퍼가 1페이지 위에 그린다: consent-outdated의 "입력한 답은 그대로예요"는
+// 브라우저 초안이 있을 때만 붙여야 해서 클라이언트에서 판단한다. consent=privacy|sensitive는 포커스할 체크박스다.
+export default async function DiagnosisStartPage({ searchParams }: { searchParams: Promise<{ error?: string; consent?: string }> }) {
+  const { error, consent } = await searchParams;
+  const serverError = isSubmitErrorCode(error) ? error : undefined;
+  const serverConsent = consent === 'privacy' || consent === 'sensitive' ? consent : undefined;
 
   const supabase = await createClient();
   const {
@@ -31,12 +30,15 @@ export default async function DiagnosisStartPage({ searchParams }: { searchParam
 
   return (
     <div>
-      {error && ERROR_MESSAGE[error] && (
-        <div className="mx-auto mt-5 max-w-[520px] rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger">
-          {ERROR_MESSAGE[error]}
-        </div>
-      )}
-      <DiagnosisStepper defaultName={defaultName} defaultPhone={defaultPhone} defaultEmail={defaultEmail} />
+      <DiagnosisStepper
+        // 같은 화면에서 다른 오류로 다시 돌아오면 초기 오류 상태를 새로 잡도록 다시 마운트한다.
+        key={`${serverError ?? ''}:${serverConsent ?? ''}`}
+        defaultName={defaultName}
+        defaultPhone={defaultPhone}
+        defaultEmail={defaultEmail}
+        serverError={serverError}
+        serverConsent={serverConsent}
+      />
     </div>
   );
 }
