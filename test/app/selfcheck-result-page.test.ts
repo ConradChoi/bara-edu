@@ -1,6 +1,7 @@
 import { expect, test, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { RESULT_COPY } from '@/data/diagnosis/consent-copy';
+import { fill, RESULT_COPY } from '@/data/diagnosis/consent-copy';
+import { siteConfig } from '@/data/site-config';
 
 let summary: unknown = null;
 let user: { id: string } | null = null;
@@ -92,4 +93,19 @@ test('비로그인 요약 화면에는 지우기 버튼이 없다', async () => 
   detail = null;
   summary = baseSummary;
   expect(await render()).not.toContain(RESULT_COPY.deleteBtn);
+});
+
+test('비로그인 열람자에게 지우는 방법(SC-RES-GUEST-DELETE-HELP)이 전화·이메일과 함께 보이고, 소유 회원에게는 없다', async () => {
+  summary = { ...baseSummary };
+  user = null;
+  detail = null;
+  const guest = await render();
+  expect(guest).toContain(fill(RESULT_COPY.guestDeleteHelp, { phone: siteConfig.phone, email: siteConfig.email }));
+  user = { id: 'u1' };
+  summary = { ...baseSummary, hasOwner: true, isOwnedByCaller: true };
+  detail = ownDetail;
+  const owner = await render();
+  expect(owner).not.toContain(RESULT_COPY.guestDeleteHelp.slice(0, 12));
+  user = null;
+  detail = null;
 });

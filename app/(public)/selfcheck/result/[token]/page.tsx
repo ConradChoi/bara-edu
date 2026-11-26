@@ -10,8 +10,9 @@ import PendingClaimLink from '@/components/diagnosis/PendingClaimLink';
 import PrintButton from '@/components/diagnosis/PrintButton';
 import RadarChart from '@/components/diagnosis/RadarChart';
 import ScoreBar from '@/components/diagnosis/ScoreBar';
+import { siteConfig } from '@/data/site-config';
 import { DIAGNOSIS_AREAS, DIAGNOSIS_DISCLAIMER, DIAGNOSIS_TIER_LABELS, RECENT_SUBMIT_COOKIE } from '@/data/diagnosis/config';
-import { RESULT_COPY } from '@/data/diagnosis/consent-copy';
+import { fill, RESULT_COPY } from '@/data/diagnosis/consent-copy';
 import { getDiagnosisDetail, getDiagnosisSummary, getMyDiagnosisResults } from '@/lib/supabase/diagnosis-queries';
 import { createClient } from '@/lib/db/server';
 
@@ -61,6 +62,7 @@ export default async function DiagnosisResultPage({
         {isRecentSubmitter && <ClearSelfcheckDraft />}
         <ResultSummaryCard summary={summary} tierLabel={tierLabel} />
         <ResultLinkNotice />
+        <GuestDeleteHelp />
         <div className="rounded-lg border border-warning bg-warning/10 px-4 py-3.5 text-[12.5px] font-medium text-warning">
           이 진단 결과는 이미 다른 계정에 연결되어 있어요. 본인의 결과가 맞다면 고객센터로 문의해 주세요.
         </div>
@@ -107,6 +109,7 @@ export default async function DiagnosisResultPage({
 
       <ResultSummaryCard summary={summary} tierLabel={tierLabel} />
       <ResultLinkNotice />
+      {!detail && <GuestDeleteHelp />}
 
       {showClaimPrompt && (
         <div className="flex flex-col gap-2 rounded-lg border border-n-3 bg-n-1 p-4">
@@ -182,6 +185,15 @@ function ResultLinkNotice() {
       </span>
       <p>{RESULT_COPY.linkNotice}</p>
     </div>
+  );
+}
+
+// 비로그인·소유자가 아닌 열람자에게 지우는 방법을 알린다(제23조 제3항 비공개 선택 방법, 개인정보 점검 R-3). SC-RES-GUEST-DELETE-HELP.
+function GuestDeleteHelp() {
+  return (
+    <p className="print-hide px-1 text-[13px] text-n-7">
+      {fill(RESULT_COPY.guestDeleteHelp, { phone: siteConfig.phone, email: siteConfig.email })}
+    </p>
   );
 }
 

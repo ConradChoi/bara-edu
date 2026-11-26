@@ -12,7 +12,7 @@ export const PRIVACY_CONSENT_COPY = {
   title: '개인정보 수집·이용 동의 (필수)', // SC-PRIV-TITLE
   items: [
     '**항목**: 이름, 휴대전화 또는 이메일(1개 이상), 도형심리 학습 경험, 보유 자격 수준(적은 경우)', // SC-PRIV-ITEMS
-    '**목적**: 자가진단 결과를 본인에게 연결하고, 추천 과정을 안내하고, 강사과정 상담 때 연락하기 위해 써요.', // SC-PRIV-PURPOSE
+    '**목적**: 자가진단 결과를 본인에게 연결하고 추천 과정을 안내하기 위해 써요.', // SC-PRIV-PURPOSE
     '**보유 기간**: 회원 계정에 연결하지 않으면 진단한 날부터 90일이 지나면 지워요. 회원 계정에 연결하면 회원 탈퇴 때까지 보관해요.', // SC-PRIV-PERIOD
     '**동의하지 않을 수 있어요.** 다만 동의하지 않으면 자가진단을 할 수 없어요.', // SC-PRIV-REFUSE
   ],
@@ -70,7 +70,8 @@ export function isSubmitErrorCode(v: string | undefined): v is SubmitErrorCode {
 
 // 4. /selfcheck/result/[token]
 export const RESULT_COPY = {
-  linkNotice: '이 화면 주소(결과 링크)를 아는 사람은 누구나 추천 과정과 전체 점수를 볼 수 있어요. 결과 링크는 다른 사람에게 보내지 않도록 조심해 주세요.', // SC-RES-LINK-NOTICE
+  linkNotice: '이 화면 주소(결과 링크)를 아는 사람은 누구나 추천 과정과 전체 점수를 볼 수 있어요. 결과 링크는 다른 사람에게 보내지 않도록 조심해 주세요. 다른 사람에게 보이지 않게 지키려면 링크를 공유하지 말고, 지우고 싶으면 회원은 마이페이지에서 지우고 회원이 아니면 전화나 이메일로 요청해 주세요.', // SC-RES-LINK-NOTICE
+  guestDeleteHelp: '회원이 아니라면 결과를 지우고 싶을 때 전화 {phone} 또는 이메일 {email}로 요청해 주세요. 요청하면 결과가 지워지고 결과 링크로도 열리지 않아요.', // SC-RES-GUEST-DELETE-HELP
   claimWarn: '본인이 직접 응답한 결과만 연결해 주세요. 연결하면 회원 탈퇴 때나 직접 지울 때까지 보관돼요.', // SC-RES-CLAIM-WARN
   deleteBtn: '이 진단 기록 지우기', // SC-RES-DEL-BTN
   notFoundTitle: '결과를 찾을 수 없어요', // SC-RES-NOTFOUND-TITLE
