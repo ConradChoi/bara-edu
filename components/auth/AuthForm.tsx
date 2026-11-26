@@ -1,13 +1,14 @@
 'use client';
 
-import { useActionState, useRef, useState } from 'react';
+import { useActionState, useState } from 'react';
 import Link from 'next/link';
 import { signup, login, type AuthFormState } from '@/app/actions/auth';
 import { siteConfig } from '@/data/site-config';
 import ResendConfirmationForm from '@/components/auth/ResendConfirmationForm';
 import PasswordField from '@/components/auth/PasswordField';
-import { AlertIcon, CheckIcon } from '@/components/error/icons';
-import { MSG_PASSWORD_MISMATCH_CLIENT } from '@/lib/form-messages';
+import { ConfirmNote, usePasswordConfirm } from '@/components/auth/usePasswordConfirm';
+import { AlertIcon } from '@/components/error/icons';
+import { LINK_CLASS } from '@/components/error/styles';
 
 const initialState: AuthFormState = undefined;
 
@@ -18,31 +19,12 @@ type AuthFormProps = {
   defaultEmail?: string;
 };
 
-// 비밀번호 확인 칸의 안내. 'empty'·'mismatch'는 오류, 'match'는 한 번 불일치가 뜬 뒤 고쳤을 때만.
-type ConfirmNote = 'none' | 'empty' | 'mismatch' | 'match';
-
 export default function AuthForm({ mode, redirectTo, defaultEmail }: AuthFormProps) {
   const action = mode === 'signup' ? signup : login;
   const [state, formAction, pending] = useActionState(action, initialState);
   // 두 비밀번호 칸의 [보기]는 같은 상태를 공유한다 — 어느 쪽을 눌러도 두 칸이 함께 보이고 숨겨진다(대표 판단).
   const [shown, setShown] = useState(false);
-  const [note, setNote] = useState<ConfirmNote>('none');
-  const [warned, setWarned] = useState(false); // 한 번이라도 불일치 안내가 떴는지 — 이후에는 입력할 때마다 다시 비교
-  const pwRef = useRef<HTMLInputElement>(null);
-  const confirmRef = useRef<HTMLInputElement>(null);
-
-  // 입력 도중에는 불일치를 띄우지 않는다. blur·제출 때 비교하고, 한 번 뜬 뒤에는 입력할 때마다 비교한다.
-  function compare(opts: { emptyIsError: boolean }): ConfirmNote {
-    const a = pwRef.current?.value ?? '';
-    const b = confirmRef.current?.value ?? '';
-    let next: ConfirmNote;
-    if (!b) next = opts.emptyIsError ? 'empty' : 'none';
-    else if (a !== b) next = 'mismatch';
-    else next = warned ? 'match' : 'none';
-    if (next === 'mismatch' || next === 'empty') setWarned(true);
-    setNote(next);
-    return next;
-  }
+  const { note, warned, compare, pwRef, confirmRef } = usePasswordConfirm();
 
   if (state && 'pendingConfirmation' in state) {
     // 로그인 쪽은 메일을 새로 보내지 않았으므로 "보냈어요"라고 하지 않는다(문구 문서 4장 코드 요청 3, 방법 A).
@@ -55,6 +37,15 @@ export default function AuthForm({ mode, redirectTo, defaultEmail }: AuthFormPro
             <p className="text-[14px] leading-relaxed text-n-7">
               받은 인증 메일의 링크를 눌러 주세요. 링크를 열면 가입할 때 정한 비밀번호를 한 번 더 입력해요. 메일이 없으면 아래에서 다시 받을 수 있어요.
             </p>
+          </div>
+          {/* 비밀번호가 맞은 사람에게만 보이는 화면이라 "가입도 함께 끝나요"라고 말해도 열거가 아니다(카피 EP-PENDING-LOGIN). 재전송보다 먼저 둔다(P-3). */}
+          <div className="flex flex-col gap-1">
+            <p className="text-[14px] leading-relaxed text-n-7">
+              가입할 때 정한 비밀번호가 기억나지 않나요? 비밀번호를 새로 정하면 가입도 함께 끝나요.
+            </p>
+            <Link href="/forgot-password" className={`${LINK_CLASS} self-start`}>
+              비밀번호 새로 정하기
+            </Link>
           </div>
           <div className="flex flex-col gap-2 border-t border-n-3 pt-4">
             <ResendConfirmationForm defaultEmail={state.email} />
@@ -87,6 +78,14 @@ export default function AuthForm({ mode, redirectTo, defaultEmail }: AuthFormPro
         <div className="flex flex-col gap-2 border-t border-n-3 pt-4">
           <p className="text-[12.5px] text-n-6">메일이 오지 않았거나 인증 링크가 만료됐나요? 아래에서 메일을 다시 받을 수 있어요.</p>
           <ResendConfirmationForm defaultEmail={state.email} />
+          {/* 가입 여부를 암시하는 "이미"·"다시"를 쓰지 않는다(카피 EP-SIGNUP-DONE) */}
+          <p className="text-[12.5px] text-n-6">
+            비밀번호가 기억나지 않으면{' '}
+            <Link href="/forgot-password" className={LINK_CLASS}>
+              비밀번호 찾기
+            </Link>
+            를 눌러 주세요.
+          </p>
         </div>
         <div className="flex flex-col items-center gap-2">
           <Link href="/sign-in" className="text-center text-[13px] font-medium text-pink">
@@ -162,24 +161,17 @@ export default function AuthForm({ mode, redirectTo, defaultEmail }: AuthFormPro
               onChange={() => warned && compare({ emptyIsError: false })}
               onBlur={() => compare({ emptyIsError: false })}
             />
-            <div aria-live="polite">
-              {(note === 'mismatch' || note === 'empty') && (
-                <p id="passwordConfirm-note" className="flex gap-2 text-base leading-[1.6] text-n-9 break-keep">
-                  <AlertIcon className="mt-0.5 size-5 shrink-0 text-danger" />
-                  {note === 'empty' ? '비밀번호를 한 번 더 입력해 주세요' : MSG_PASSWORD_MISMATCH_CLIENT}
-                </p>
-              )}
-              {note === 'match' && (
-                <p className="flex gap-2 text-base leading-[1.6] text-n-8">
-                  <CheckIcon className="mt-0.5 size-5 shrink-0 text-success" />
-                  비밀번호가 같아요
-                </p>
-              )}
-            </div>
+            <ConfirmNote id="passwordConfirm-note" note={note} />
           </div>
         </>
       ) : (
-        <Field label="비밀번호" name="password" type="password" placeholder="비밀번호를 입력하세요" required />
+        <div className="flex flex-col gap-1">
+          <Field label="비밀번호" name="password" type="password" placeholder="비밀번호를 입력하세요" required />
+          {/* 비밀번호 칸 바로 아래, 왼쪽 정렬(P-3). 이메일은 URL로 넘기지 않는다(대표 결정 6). */}
+          <Link href="/forgot-password" className={`${LINK_CLASS} self-start`}>
+            비밀번호를 잊으셨나요?
+          </Link>
+        </div>
       )}
       {mode === 'signup' && <Field label="연락처" name="phone" placeholder="010-0000-0000" />}
       {mode === 'signup' && (

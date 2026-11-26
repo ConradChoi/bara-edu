@@ -22,3 +22,8 @@ export const TITLE_CLASS =
   'mt-5 text-2xl font-bold leading-[1.35] text-n-9 break-keep outline-none md:mt-6 md:text-[32px]';
 export const DESC_CLASS = 'mt-3 max-w-[34rem] text-lg leading-[1.7] text-n-7 break-keep md:mt-4';
 export const ACTIONS_CLASS = 'mt-8 flex w-full flex-col gap-3 md:mt-10 md:max-w-[420px]';
+
+// 큰 글씨 계열 화면(가입 마무리·비밀번호 찾기·재설정)의 텍스트 링크. 터치 영역 44px(min-h-11) 이상.
+export const LINK_CLASS =
+  'inline-flex min-h-11 items-center text-base text-indigo underline underline-offset-4 ' +
+  'focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-indigo';

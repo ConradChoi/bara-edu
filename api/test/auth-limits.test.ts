@@ -135,3 +135,16 @@ test('IPv4-mapped IPv6와 IPv4는 같은 키를 쓴다', async () => {
   const r = await ctx.adminPool.query("select key, count(*)::int n from auth.rate_events where bucket = 'reset-ip' group by key");
   expect(r.rows).toEqual([{ key: '198.51.100.9', n: 2 }]);
 });
+
+test('비밀번호 재설정 제출은 IP당 15분 30회로 막히고(개인정보·보안 점검 I-2), 다른 IP는 영향 없다', async () => {
+  const submit = (ip: string) => post('/v1/auth/reset-password', { token: 'f'.repeat(43), newPassword: 'newpassword1' }, ip);
+  for (let i = 0; i < 30; i++) {
+    const r = await submit('203.0.113.77');
+    expect(r.statusCode).toBe(400);
+    expect(r.json().error.message).toBe('invalid_token');
+  }
+  const blocked = await submit('203.0.113.77');
+  expect(blocked.statusCode).toBe(429);
+  expect(blocked.json().error.code).toBe('rate_limited');
+  expect((await submit('203.0.113.78')).statusCode).toBe(400);
+});

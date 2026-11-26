@@ -3,16 +3,15 @@
 import { useActionState, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { finishSignup, type SignupFinishState } from '@/app/actions/auth';
-import { siteConfig } from '@/data/site-config';
 import PasswordField, { FOCUS_RING } from '@/components/auth/PasswordField';
 import SignupLinkStatus from '@/components/auth/SignupLinkStatus';
-import { AlertIcon, ChevronDownIcon, PhoneIcon, RefreshIcon } from '@/components/error/icons';
-import { SECONDARY_BTN } from '@/components/error/styles';
+import SupportPhone from '@/components/auth/SupportPhone';
+import { NOTICE } from '@/components/auth/styles';
+import { AlertIcon, ChevronDownIcon, RefreshIcon } from '@/components/error/icons';
+import { LINK_CLASS, SECONDARY_BTN } from '@/components/error/styles';
 
 const initialState: SignupFinishState = undefined;
 const MAX_ATTEMPTS = 5;
-
-const NOTICE = 'flex gap-3 rounded-md border-l-4 border-danger bg-n-1 px-4 py-3 text-base leading-[1.6] text-n-9 break-keep';
 
 type Props = {
   token: string;
@@ -53,7 +52,6 @@ export default function SignupFinishForm({ token, email, requestedLabel, remaini
     return <SignupLinkStatus status={state.status} focusOnMount />;
   }
 
-  const digits = siteConfig.phone.replace(/[^0-9]/g, '');
   const describedBy = wrong ? 'confirm-password-error' : showEmpty ? 'confirm-password-empty' : undefined;
 
   return (
@@ -121,7 +119,15 @@ export default function SignupFinishForm({ token, email, requestedLabel, remaini
             <ul className="flex list-disc flex-col gap-1 pl-10 pr-1 text-base leading-[1.7] text-n-7">
               <li>가입할 때 정한 비밀번호가 맞는지 확인해 주세요. 한/영 키와 Caps Lock이 켜져 있는지도 살펴봐 주세요.</li>
               <li>다른 인증 메일을 받았다면 그 메일의 링크도 열어 보세요.</li>
-              {wrong.attemptsLeft <= 2 && <li>비밀번호가 기억나지 않으면 아래에서 다시 가입할 수 있어요.</li>}
+              {wrong.attemptsLeft <= 2 && (
+                <li>
+                  비밀번호가 기억나지 않으면{' '}
+                  <Link href="/forgot-password" className={LINK_CLASS}>
+                    비밀번호 새로 정하기
+                  </Link>
+                  를 눌러 주세요.
+                </li>
+              )}
             </ul>
           </div>
         )}
@@ -190,21 +196,18 @@ export default function SignupFinishForm({ token, email, requestedLabel, remaini
           <ChevronDownIcon className="size-5 shrink-0 text-indigo transition-transform group-open:rotate-180 motion-reduce:transition-none" />
         </summary>
         <div className="flex flex-col gap-4 border-t border-n-3 px-4 py-4">
-          <p className="text-base leading-[1.7] text-n-7 break-keep">
-            처음부터 다시 가입하면 새 인증 메일을 보내 드려요. 그 메일에서 새로 정한 비밀번호로 가입을 마칠 수 있어요.
-          </p>
-          <Link href={`/sign-up?email=${encodeURIComponent(email)}`} className={SECONDARY_BTN}>
-            처음부터 다시 가입하기
+          {/* 대표 결정 8 + P-7 처리 1: 재설정을 먼저 두되 채운 버튼은 폼의 [가입 완료하기] 하나만 — 여기는 윤곽선. */}
+          <p className="text-base leading-[1.7] text-n-7 break-keep">이메일로 비밀번호를 새로 정할 수 있어요. 새로 정하면 가입도 함께 끝나요.</p>
+          <Link href="/forgot-password" className={SECONDARY_BTN}>
+            비밀번호 새로 정하기
           </Link>
-          <p className="text-base leading-[1.7] text-n-7 break-keep">다시 가입이 어려우면 전화로 문의해 주세요.</p>
-          <a href={`tel:${digits}`} className={`${SECONDARY_BTN} !flex-col !gap-0 !py-2`}>
-            <span className="inline-flex items-center gap-2">
-              <PhoneIcon className="size-5" />
-              전화 문의
-            </span>
-            <span className="whitespace-nowrap text-xl">{siteConfig.phone}</span>
-          </a>
-          <p className="text-sm leading-[1.6] text-n-6 break-keep">운영시간 {siteConfig.supportHours}</p>
+          <p className="text-base leading-[1.7] text-n-7 break-keep">
+            다른 방법:{' '}
+            <Link href={`/sign-up?email=${encodeURIComponent(email)}`} className={LINK_CLASS}>
+              처음부터 다시 가입하기
+            </Link>
+          </p>
+          <SupportPhone label="전화로 문의하기" hoursLabel="운영시간" />
         </div>
       </details>
 

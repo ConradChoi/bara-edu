@@ -1,6 +1,7 @@
 import { expect, test } from 'vitest';
 import type { SendEmailCommand } from '@aws-sdk/client-sesv2';
 import { SesMailer } from '../src/mail/ses.js';
+import { kstStamp } from '../src/mail/kst.js';
 
 function fakeClient() {
   const sent: SendEmailCommand['input'][] = [];
@@ -30,13 +31,23 @@ test('confirm 메일: 제목·받는사람·발신·링크, HTML과 텍스트 �
   expect(simple.Body?.Html?.Data).toContain('href="https://bara-edu.kr/auth/confirm?token=abc"');
 });
 
-test('recovery 메일: 제목·안내 문구', async () => {
+test('recovery 메일: 제목·안내 문구(1시간·한 번만), 링크 뒤 복사 안내·로그아웃 안내', async () => {
   const { sent, client } = fakeClient();
   await new SesMailer(client, FROM).send({ to: 'b@bara-edu.kr', template: 'recovery', link: 'https://bara-edu.kr/reset-password?token=xyz' });
   const simple = sent[0].Content!.Simple!;
   expect(simple.Subject?.Data).toBe('[바라 평생교육원] 비밀번호 재설정 안내');
-  expect(simple.Body?.Text?.Data).toContain('아래 링크에서 새 비밀번호를 설정해 주세요. 링크는 1시간 동안 유효해요. 요청하지 않았다면 이 메일을 무시해 주세요.');
-  expect(simple.Body?.Html?.Data).toContain('https://bara-edu.kr/reset-password?token=xyz');
+  const text = simple.Body?.Text?.Data ?? '';
+  expect(text).toContain('아래 링크를 열고, 새 비밀번호를 정해 주세요. 링크는 1시간 동안 쓸 수 있고, 한 번만 쓸 수 있어요.');
+  expect(text).toContain('본인이 요청하지 않았다면 이 메일을 무시해 주세요. 아무것도 바뀌지 않아요.');
+  expect(text).toContain('링크가 열리지 않으면 주소를 복사해 인터넷 창에 붙여 넣어 주세요.');
+  expect(text).toContain('비밀번호를 바꾸면 모든 기기에서 로그아웃돼요.');
+  expect(text).not.toContain('유효해요');
+  const linkAt = text.indexOf('https://bara-edu.kr/reset-password?token=xyz');
+  expect(linkAt).toBeGreaterThan(text.indexOf('한 번만 쓸 수 있어요'));
+  expect(text.indexOf('링크가 열리지 않으면')).toBeGreaterThan(linkAt);
+  expect(text.indexOf('전화: ')).toBeGreaterThan(text.indexOf('모든 기기에서 로그아웃돼요'));
+  expect(simple.Body?.Html?.Data).toContain('href="https://bara-edu.kr/reset-password?token=xyz"');
+  expect(simple.Body?.Html?.Data).toContain('<p>링크가 열리지 않으면 주소를 복사해 인터넷 창에 붙여 넣어 주세요.</p>');
 });
 
 test('HTML 본문의 링크는 이스케이프되고 텍스트 본문은 원문 그대로', async () => {
@@ -54,24 +65,71 @@ test('SES 오류는 호출자에게 전달된다', async () => {
   await expect(new SesMailer(client, FROM).send({ to: 'd@bara-edu.kr', template: 'confirm', link: 'https://bara-edu.kr/' })).rejects.toThrow('ses down');
 });
 
-test('already_registered 메일: 제목·로그인 링크·전화·운영시간·재설정 문장', async () => {
+test('already_registered 메일: 제목·로그인 링크·비밀번호 찾기 주소·전화·운영시간', async () => {
   const { sent, client } = fakeClient();
-  await new SesMailer(client, FROM).send({ to: 'e@bara-edu.kr', template: 'already_registered', link: 'https://bara-edu.kr/sign-in' });
+  await new SesMailer(client, FROM).send({ to: 'e@bara-edu.kr', template: 'already_registered', link: 'https://bara-edu.kr/sign-in', forgotLink: 'https://bara-edu.kr/forgot-password' });
   const simple = sent[0].Content!.Simple!;
   expect(simple.Subject?.Data).toBe('[바라 평생교육원] 이미 가입된 이메일이에요');
   const text = simple.Body?.Text?.Data ?? '';
   expect(text).toContain('이 주소는 이미 가입되어 있어서 새로 가입하지 않았어요.');
   expect(text).toContain('https://bara-edu.kr/sign-in');
-  expect(text).toContain('비밀번호가 기억나지 않으면 전화로 문의해 주세요. 확인 후 재설정 메일을 보내 드려요.');
+  // MAIL-REG-AFTER-1~3: 셀프 경로가 먼저, 전화는 그 뒤
+  expect(text).toContain('비밀번호가 기억나지 않으면 아래 주소에서 새로 정할 수 있어요.\nhttps://bara-edu.kr/forgot-password\n주소가 열리지 않거나 어려우면 전화로 문의해 주세요.');
+  expect(text).not.toContain('확인 후 재설정 메일을 보내 드려요');
+  expect(text).not.toContain('{');
+  expect(text.indexOf('https://bara-edu.kr/forgot-password')).toBeGreaterThan(text.indexOf('https://bara-edu.kr/sign-in'));
+  expect(text.indexOf('전화: ')).toBeGreaterThan(text.indexOf('주소가 열리지 않거나'));
   expect(text).toContain('010-9025-5093');
   expect(text).toContain('운영시간: 평일 10:00~18:00(점심 11:30~13:00 제외)');
   expect(text).toContain('본인이 가입을 시도한 것이 아니라면 이 메일을 무시해 주세요.');
-  expect(simple.Body?.Html?.Data).toContain('href="https://bara-edu.kr/sign-in"');
+  const html = simple.Body?.Html?.Data ?? '';
+  expect(html).toContain('href="https://bara-edu.kr/sign-in"');
+  expect(html).toContain('<p><a href="https://bara-edu.kr/forgot-password">https://bara-edu.kr/forgot-password</a></p>');
+});
+
+test('already_registered 메일: 비밀번호 찾기 주소도 HTML에서 이스케이프된다', async () => {
+  const { sent, client } = fakeClient();
+  await new SesMailer(client, FROM).send({ to: 'e@bara-edu.kr', template: 'already_registered', link: 'https://bara-edu.kr/sign-in', forgotLink: 'https://bara-edu.kr/"><script>x</script>' });
+  const html = sent[0].Content!.Simple!.Body!.Html?.Data ?? '';
+  expect(html).not.toContain('<script>');
+  expect(html).toContain('&quot;&gt;&lt;script&gt;');
+});
+
+test('password_changed 메일: 확정 문구, 바뀐 시각, 링크 없음, 문의처는 공통 블록', async () => {
+  const { sent, client } = fakeClient();
+  await new SesMailer(client, FROM).send({ to: 'g@bara-edu.kr', template: 'password_changed', at: '2026년 11월 26일 오후 2시 12분' });
+  expect(sent[0].Destination?.ToAddresses).toEqual(['g@bara-edu.kr']);
+  const simple = sent[0].Content!.Simple!;
+  expect(simple.Subject?.Data).toBe('[바라 평생교육원] 비밀번호가 바뀌었어요');
+  const text = simple.Body?.Text?.Data ?? '';
+  expect(text).toBe(
+    [
+      '안녕하세요. 바라 평생교육원이에요.',
+      '',
+      '회원님의 비밀번호가 바뀌어서 알려 드려요.',
+      '바뀐 시각: 2026년 11월 26일 오후 2시 12분',
+      '보안을 위해 모든 기기에서 로그아웃했어요. 새 비밀번호로 다시 로그인해 주세요.',
+      '회원님이 직접 바꾼 것이 맞다면 따로 하실 일은 없어요.',
+      '',
+      '본인이 바꾸지 않았다면 바로 전화로 알려 주세요.',
+      '',
+      '전화: 010-9025-5093',
+      '운영시간: 평일 10:00~18:00(점심 11:30~13:00 제외)',
+      '',
+      '바라 평생교육원',
+      '',
+    ].join('\n'),
+  );
+  expect(text).not.toContain('http');
+  const html = simple.Body?.Html?.Data ?? '';
+  expect(html).not.toContain('<a ');
+  expect(html).not.toContain('href');
+  expect(html).toContain('<p>바뀐 시각: 2026년 11월 26일 오후 2시 12분</p>');
 });
 
 test('운영시간이 비어 있으면 그 줄을 뺀다', async () => {
   const { sent, client } = fakeClient();
-  await new SesMailer(client, FROM, { phone: '010-1111-2222', hours: '' }).send({ to: 'f@bara-edu.kr', template: 'already_registered', link: 'https://bara-edu.kr/sign-in' });
+  await new SesMailer(client, FROM, { phone: '010-1111-2222', hours: '' }).send({ to: 'f@bara-edu.kr', template: 'already_registered', link: 'https://bara-edu.kr/sign-in', forgotLink: 'https://bara-edu.kr/forgot-password' });
   const body = sent[0].Content!.Simple!.Body!;
   expect(body.Text?.Data).toContain('010-1111-2222');
   expect(body.Text?.Data).not.toContain('운영시간');
@@ -96,4 +154,10 @@ test('profile_changed 메일: 확정 문구, 링크 없음, 항목명·시각·�
   expect(simple.Body?.Html?.Data).not.toContain('<a ');
   await new SesMailer(client, FROM).send({ to: 'f@bara-edu.kr', template: 'profile_changed', fields: ['phone'], at: 'x' });
   expect(sent[1].Content!.Simple!.Body?.Text?.Data).toContain('바뀐 항목: 휴대전화');
+});
+
+test('kstStamp: profile_changed·password_changed의 {at} 형식(KST, 12시간제)', () => {
+  expect(kstStamp(new Date('2026-11-26T05:12:00Z'))).toBe('2026년 11월 26일 오후 2시 12분');
+  expect(kstStamp(new Date('2026-11-25T15:05:00Z'))).toBe('2026년 11월 26일 오전 12시 5분');
+  expect(kstStamp(new Date('2026-11-26T03:00:00Z'))).toBe('2026년 11월 26일 오후 12시 0분');
 });

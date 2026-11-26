@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { Tx } from '../db/context.js';
 import { lockUserSignupIn } from '../auth/tokens.js';
+import { kstStamp } from '../mail/kst.js';
 import { defineOp, OpError } from './registry.js';
 
 // 관리자 회원 상세의 이름·연락처 수정. 계약: docs/02-design/features/bara-edu-lms.admin-profile-edit.api.md
@@ -80,14 +81,6 @@ async function isAdmin(tx: Tx, userId: string | null): Promise<boolean> {
   if (!userId) return false;
   const r = await tx.query<{ role: string }>('select role from profiles where id = $1', [userId]);
   return r.rows[0]?.role === 'admin';
-}
-
-// KST 표시용 시각: 2026년 11월 26일 오후 2시 12분
-function kstStamp(d: Date): string {
-  const p = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Seoul', year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: 'numeric', hour12: false }).formatToParts(d);
-  const g = (t: string) => Number(p.find((x) => x.type === t)!.value);
-  const h = g('hour') % 24;
-  return `${g('year')}년 ${g('month')}월 ${g('day')}일 ${h < 12 ? '오전' : '오후'} ${h % 12 || 12}시 ${g('minute')}분`;
 }
 
 export const adminUpdateMemberProfile = defineOp({

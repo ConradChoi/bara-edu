@@ -23,7 +23,13 @@ export type ResendResult = { ok: true } | { ok: false; reason: FailReason; field
 export type LoginResult =
   | { ok: true }
   | { ok: false; reason: 'invalid_credentials' | 'email_not_confirmed' | 'rate_limited' | 'unavailable' | 'validation' | 'failed'; field?: FormField };
-export type ResetResult = { ok: true } | { ok: false; field?: FormField };
+// 비밀번호 찾기(재설정 메일 요청). 200은 계정 유무·이메일 한도와 관계없이 같다(이메일 열거 방지) — 성공에는 아무 값도 싣지 않는다.
+export type RequestResetResult = { ok: true } | { ok: false; reason: FailReason; field?: FormField };
+// 재설정 링크 사용. invalid_token: 없음·만료·이미 사용을 API가 구분하지 않는다. unavailable: 연결 불가(503·네트워크).
+export type ResetResult =
+  | { ok: true }
+  | { ok: false; reason: 'invalid_token' | 'unavailable' | 'failed' }
+  | { ok: false; reason: 'validation'; field?: FormField };
 
 function fieldOf(r: { status: number; error: { field?: string } }): { field?: FormField } {
   const field = r.status === 400 ? formField(r.error.field) : undefined;
@@ -125,8 +131,11 @@ export async function changePassword(currentPassword: string, newPassword: strin
   return { ok: false, reason: isDeadSession(r) ? 'unauthenticated' : 'failed' };
 }
 
-export async function requestReset(email: string, origin: string): Promise<boolean> {
-  return (await apiFetch('/v1/auth/request-reset', { method: 'POST', body: { email, origin } })).ok;
+// POST /v1/auth/request-reset — 429는 IP 한도뿐이고, 400 field=origin·401 서비스 키는 앱 설정 문제다(field 없음).
+// 계약: docs/02-design/features/bara-edu-lms.password-reset-request.md 5.1
+export async function requestReset(email: string, origin: string): Promise<RequestResetResult> {
+  const r = await apiFetch('/v1/auth/request-reset', { method: 'POST', body: { email, origin } });
+  return r.ok ? { ok: true } : { ok: false, reason: failReason(r), ...fieldOf(r) };
 }
 
 export async function resetPassword(token: string, newPassword: string): Promise<ResetResult> {
@@ -135,7 +144,11 @@ export async function resetPassword(token: string, newPassword: string): Promise
     await clearSession();
     return { ok: true };
   }
-  return { ok: false, ...fieldOf(r) };
+  if (r.status === 400) {
+    return r.error.message === 'invalid_token' ? { ok: false, reason: 'invalid_token' } : { ok: false, reason: 'validation', ...fieldOf(r) };
+  }
+  // 429(IP 요청 제한)는 링크 문제가 아니므로 '잠시 후 다시'(unavailable)로 안내한다
+  return { ok: false, reason: r.status === 503 || r.status === 429 ? 'unavailable' : 'failed' };
 }
 
 // token and IP are explicit so proxy.ts can call this without next/headers

@@ -19,6 +19,19 @@ export type SignupFinishState =
   | { kind: 'error'; error: 'empty' | 'unavailable' | 'rate_limited' | 'failed' }
   | undefined;
 
+// 비밀번호 찾기(/forgot-password)의 서버 액션 결과. 문구는 화면이 정한다(카피 문서 FP-*).
+// requested: 200 — 계정이 있든 없든, 이메일 한도에 걸렸든 같은 값이다(이메일 열거 방지). 서버 응답 값은 싣지 않는다.
+// error: 입력 칸 아래(empty·format) 또는 칸 위 알림(rate_limited·unavailable·failed). email은 입력 유지용(JS 없이도 칸을 다시 채운다).
+// resend: 보냄 화면의 [메일 다시 받기]에서 온 요청인지 — 결과를 보냄 화면에 그대로 그린다.
+export type ForgotPasswordError = 'empty' | 'format' | 'rate_limited' | 'unavailable' | 'failed';
+export type ForgotPasswordState =
+  | { requested: true; email: string; resend: boolean }
+  | { error: ForgotPasswordError; email: string; resend: boolean }
+  | undefined;
+
+export type ResetPasswordError = 'short' | 'long' | 'mismatch' | 'rule' | 'expired' | 'unavailable';
+export type ResetPasswordState = { error: ResetPasswordError } | undefined;
+
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // ?redirect= 값을 검증 없이 그대로 redirect()에 넘기면 오픈 리다이렉트(CWE-601)로
@@ -103,6 +116,24 @@ export async function resendConfirmation(
   return { pendingConfirmation: true, email };
 }
 
+// 비밀번호 찾기: 재설정 메일 요청. resendConfirmation과 같은 구조(형식 검사 → 호출 → 상태 매핑).
+// 이메일은 로그에 남기지 않고 URL에도 싣지 않는다. 입력한 사람에게만 상태로 되돌려 보여 준다.
+export async function requestPasswordReset(_prev: ForgotPasswordState, formData: FormData): Promise<ForgotPasswordState> {
+  const raw = formData.get('email');
+  const email = typeof raw === 'string' ? raw.trim() : '';
+  const resend = formData.get('resend') === '1';
+  if (!email) return { error: 'empty', email, resend };
+  if (!EMAIL_RE.test(email) || !isApiEmail(email)) return { error: 'format', email, resend };
+
+  const r = await auth.requestReset(email, await getSiteOrigin());
+  if (r.ok) return { requested: true, email, resend };
+  if (r.reason === 'rate_limited') return { error: 'rate_limited', email, resend };
+  if (r.reason === 'unavailable') return { error: 'unavailable', email, resend };
+  if (r.reason === 'validation' && r.field === 'email') return { error: 'format', email, resend };
+  // 400 field=origin, 401 서비스 키, 그 밖의 5xx — 사용자가 고칠 수 없는 문제
+  return { error: 'failed', email, resend };
+}
+
 // 가입 마무리: 링크 토큰(hidden)과 가입 때 정한 비밀번호. 확정은 이 액션(POST)에서만 일어난다 — 링크를 여는 GET은 읽기 전용이다.
 // 비밀번호·토큰은 로그에 남기지 않고 상태에도 담지 않는다(오류 상태에는 횟수·종류만).
 export async function finishSignup(_prev: SignupFinishState, formData: FormData): Promise<SignupFinishState> {
@@ -166,22 +197,24 @@ export async function logout() {
 }
 
 // 재설정 메일 링크(/reset-password?token=)의 토큰은 폼의 hidden input으로 넘어온다.
-export async function resetPassword(
-  _prevState: AuthFormState,
-  formData: FormData
-): Promise<AuthFormState> {
+// 결과는 종류만 돌려주고 문구는 화면이 정한다(카피 문서 4장 RP-*). 비밀번호·토큰은 상태에 담지 않는다.
+// short·long·rule: 새 비밀번호 칸 아래, mismatch: 확인 칸 아래, expired: 새 메일 받기 안내, unavailable: 연결 불가(입력 유지).
+export async function resetPassword(_prevState: ResetPasswordState, formData: FormData): Promise<ResetPasswordState> {
   const token = (formData.get('token') as string | null) ?? '';
   const password = (formData.get('password') as string | null) ?? '';
   const confirm = (formData.get('confirm') as string | null) ?? '';
 
-  if (password.length < 8) return { error: '비밀번호는 8자 이상이어야 해요' };
-  if (password.length > LIMITS.password) return { error: `비밀번호는 ${LIMITS.password}자 이하로 입력해 주세요` };
-  if (password !== confirm) return { error: '비밀번호가 일치하지 않아요' };
+  if (password.length < 8) return { error: 'short' };
+  if (password.length > LIMITS.password) return { error: 'long' };
+  if (password !== confirm) return { error: 'mismatch' };
+  if (!token) return { error: 'expired' };
 
-  const reset = token ? await auth.resetPassword(token, password) : ({ ok: false, field: undefined } as const);
+  const reset = await auth.resetPassword(token, password);
   if (!reset.ok) {
-    if (reset.field === 'password') return { error: FIELD_MESSAGES.password };
-    return { error: '비밀번호 변경에 실패했어요. 링크가 만료됐을 수 있어요. 다시 요청해 주세요.' };
+    if (reset.reason === 'validation' && reset.field === 'password') return { error: 'rule' };
+    if (reset.reason === 'unavailable') return { error: 'unavailable' };
+    // invalid_token, 토큰 형식 오류(400 field=token), 그 밖의 실패: 새 링크를 받는 것이 해결 방법이다(기존 동작 유지)
+    return { error: 'expired' };
   }
 
   redirect('/sign-in?reset=1');
