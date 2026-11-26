@@ -805,7 +805,7 @@ revoke execute on function public.delete_my_diagnosis_result(uuid, boolean) from
 | `p_token` 형식 오류·인자 누락 | 400 `{ code: "validation" }` |
 
 - 앱 처리: `true` → `/my?tab=diagnosis&deleted=1`(SC-MY-DEL-DONE). `false`·오류 → SC-MY-DEL-FAIL, 목록 유지.
-- 기록: 동의 기록은 결과 행과 함께 사라진다(5.1, 별도 동의 테이블 없음). 철회 처리 사실은 API 서버 로그에 한 줄 남긴다(`event: "diagnosis_consent_withdrawn"`, `userId`, `deleted`, `leadsDeleted`). 토큰·점수·이름은 남기지 않는다. 관리자 접속 기록(`admin_access_logs`)에는 남기지 않는다(관리자 처리가 아님).
+- 기록: 동의 기록은 결과 행과 함께 사라진다(5.1, 별도 동의 테이블 없음). 철회 처리 사실은 API 서버 로그에 한 줄 남긴다(`event: "diagnosis_consent_withdrawn"`, `userId`, `deleted`(true/false), `deleteLeads`(요청 값)). 토큰·점수·이름은 남기지 않는다. 관리자 접속 기록(`admin_access_logs`)에는 남기지 않는다(관리자 처리가 아님).
 
 ### C3. 내 결과 목록 `POST /v1/rpc/get_my_diagnosis_results` (회원)
 

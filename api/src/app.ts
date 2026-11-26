@@ -9,7 +9,7 @@ import { registerErrorHandlers, sendError } from './http/errors.js';
 import { keyMatches, registerGuard } from './http/guard.js';
 import { loggerOptions, type LogOptions } from './http/logging.js';
 import { adminListMemberProfileEdits, adminUpdateMemberProfile } from './ops/admin-profile.js';
-import { adminGetDiagnosisResultDetail, adminUpdateDiagnosisLead } from './ops/admin-diagnosis.js';
+import { adminGetDiagnosisResultDetail, adminListDiagnosisResults, adminUpdateDiagnosisLead } from './ops/admin-diagnosis.js';
 import { bankAccountsList } from './ops/bank-accounts.js';
 import { enrollmentsApply } from './ops/enrollments.js';
 import { enrollmentsApprove } from './ops/enrollments-approve.js';
@@ -39,7 +39,7 @@ export function buildApp(deps: AppDeps, extraOps: Op[] = []): FastifyInstance {
   registerGuard(app);
   app.get('/healthz', async () => ({ ok: true }));
   registerAuthRoutes(app);
-  registerOpRoutes(app, registerOps([profilesGetMine, bankAccountsList, enrollmentsApply, enrollmentsApprove, adminUpdateMemberProfile, adminListMemberProfileEdits, adminUpdateDiagnosisLead, adminGetDiagnosisResultDetail, ...extraOps]));
+  registerOpRoutes(app, registerOps([profilesGetMine, bankAccountsList, enrollmentsApply, enrollmentsApprove, adminUpdateMemberProfile, adminListMemberProfileEdits, adminUpdateDiagnosisLead, adminGetDiagnosisResultDetail, adminListDiagnosisResults, ...extraOps]));
   registerStorageRoutes(app);
   registerQueryRoutes(app, lazyCatalog(deps.pool));
   registerRpcRoutes(app, lazyRpcCatalog(deps.pool));

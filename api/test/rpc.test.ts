@@ -36,10 +36,10 @@ function rpc(fn: string, args: unknown, user?: string) {
   return app.inject({ method: 'POST', url: `/v1/rpc/${fn}`, headers, payload: args === undefined ? undefined : ({ args } as any) });
 }
 
-test('카탈로그는 허용 함수 16개를 모두 단일 시그니처로 적재', async () => {
+test('카탈로그는 허용 함수 17개를 모두 단일 시그니처로 적재', async () => {
   const cat = await loadRpcCatalog(ctx.pool);
   expect([...cat.keys()].sort()).toEqual([...RPC_ALLOW].sort());
-  expect(RPC_ALLOW).toHaveLength(16);
+  expect(RPC_ALLOW).toHaveLength(17);
   expect(cat.get('submit_diagnosis')!.args.find((a) => a.name === 'p_utm_source')!.hasDefault).toBe(true);
   expect(cat.get('get_my_diagnosis_results')!.setof).toBe(true);
   expect(cat.get('publish_legal_document')!.isVoid).toBe(true);
@@ -99,6 +99,8 @@ test('submit_diagnosis 익명 → access_token 포함 배열, jsonb·enum·기�
     p_certificate_level: 'level1',
     p_consent_privacy: true,
     p_consent_privacy_doc_version: 1,
+    p_consent_sensitive: true,
+    p_consent_sensitive_version: 'sc-v1',
     p_age_confirmed: true,
     p_answers: answers,
   });
@@ -110,13 +112,17 @@ test('submit_diagnosis 익명 → access_token 포함 배열, jsonb·enum·기�
   expect(rows[0]).toHaveProperty('recommended_tier');
 });
 
-test('RPC 본문의 P0001 오류는 메시지 그대로 400 (비동의)', async () => {
-  const r = await rpc('submit_diagnosis', {
+test('RPC 본문의 P0001 오류는 메시지 그대로 400 db_error, 동의 없음은 400 validation field=consent', async () => {
+  const base = {
     p_name: 'x', p_phone: '1', p_email: null, p_learning_experience: 'none', p_certificate_level: 'l',
-    p_consent_privacy: false, p_consent_privacy_doc_version: 1, p_age_confirmed: true, p_answers: {},
-  });
+    p_consent_privacy: true, p_consent_privacy_doc_version: 1, p_consent_sensitive: true, p_consent_sensitive_version: 'sc-v1', p_age_confirmed: false, p_answers: {},
+  };
+  const age = await rpc('submit_diagnosis', base);
+  expect(age.statusCode).toBe(400);
+  expect(age.json().error).toMatchObject({ code: 'db_error', message: 'age confirmation required', sqlstate: 'P0001' });
+  const r = await rpc('submit_diagnosis', { ...base, p_consent_privacy: false });
   expect(r.statusCode).toBe(400);
-  expect(r.json().error.message).toBe('privacy consent required');
+  expect(r.json().error).toEqual({ code: 'validation', field: 'consent', reason: 'privacy', message: '동의가 필요합니다.' });
 });
 
 test('submit_course_exam 정상 제출·재제출 거절, 이어서 issue_certificate_self 발급·재호출 동일', async () => {

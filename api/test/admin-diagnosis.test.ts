@@ -5,6 +5,7 @@ import { MemoryMailer } from '../src/mail/mailer.js';
 import { MemoryStorage } from '../src/storage/storage.js';
 import { loadConfig } from '../src/config.js';
 import { createSession } from '../src/auth/sessions.js';
+import { maskEmail, maskName, maskPhone } from '../src/ops/admin-diagnosis.js';
 import { setupTestDb } from './helpers/db.js';
 
 const KEY = 'k'.repeat(32);
@@ -151,8 +152,8 @@ test('관리자만: 학습자·세션 없음 거절, 없는 리드는 not_found'
 async function result(userId: string | null = null) {
   const id = (
     await q(
-      `insert into diagnosis_results (user_id, respondent_name, phone, email, learning_experience, age_confirmed, version, score_theory, score_reading, score_analysis, score_counseling, score_case_record, score_teaching, total_score, recommended_tier, consent_privacy, strength_areas, improvement_areas)
-       select $1,'비밀이름','010-7777-8888','secret@example.com', e, true, 'v1', 1,2,3,4,5,6, 10, t, true, array['theory'], array['teaching'] from (select (enum_range(null::diagnosis_experience))[1] e, (enum_range(null::diagnosis_tier))[1] t) s
+      `insert into diagnosis_results (user_id, respondent_name, phone, email, learning_experience, age_confirmed, version, score_theory, score_reading, score_analysis, score_counseling, score_case_record, score_teaching, total_score, recommended_tier, consent_privacy, consent_privacy_doc_version, sensitive_consent_version, sensitive_consented_at, strength_areas, improvement_areas)
+       select $1,'비밀이름','010-7777-8888','secret@example.com', e, true, 'v1', 1,2,3,4,5,6, 10, t, true, 10, 'sc-v1', '2026-12-03T05:02:00Z', array['theory'], array['teaching'] from (select (enum_range(null::diagnosis_experience))[1] e, (enum_range(null::diagnosis_tier))[1] t) s
        returning id`,
       [userId],
     )
@@ -191,4 +192,111 @@ test('상세: 관리자만, 없는 id는 not_found(기록 없음)', async () => 
   const n = (await logs('조회')).length;
   expect((await detail('11111111-1111-4111-8111-111111111111')).json().data).toEqual({ result: 'not_found' });
   expect((await logs('조회')).length).toBe(n);
+});
+
+test('상세: 동의 기록 3개(민감정보 동의 버전·시각, 처리방침 버전)를 함께 돌려준다', async () => {
+  const id = await result();
+  const d = (await detail(id)).json().data;
+  expect(d).toMatchObject({ sensitiveConsentVersion: 'sc-v1', sensitiveConsentedAt: '2026-12-03T05:02:00.000Z', privacyDocVersion: 10 });
+});
+
+// ---------------- 진단 결과 목록: 이름 가림 + 개인정보 보기(API 계약 C4) ----------------
+
+test('가림 규칙: 이름은 첫 글자 + ** (길이 무관), 연락처는 기존 앱 규칙', () => {
+  expect(maskName('홍길동')).toBe('홍**');
+  expect(maskName('남궁민수')).toBe('남**');
+  expect(maskName('N')).toBe('N**');
+  expect(maskName('  Nguyen Van A ')).toBe('N**');
+  expect(maskName('𠮷野')).toBe('𠮷**'); // 코드 포인트 단위(반쪽 문자 없음)
+  expect(maskName(null)).toBe('-');
+  expect(maskName('  ')).toBe('-');
+  expect(maskPhone('010-1234-5678')).toBe('010-****-5678');
+  expect(maskPhone('12345')).toBe('***');
+  expect(maskPhone(null)).toBe('-');
+  expect(maskEmail('secret@example.com')).toBe('se***@example.com');
+  expect(maskEmail('ab@x.kr')).toBe('***@x.kr');
+  expect(maskEmail(null)).toBe('-');
+});
+
+async function listResult(name: string | null, phone: string | null, email: string | null, userId: string | null, tier: string, createdAt: string) {
+  return (
+    await q(
+      `insert into diagnosis_results (user_id, respondent_name, phone, email, learning_experience, age_confirmed, version, score_theory, score_reading, score_analysis, score_counseling, score_case_record, score_teaching, total_score, recommended_tier, consent_privacy, sensitive_consent_version, sensitive_consented_at, created_at)
+       values ($1,$2,$3,$4,'none', true, 'v1', 1,2,3,4,5,6, 77.5, $5, true, 'sc-v1', now(), $6) returning id`,
+      [userId, name, phone, email, tier, createdAt],
+    )
+  )[0].id as string;
+}
+const list = (params: object, token?: string, ip?: string) => op('admin.listDiagnosisResults', params, token, ip);
+
+test('목록: 이름·휴대전화·이메일이 가려져 오고 원문은 응답 어디에도 없다. 목록만 열면 접속 기록이 없다', async () => {
+  await q('delete from diagnosis_results');
+  const a = await listResult('김민지', '010-2222-3333', 'minji@example.com', learnerId, 'level1', '2026-12-02T00:00:00Z');
+  const b = await listResult('Nguyen', null, 'nv@example.com', null, 'level2', '2026-12-03T00:00:00Z');
+  const n0 = (await logs('조회')).length;
+  const r = await list({});
+  expect(r.statusCode, r.body).toBe(200);
+  const d = r.json().data;
+  expect(d.result).toBe('ok');
+  expect(d.rows).toEqual([
+    { id: b, createdAt: '2026-12-03T00:00:00.000Z', respondentName: 'N**', phone: '-', email: '***@example.com', isRevealed: false, learningExperience: 'none', totalScore: 77.5, recommendedTier: 'level2', userId: null },
+    { id: a, createdAt: '2026-12-02T00:00:00.000Z', respondentName: '김**', phone: '010-****-3333', email: 'mi***@example.com', isRevealed: false, learningExperience: 'none', totalScore: 77.5, recommendedTier: 'level1', userId: learnerId },
+  ]);
+  for (const v of ['김민지', 'Nguyen', '2222', 'minji@', 'nv@']) expect(r.body).not.toContain(v);
+  expect((await logs('조회')).length).toBe(n0);
+});
+
+test('목록 필터: 추천 단계·회원 여부', async () => {
+  await q('delete from diagnosis_results');
+  const a = await listResult('가', '01011112222', null, learnerId, 'level1', '2026-12-02T00:00:00Z');
+  const b = await listResult('나', '01011113333', null, null, 'level2', '2026-12-03T00:00:00Z');
+  const ids = async (p: object) => (await list(p)).json().data.rows.map((x: { id: string }) => x.id);
+  expect(await ids({ tier: 'level1' })).toEqual([a]);
+  expect(await ids({ tier: 'all', memberOnly: 'member' })).toEqual([a]);
+  expect(await ids({ memberOnly: 'non_member' })).toEqual([b]);
+  expect(await ids({ memberOnly: 'all' })).toEqual([b, a]);
+  expect((await list({ tier: 'bogus' })).statusCode).toBe(400);
+  expect((await list({ revealId: 'x' })).statusCode).toBe(400);
+});
+
+test('개인정보 보기: revealId 행만 이름·연락처 원문, 같은 호출에서 조회 기록 1건(fields=name,contact, 값 없음)', async () => {
+  await q('delete from diagnosis_results');
+  const a = await listResult('김민지', '010-2222-3333', 'minji@example.com', learnerId, 'level1', '2026-12-02T00:00:00Z');
+  const b = await listResult('박서준', '010-4444-5555', null, null, 'level2', '2026-12-03T00:00:00Z');
+  const r = await list({ revealId: a }, adminToken, '203.0.113.9');
+  const rows = r.json().data.rows as Record<string, unknown>[];
+  expect(rows.find((x) => x.id === a)).toMatchObject({ respondentName: '김민지', phone: '010-2222-3333', email: 'minji@example.com', isRevealed: true });
+  expect(rows.find((x) => x.id === b)).toMatchObject({ respondentName: '박**', phone: '010-****-5555', email: '-', isRevealed: false });
+  const lg = (await logs('조회')).filter((x) => x.detail === `진단 결과 개인정보 열람(${a}) fields=name,contact`);
+  expect(lg).toHaveLength(1);
+  expect(lg[0]).toMatchObject({ admin_id: adminId, target_user_id: learnerId, ip_address: '203.0.113.9' });
+  for (const v of ['김민지', '2222', 'minji']) expect(lg[0].detail).not.toContain(v);
+});
+
+test('개인정보 보기: 필터 밖·없는 행이면 아무것도 열지 않고 기록도 없다', async () => {
+  await q('delete from diagnosis_results');
+  const a = await listResult('김민지', '010-2222-3333', null, learnerId, 'level1', '2026-12-02T00:00:00Z');
+  const n0 = (await logs('조회')).length;
+  for (const p of [{ revealId: a, tier: 'level2' }, { revealId: '11111111-1111-4111-8111-111111111111' }]) {
+    const r = await list(p);
+    expect(r.json().data.rows.every((x: { isRevealed: boolean }) => !x.isRevealed)).toBe(true);
+    expect(r.body).not.toContain('김민지');
+  }
+  expect((await logs('조회')).length).toBe(n0);
+});
+
+test('개인정보 보기: 접속 기록이 실패하면 503 log_failed이고 원문이 없다', async () => {
+  await q('delete from diagnosis_results');
+  const a = await listResult('김민지', '010-2222-3333', 'minji@example.com', null, 'level1', '2026-12-02T00:00:00Z');
+  await withFailingLog(async () => {
+    const r = await list({ revealId: a });
+    expect(r.statusCode).toBe(503);
+    expect(r.json().error).toMatchObject({ code: 'unavailable', message: 'log_failed' });
+    for (const v of ['김민지', '2222', 'minji']) expect(r.body).not.toContain(v);
+  });
+});
+
+test('목록: 관리자만(학습자 forbidden, 세션 없음 401)', async () => {
+  expect((await list({}, learnerToken)).json().data).toEqual({ result: 'forbidden' });
+  expect((await list({}, '')).statusCode).toBe(401);
 });

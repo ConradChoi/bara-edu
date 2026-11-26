@@ -170,11 +170,21 @@ npm run admin-mfa -- admin-sessions-revoke --operator "이름"                  
 
 운영 DB 패치: `db/patches/2026-11-26-admin-mfa.sql`(`begin; set local role bara_edu_service; \i <파일>; commit;`). 순서: 앱 배포 → 패치 → API(`ADMIN_MFA_MODE=optional`, `ADMIN_MFA_GRACE_UNTIL`, 키 SSM 등록 후).
 
+## 자가진단 민감정보 동의 (2026-11-26)
+
+계약은 `docs/02-design/features/bara-edu-lms.diagnosis-sensitive-consent.md`의 "API 계약"이 기준이다. 요약:
+
+- `submit_diagnosis`에 `p_consent_sensitive`·`p_consent_sensitive_version`(필수, 허용 `sc-v1`) 추가. 동의 없음 400 `validation` `field: "consent"`(`reason: privacy|sensitive`), 버전 불일치 400 `validation` `field: "consent_version"`. 결과 행에 동의 버전과 서버 시각이 남고, DB 제약으로 동의 없는 결과는 저장되지 않는다. 문구 원문은 `data/diagnosis/consent.ts`(버전별 고정).
+- `delete_my_diagnosis_result(p_token, p_delete_leads)`: 회원 본인 결과 삭제(동의 철회). 세션 없음 401, 남의 것·없음 `false`. 서버 로그 `event=diagnosis_consent_withdrawn`.
+- `get_my_diagnosis_results`에 `has_lead`. 관리자 목록은 op `admin.listDiagnosisResults`(이름·연락처 가림, `revealId` 행만 원문 + 접속 기록 한 트랜잭션), 상세 op에 동의 기록 3개.
+- 비회원 90일 파기(`purge_unclaimed_diagnosis_pii`, 03:20)와 탈퇴는 결과 행을 지운다.
+- 운영: `db/patches/2026-11-26-diagnosis-consent.sql` -> API 재시작 -> 앱 -> `db/patches/2026-11-26-diagnosis-consent-cleanup.sql`(동의 전 결과 삭제·건수 NOTICE·not null). 둘 다 `begin; set local role bara_edu_service; \i <파일>; commit;`.
+
 ## 회원 탈퇴
 
 `POST /v1/account/withdraw` 한 번으로 끝난다(R24). 본문 `{ "reason": "<key>", "detail": "<선택, 1000자 이하>" }`.
 
-- 한 DB 트랜잭션에서: 진행 중 수강 확인 -> 학습 이력 파기·진단 PII 비움 -> `auth.users` 익명화(이메일 `withdrawn+<id>@deleted.invalid`, 임의 비밀번호, 메타데이터 비움, 이메일 토큰 무효화) -> `profiles` 탈퇴 처리 -> 모든 세션 삭제. 어느 단계든 실패하면 전부 롤백된다.
+- 한 DB 트랜잭션에서: 진행 중 수강 확인 -> 학습 이력 파기·자가진단 결과 행 삭제(응답 포함, 2026-11-26) -> `auth.users` 익명화(이메일 `withdrawn+<id>@deleted.invalid`, 임의 비밀번호, 메타데이터 비움, 이메일 토큰 무효화) -> `profiles` 탈퇴 처리 -> 모든 세션 삭제. 어느 단계든 실패하면 전부 롤백된다.
 - 사진(`<uid>/photo`) 삭제는 커밋 뒤에 한다. 실패하면 로그만 남기고 탈퇴는 성공으로 응답한다.
 - 응답: `200 { "ok": true }`, `400 validation`, `401 unauthenticated`, `409 conflict`(message `active_enrollment` — 입금 대기 또는 미수료 승인 강좌가 있음), `404 not_found`.
 - 응답 후 세션은 이미 삭제되어 있다. 앱은 쿠키만 지우면 된다.
