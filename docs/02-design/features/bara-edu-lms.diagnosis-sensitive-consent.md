@@ -585,3 +585,8 @@ revoke execute on function public.delete_my_diagnosis_result(uuid, boolean) from
 - `docs/01-plan/features/bara-edu-lms.diagnosis-correction-procedure.md`: 0장 "알아 둘 DB 동작"(90일·탈퇴 파기 방식), 4장 결정표의 "90일이 지남" 줄, 6.3절 "이미 지워진 경우" 문구, 8.3절 B2 반영 상태
 - `docs/01-plan/features/bara-edu-lms.menu-features.md`·`flows.md`: 마이페이지 자가진단내역 삭제, 회원 탈퇴 파기 항목
 - `docs/01-plan/features/bara-edu-lms.legal-privacy.md`: v10(8장)
+
+
+## 대표 결정
+
+2026-11-26 대표 결정: 대표 질문 1~5 모두 추천안으로 확정. 기존 결과는 배포 때 모두 삭제, 비회원 90일 파기·회원 탈퇴 때 결과 행 전체 삭제, 회원은 마이페이지에서 결과 직접 삭제(동의 철회), 결과 링크 공개 범위는 동의 문구로 안내만, 관리자 목록 이름 가리기 + RDS 저장 암호화 확인(칸별 암호화 없음). 민감정보로 보고 별도 동의를 받는 결정은 유지(기획 담당의 '법적으로 민감정보가 아닐 수 있음' 의견은 기록만).
