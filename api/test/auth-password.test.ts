@@ -286,3 +286,54 @@ test('reset-password: 대문자가 섞여 저장된 이메일(이관 계정)도 
   expect(await loginFailCount(key)).toBe(0);
   expect((await login(key, 'brandnew123')).statusCode).toBe(200);
 });
+
+// 개인정보·보안 점검 I-3: 관리자 계정의 메일 링크 재설정은 접속 기록에 남는다
+const makeAdmin = (id: string) => ctx.adminPool.query(`begin; set local session_replication_role = replica; update profiles set role='admin' where id='${id}'; commit`);
+const resetLogs = async (id: string) => (await ctx.adminPool.query('select admin_id, target_user_id, action, detail, ip_address from admin_access_logs where admin_id = $1', [id])).rows;
+const resetToken = async (email: string) => {
+  await post('/v1/auth/request-reset', { email, origin: ORIGIN });
+  return tokenOf(mailer.sent[mailer.sent.length - 1].link);
+};
+
+test('reset-password: 관리자 계정이면 접속 기록 한 줄(IP 원문 포함)', async () => {
+  const { email, id } = await addUser();
+  await makeAdmin(id);
+  const token = await resetToken(email);
+  const r = await post('/v1/auth/reset-password', { token, newPassword: 'brandnew123' }, { 'x-bara-client-ip': '2001:db8:1:2:3:4:5:6' });
+  expect(r.statusCode).toBe(200);
+  expect(await resetLogs(id)).toEqual([{ admin_id: id, target_user_id: id, action: '비밀번호재설정', detail: '재설정 메일 링크', ip_address: '2001:db8:1:2:3:4:5:6' }]);
+});
+
+test('reset-password: 관리자 + IP 헤더 없음이면 ip_address는 null', async () => {
+  const { email, id } = await addUser();
+  await makeAdmin(id);
+  await post('/v1/auth/reset-password', { token: await resetToken(email), newPassword: 'brandnew123' });
+  const rows = await resetLogs(id);
+  expect(rows).toHaveLength(1);
+  expect(rows[0].ip_address).toBeNull();
+});
+
+test('reset-password: 관리자 + IP 형식이 아닌 헤더면 ip_address는 null', async () => {
+  const { email, id } = await addUser();
+  await makeAdmin(id);
+  const r = await post('/v1/auth/reset-password', { token: await resetToken(email), newPassword: 'brandnew123' }, { 'x-bara-client-ip': 'not-an-ip; drop' });
+  expect(r.statusCode).toBe(200);
+  const rows = await resetLogs(id);
+  expect(rows).toHaveLength(1);
+  expect(rows[0].ip_address).toBeNull();
+});
+
+test('reset-password: 학습자 재설정은 기록하지 않는다', async () => {
+  const { email, id } = await addUser();
+  const r = await post('/v1/auth/reset-password', { token: await resetToken(email), newPassword: 'brandnew123' }, { 'x-bara-client-ip': '203.0.113.9' });
+  expect(r.statusCode).toBe(200);
+  expect(await resetLogs(id)).toHaveLength(0);
+});
+
+test('reset-password: 잘못된 토큰이면 관리자여도 기록하지 않는다', async () => {
+  const { id } = await addUser();
+  await makeAdmin(id);
+  const r = await post('/v1/auth/reset-password', { token: 'f'.repeat(43), newPassword: 'brandnew123' }, { 'x-bara-client-ip': '203.0.113.9' });
+  expect(r.statusCode).toBe(400);
+  expect(await resetLogs(id)).toHaveLength(0);
+});

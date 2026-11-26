@@ -5,7 +5,7 @@ import Link from 'next/link';
 import ResendConfirmationForm from '@/components/auth/ResendConfirmationForm';
 import SupportPhone from '@/components/auth/SupportPhone';
 import { STATUS_DESC_CLASS as DESC_CLASS, STATUS_TITLE_CLASS as TITLE_CLASS } from '@/components/auth/styles';
-import { LINK_CLASS, PRIMARY_BTN, SECONDARY_BTN } from '@/components/error/styles';
+import { LINK_CLASS, LINK_INLINE_CLASS, PRIMARY_BTN, SECONDARY_BTN } from '@/components/error/styles';
 import { CircleCheckIcon, ClockIcon, LockIcon, WifiOffIcon } from '@/components/error/icons';
 
 // 가입 마무리 링크의 상태 화면(디자인 스펙 V-2.3~V-2.6, 문구 문서 4.4~4.7).
@@ -98,7 +98,15 @@ export default function SignupLinkStatus({
           <Link href="/sign-in" className={PRIMARY_BTN}>
             로그인하기
           </Link>
-          <p className="mt-3 text-base leading-[1.7] text-n-7 break-keep">비밀번호가 기억나지 않으면 전화로 문의해 주세요.</p>
+          {/* 재설정이 먼저, 전화는 보조(카피 EP-EXPIRED-LINE과 같은 문구). 문장 안 링크라 인라인 변형을 쓴다. */}
+          <p className="mt-3 text-base leading-[1.7] text-n-7 break-keep">
+            비밀번호가 기억나지 않으면{' '}
+            <Link href="/forgot-password" className={LINK_INLINE_CLASS}>
+              비밀번호 새로 정하기
+            </Link>
+            를 눌러 주세요.
+          </p>
+          <p className="text-base leading-[1.7] text-n-7 break-keep">어려우면 전화로 문의해 주세요.</p>
           <SupportPhone />
         </>
       );

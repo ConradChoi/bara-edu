@@ -247,7 +247,7 @@ test('login: 400 + field=email → 이메일 형식 문구, field=password → �
   expect(await run()).toEqual({ error: '잠시 후 다시 시도해 주세요' });
 });
 
-test('resetPassword: 400 field=password → rule, 토큰 문제·field=token·기타 실패 → expired, 503·네트워크 → unavailable', async () => {
+test('resetPassword: 400 field=password → rule, 토큰 문제·field=token → expired, 401 서비스 키·500·503·429·네트워크 → unavailable', async () => {
   const run = () => actions.resetPassword(undefined, form({ token: 't1', password: 'newpass12', confirm: 'newpass12' }));
   fetchMock.mockResolvedValueOnce(v400('password'));
   expect(await run()).toEqual({ error: 'rule' });
@@ -256,7 +256,11 @@ test('resetPassword: 400 field=password → rule, 토큰 문제·field=token·�
   fetchMock.mockResolvedValueOnce(v400('token'));
   expect(await run()).toEqual({ error: 'expired' });
   fetchMock.mockResolvedValueOnce(json(500, { error: { code: 'internal', message: 'x' } }));
-  expect(await run()).toEqual({ error: 'expired' });
+  expect(await run()).toEqual({ error: 'unavailable' });
+  fetchMock.mockResolvedValueOnce(json(401, { error: { code: 'unauthorized_service', message: 'x' } }));
+  expect(await run()).toEqual({ error: 'unavailable' });
+  fetchMock.mockResolvedValueOnce(json(429, { error: { code: 'rate_limited', message: 'x' } }));
+  expect(await run()).toEqual({ error: 'unavailable' });
   fetchMock.mockResolvedValueOnce(json(503, { error: { code: 'unavailable', message: 'x' } }));
   expect(await run()).toEqual({ error: 'unavailable' });
   fetchMock.mockRejectedValueOnce(new Error('down'));

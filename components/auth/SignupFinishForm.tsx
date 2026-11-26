@@ -8,7 +8,7 @@ import SignupLinkStatus from '@/components/auth/SignupLinkStatus';
 import SupportPhone from '@/components/auth/SupportPhone';
 import { NOTICE } from '@/components/auth/styles';
 import { AlertIcon, ChevronDownIcon, RefreshIcon } from '@/components/error/icons';
-import { LINK_CLASS, SECONDARY_BTN } from '@/components/error/styles';
+import { LINK_CLASS, LINK_INLINE_CLASS, SECONDARY_BTN } from '@/components/error/styles';
 
 const initialState: SignupFinishState = undefined;
 const MAX_ATTEMPTS = 5;
@@ -122,7 +122,7 @@ export default function SignupFinishForm({ token, email, requestedLabel, remaini
               {wrong.attemptsLeft <= 2 && (
                 <li>
                   비밀번호가 기억나지 않으면{' '}
-                  <Link href="/forgot-password" className={LINK_CLASS}>
+                  <Link href="/forgot-password" className={LINK_INLINE_CLASS}>
                     비밀번호 새로 정하기
                   </Link>
                   를 눌러 주세요.

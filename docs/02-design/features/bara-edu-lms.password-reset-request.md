@@ -711,4 +711,5 @@ form  flex flex-col gap-5
 - I-2: 고침. `/v1/auth/reset-password`에 IP 제한(`reset-password-ip`, 15분 30회, IPv6는 /64)을 두고, 토큰이 쓸 수 없으면 bcrypt 계산 전에 `invalid_token`으로 끝낸다. 앱은 이 경로의 429를 '잠시 후 다시'(RP-ERR-UNAVAILABLE)로 안내한다. 테스트 추가(api `auth-limits.test.ts`, app `test/lib/db/auth.test.ts`).
 - I-1: main 병합(e466d8f)으로 해소. API가 `x-bara-client-ip`를 받아 IPv6를 /64로 묶어 키를 만든다(`rateKeyForIp`, 2026-11-26 배포). 앱의 `client-ip.ts`는 주소를 그대로 넘기기만 한다.
 - I-3: 대표 결정 2(관리자도 허용)와 본인 확인 정책(이메일만)에 따라 위험 감수로 기록. 후속 과제: 관리자 계정 재설정 이벤트를 접속 기록에 남기기, 관리자 2단계 인증 검토(안전성 확보조치 기준 제6조는 변호사 검토 항목에 추가).
-- QA Minor 3(401·500도 '만료'로 안내)·4(가입 마무리 `done` 상태 안내)·5(문장 속 링크 글자 크기)는 후속으로 둔다.
+- I-3 후속 1차 완료: 관리자 계정이 재설정 메일 링크로 비밀번호를 바꾸면 같은 트랜잭션에서 `admin_access_logs`에 한 줄(action `비밀번호재설정`, detail `재설정 메일 링크`, IP 원문, 없으면 null)을 남긴다. 기록이 실패하면 재설정도 롤백되고, 비관리자는 기록하지 않는다. DB 패치 불필요. 남은 후속: 다른 관리자·운영 주소 알림, 관리자 2단계 인증 검토.
+- QA Minor 3(401·500도 '만료'로 안내)·4(가입 마무리 `done` 상태 안내)·5(문장 속 링크 글자 크기)는 2026-11-26 후속 배포에서 고쳤다(feat/reset-followups).

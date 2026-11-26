@@ -1,3 +1,4 @@
+import { isIP } from 'node:net';
 import type pg from 'pg';
 import { withService, type Tx } from '../db/context.js';
 import type { MailMessage } from '../mail/mailer.js';
@@ -109,6 +110,8 @@ export async function resendConfirmation(pool: pg.Pool, deliver: MailDeliver, em
   if (token) deliver({ to: email, template: 'confirm', link: confirmLink(origin, token) });
 }
 
+export const ADMIN_RESET_ACTION = '비밀번호재설정';
+export const ADMIN_RESET_DETAIL = '재설정 메일 링크';
 const LOGIN_FAIL_BUCKET = 'login-fail';
 const LOGIN_FAIL_LIMIT = 10;
 const LOGIN_FAIL_WINDOW = 15 * 60;
@@ -178,7 +181,7 @@ export async function requestReset(pool: pg.Pool, deliver: MailDeliver, email: s
 }
 
 // 성공하면 비밀번호 변경 알림(password_changed) 메일을 큐에 넣는다. 발송 실패는 결과에 영향이 없다(deliver는 기다리지 않는다).
-export async function resetPassword(pool: pg.Pool, deliver: MailDeliver, token: string, newPassword: string): Promise<boolean> {
+export async function resetPassword(pool: pg.Pool, deliver: MailDeliver, token: string, newPassword: string, ip: string | null = null): Promise<boolean> {
   // 쓸 수 없는 토큰이면 해시 계산(bcrypt) 전에 끝낸다(개인정보·보안 점검 I-2). 최종 판단은 아래 트랜잭션의 소모 결과다.
   if (!(await withService(pool, (tx) => peekEmailTokenUserIn(tx, token, 'recovery')))) return false;
   const newHash = await hashPassword(newPassword);
@@ -201,6 +204,13 @@ export async function resetPassword(pool: pg.Pool, deliver: MailDeliver, token: 
     // 메일함 주인임이 확인됐으므로 그 이메일의 로그인 실패 제한을 푼다(대표 결정 2026-11-26 5번). 키는 login과 같은 정규화 이메일(소문자).
     // 같은 트랜잭션이라 재설정이 롤백되면 제한 기록도 남는다. 로그인 IP 제한(login-ip)은 그대로 둔다.
     await tx.query('delete from auth.rate_events where bucket = $1 and key = lower($2)', [LOGIN_FAIL_BUCKET, u.rows[0].email]);
+    // 관리자 계정은 메일함만으로 복구되므로 기록을 남긴다(개인정보·보안 점검 I-3). 같은 트랜잭션이라 기록이 실패하면 재설정도 롤백된다.
+    await tx.query(
+      `insert into admin_access_logs (admin_id, target_user_id, action, detail, ip_address)
+       select id, id, $2, $3, $4 from profiles where id = $1 and role = 'admin'`,
+      // IP 형식이 아니면 버린다(ops 접속 기록과 같은 기준 — 기록에 임의 문자열이 들어가지 않게)
+      [id, ADMIN_RESET_ACTION, ADMIN_RESET_DETAIL, ip !== null && isIP(ip) ? ip : null],
+    );
     return u.rows[0].email;
   });
   if (email === null) return false;

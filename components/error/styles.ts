@@ -27,3 +27,9 @@ export const ACTIONS_CLASS = 'mt-8 flex w-full flex-col gap-3 md:mt-10 md:max-w-
 export const LINK_CLASS =
   'inline-flex min-h-11 items-center text-base text-indigo underline underline-offset-4 ' +
   'focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-indigo';
+
+// 문장 안(running text)에 끼는 링크. 주변 글자 크기를 따르고 줄 높이를 늘리지 않는다.
+// 단독 링크는 LINK_CLASS(터치 영역 44px)를 쓴다.
+export const LINK_INLINE_CLASS =
+  'text-indigo underline underline-offset-4 ' +
+  'focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-indigo';
