@@ -310,7 +310,7 @@ flowchart TD
 | 1. 요청 접수 | 대표(대상 관리자)가 개발 담당에게 **전화 또는 대면**으로 요청. 메일·메신저 요청만으로는 진행하지 않는다 |
 | 2. 본인 확인 | 개발 담당이 대표의 목소리·얼굴로 확인. 확인 방법과 일시를 운영 기록(아래 5)에 남긴다 |
 | 0. 접속(보안 점검 M-5 반영) | 운영 서버 접속은 **SSM Session Manager로만** 한다(SSH 키 접속 금지). Session Manager 세션 기록·CloudTrail을 켜 둔다. 등록 코드가 세션 로그에 남지 않도록, 등록 코드를 출력하는 명령은 세션 로그 기록을 끈 세션에서 실행하고 명령이 출력 직전에 경고 한 줄을 보인다(운영 문서에 절차로 적는다) |
-| 3. 명령 실행 | `node dist/db/cli.js mfa-reset --email <대상> --operator "<작업자 이름>" --reason <사유키>`. `--reason`은 고정 키만 받는다: `lost_phone`, `new_phone`, `app_deleted`, `sole_admin_locked`, `key_lost`, `incident`(그 밖은 거절, 보안 점검 M-5 반영). 하는 일은 2.7.2의 서버 동작과 같다: 등록·복구 코드·세션·대기표 삭제, 등록 코드 발급, `ticket_required_at`·`reset_at` 설정, 접속 기록 insert. 대상이 `role='admin'`·`active`가 아니면 거절 |
+| 3. 명령 실행 | `npm run admin-mfa -- mfa-reset --email <대상> --operator "<작업자 이름>" --reason <사유키>`. `--reason`은 고정 키만 받는다: `lost_phone`, `new_phone`, `app_deleted`, `sole_admin_locked`, `key_lost`, `incident`(그 밖은 거절, 보안 점검 M-5 반영). 하는 일은 2.7.2의 서버 동작과 같다: 등록·복구 코드·세션·대기표 삭제, 등록 코드 발급, `ticket_required_at`·`reset_at` 설정, 접속 기록 insert. 대상이 `role='admin'`·`active`가 아니면 거절 |
 | 4. 등록 코드 전달 | 명령이 터미널에 한 번만 출력한다. 개발 담당이 전화·대면으로 불러 준다. 터미널 기록(쉘 히스토리·로그)에 남지 않게 표준 출력만 쓰고, 화면을 지운다 |
 | 5. 기록 | (a) `admin_access_logs`: `admin_id = target_user_id = 대상`(관리자 행이 하나뿐이어서 자기 자신을 기록 주체로 둔다. 기존 `비밀번호재설정` 기록과 같은 방식), `action='2단계인증초기화'`, `detail='by=db;operator=<작업자>;reason=<사유키>'`, `ip_address=null`. (b) 운영자 접근 기록 문서(기존 "비밀번호 찾기 배포 운영자 접근 기록"과 같은 형식)에 일시·작업자·요청자·본인 확인 방법·사유를 적는다 |
 | 6. 알림 | 보안 알림 `mfa_reset`(2.7.2와 같음: 대상, 다른 관리자, 운영 주소) |
@@ -386,7 +386,7 @@ CLI 명령 전체(`api/src/db/cli.ts`). 모든 명령은 `--operator`(작업자 
 
 ### 2.11 데이터 모델 (구현 기준)
 
-모두 `auth` 스키마, 소유 `bara_edu_service`. 모든 `user_id`는 `fk → auth.users on delete cascade`. 패치 `api/db/patches/<날짜>-admin-totp.sql`과 `api/db/01-auth.sql`을 함께 고친다.
+모두 `auth` 스키마, 소유 `bara_edu_service`. 모든 `user_id`는 `fk → auth.users on delete cascade`. 패치 `api/db/patches/2026-11-26-admin-mfa.sql`과 `api/db/01-auth.sql`을 함께 고친다.
 
 | 테이블 | 컬럼 | 제약·비고 |
 |---|---|---|
@@ -834,6 +834,7 @@ POST인 이유: 대기표를 본문으로만 받기 위해서다(4.0).
 | D-18 | (구현 결정) 테이블은 `02-schema.sql`이 아니라 `01-auth.sql`(auth 스키마 블록, 기존 패턴)에 두고, 정리 함수 `purge_expired_mfa_rows`만 `02-schema.sql`에 둔다. 운영 패치 파일 이름은 `api/db/patches/2026-11-26-admin-mfa.sql` | 2.11·9.1 |
 | D-19 | (구현 결정) QR은 API가 만들지 않는다(앱이 `otpauthUri`로 SVG를 그린다, 4.4.2). TOTP·HKDF·AES-GCM·HMAC은 `node:crypto`만 쓴다(새 의존성 없음) | 의존성 최소화 |
 | D-20 | (구현 결정) `Cache-Control: no-store`는 4.0의 경로에 `/v1/admin/mfa/*`(overview)를 더했다 | 4.7 #14도 상태 정보 |
+| D-21 | (구현 결정, QA 반영) 운영 명령 중 암호문·HMAC을 읽거나 쓰는 것(`mfa-reset`, `mfa-ticket`, `mfa-rekey`)은 쓰기 전에 같은 트랜잭션에서 `auth.mfa_key_check`를 검증하고, 셸의 키가 API와 다르거나 검증 행이 없는 버전이면 아무것도 바꾸지 않고 멈춘다. 검증 행은 API 시작만 만든다(키 교체는 API를 새 키로 먼저 재시작한 뒤 `mfa-rekey`) | 다른 키로 다시 암호화해 관리자 전원이 잠기는 것을 막는다 |
 
 ## 5. 엣지케이스 표
 
@@ -949,9 +950,9 @@ POST인 이유: 대기표를 본문으로만 받기 위해서다(4.0).
 
 | 단계 | 내용 | 설정 |
 |---|---|---|
-| 0. 준비 | SSM에 `/bara-edu/api/mfa-key-v1` 생성(개발 담당, 32바이트 무작위 base64), API 인스턴스 역할에 읽기 권한, IAM `ssm:DeleteParameter` 거부·KMS 삭제 대기 기간 확인(보안 점검 M-7), 스키마 패치(`api/db/patches/<날짜>-admin-totp.sql`) 적용. `ADMIN_SECURITY_ALERT_TO`에 개발 담당 주소(관리자가 한 명뿐이므로, 보안 점검 I-6). **앱을 먼저 배포**(새 로그인 응답을 이해하는 앱). 스테이징에서 CLI 초기화 리허설 1회(Q4) | API는 아직 옛 버전 |
+| 0. 준비 | SSM에 `/bara-edu/api/mfa-key-v1` 생성(개발 담당, 32바이트 무작위 base64), API 인스턴스 역할에 읽기 권한, IAM `ssm:DeleteParameter` 거부·KMS 삭제 대기 기간 확인(보안 점검 M-7), 스키마 패치(`api/db/patches/2026-11-26-admin-mfa.sql`) 적용. `ADMIN_SECURITY_ALERT_TO`에 개발 담당 주소(관리자가 한 명뿐이므로, 보안 점검 I-6). **앱을 먼저 배포**(새 로그인 응답을 이해하는 앱). 스테이징에서 CLI 초기화 리허설 1회(Q4) | API는 아직 옛 버전 |
 | 1. 유예(권장 7일, 관리자가 대표 한 명이면 1~2일, 질문 3·보안 점검 8장) | API 배포. 설정 `ADMIN_MFA_MODE=optional`, `ADMIN_MFA_GRACE_UNTIL=<서울 0시 ISO>`, `BARA_MFA_KEY_PARAMS`, `BARA_MFA_KEY_CURRENT`. **시작하는 순간 기존 관리자 세션이 모두 지워진다**(2.14, 보안 점검 I-2 반영). 관리자는 다시 로그인해 비밀번호만의 12시간 세션을 받고, M6 배너로 `/admin/security`에서 등록(입구 A). **등록을 마친 관리자는 다음 로그인부터 바로 6자리가 필요하다.** 이 기간에 초기화되거나 등록 코드가 발급된 관리자는 입구 B(등록 코드)만 쓴다(보안 점검 I-1 반영). 대표 승인과 시각을 운영자 접근 기록 문서에 적는다(보안 점검 I-3 반영) | `ADMIN_MFA_MODE=optional` |
-| 2. 강제 전 점검(보안 점검 I-8 반영) | 개발 담당이 `cli.js mfa-report`를 실행. 대표가 **행마다** "등록 일시·등록 IP·경로·최근 로그인 IP가 본인 것이 맞다"를 확인하고 운영자 접근 기록 문서에 확인 일시와 함께 적는다. 함께 확인: 활성 관리자 전원 등록 완료, 각자 복구 코드 10개 보유·보관 확인, 각자 6자리로 한 번 이상 로그인 성공, 대표가 복구 코드를 종이 두 곳에 보관. 본인이 등록하지 않은 행이 있으면 **사고로 처리**(7.2) | — |
+| 2. 강제 전 점검(보안 점검 I-8 반영) | 개발 담당이 API 서버에서 `npm run admin-mfa -- mfa-report --operator "<이름>"`을 실행. 대표가 **행마다** "등록 일시·등록 IP·경로·최근 로그인 IP가 본인 것이 맞다"를 확인하고 운영자 접근 기록 문서에 확인 일시와 함께 적는다. 함께 확인: 활성 관리자 전원 등록 완료, 각자 복구 코드 10개 보유·보관 확인, 각자 6자리로 한 번 이상 로그인 성공, 대표가 복구 코드를 종이 두 곳에 보관. 본인이 등록하지 않은 행이 있으면 **사고로 처리**(7.2) | — |
 | 3. 강제 | `ADMIN_MFA_MODE=enforce`로 바꾸고 재시작. 시작할 때 비밀번호만의 관리자 세션이 자동으로 지워진다(2.14). 미등록 관리자는 세션을 받지 못하고 등록 코드가 필요. 내부 관리계획 갱신(6장)이 끝나 있어야 한다. 바꾼 시각을 운영자 접근 기록 문서에 적는다 | `ADMIN_MFA_MODE=enforce` |
 | 4. 안정화 | 1주간 M7 보안 이벤트 카드와 `2단계인증잠김`·복구 코드 사용 기록 확인. 처리방침 v10·내부 관리계획 게시(6장) | — |
 
