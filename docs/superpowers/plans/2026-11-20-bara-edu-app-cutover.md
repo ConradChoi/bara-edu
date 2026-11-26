@@ -256,7 +256,7 @@ test('withdrawCleanup: A의 학습 이력·진단 PII만 지워지고 B는 그�
     - recovery — 제목 `[바라평생교육원] 비밀번호 재설정 안내`, 본문 "아래 링크에서 새 비밀번호를 설정해 주세요. 링크는 1시간 동안 유효해요. 요청하지 않았다면 이 메일을 무시해 주세요." + 링크.
     - HTML·텍스트 둘 다. 링크는 HTML 이스케이프.
   - **응답 시간 평탄화(I-6)**: `signup`·`resend`·`request-reset`·`admin send-reset`의 메일 발송을 응답 뒤로 미룬다 — 라우트는 토큰 발급까지만 기다리고 `mailer.send`는 `setImmediate`로 넘긴 뒤 실패를 이름만 로그. 계정이 없을 때도 같은 양의 DB 작업(같은 테이블 조회 1회 + `rate-limit.hit`)을 한다.
-  - **IP 제한(I-6·I-7)**: `x-bara-client-ip` 기준 — `resend`·`request-reset` 각각 IP당 1시간 20회, `login` IP당 15분 50회(초과 429 `rate_limited`). 기존 이메일 기준 제한은 유지.
+  - **IP 제한(I-6·I-7)**: `x-bara-client-ip` 기준 — `resend`·`request-reset` 각각 IP당 1시간 20회, `login` IP당 15분 50회(초과 429 `rate_limited`). 기존 이메일 기준 제한은 유지. IPv6는 /64 단위로 묶는다(구현됨 2026-11-26, R24 참고).
   - **오류 로그(R17)**: 로그 serializer에서 `err.code`가 있는(pg) 오류는 `message`를 빼고 `code`·`constraint`·`table`만 남긴다.
   - **스키마 적용 분리(I-5)**: `npm run db:bootstrap` = `00-roles.sql`만(관리자 계정으로 1회, 비밀번호는 `BARA_APP_DB_PASSWORD` 환경변수가 있을 때만 설정 — 없으면 비밀번호를 바꾸지 않는다). `npm run db:migrate` = `01~03`(관리자 계정으로, 매번 실행 가능, 역할 비밀번호를 건드리지 않음). 테스트 헬퍼는 둘 다 실행.
   - `server.ts`: `MAIL_FROM` 환경변수가 있으면 `SesMailer`, 없으면 기존 "mailer not configured".
@@ -525,6 +525,7 @@ test('이메일 미인증 계정도 그대로 이관(email_confirmed_at null)', 
   - 실측: `x-forwarded-for` = `<위조 가능한 값...>, <실제 클라이언트>, <CloudFront 엣지 IP>`, `cloudfront-viewer-address` = `<클라이언트 IP>:<포트>`.
   - **"가장 오른쪽 값"은 틀렸다**(그 값은 엣지 IP). 1순위 `cloudfront-viewer-address`(마지막 `:` 뒤 포트를 자름, IPv6·대괄호 형태 포함), 2순위 `x-forwarded-for`의 **끝에서 두 번째** 값(값이 하나뿐이면 그 값, 로컬 개발), 둘 다 없으면 null. 뽑은 값이 IP 모양이 아니면 버린다. `x-real-ip`는 더 이상 쓰지 않는다.
   - `proxy.ts`의 `?ipdiag=1` 임시 진단 로그는 삭제했다.
+  - **IPv6 /64 묶기: 구현됨(2026-11-26)** — IP 기반 제한(가입·재전송·링크 확인/완료·로그인·재설정 요청)은 `rateKeyForIp(ip)`(`api/src/auth/rate-limit.ts`)로 만든 키를 쓴다. IPv4와 IPv4-mapped IPv6(`::ffff:a.b.c.d`)는 IPv4 그대로, IPv6는 앞 64비트(예: `2001:db8:1:2::/64`)로 묶어 같은 /64에서 주소를 바꿔 제한을 피하지 못한다. 이메일 기준 제한과 접속 기록(`admin_access_logs.ip_address`)의 원래 IP는 그대로다.
 - [x] **가입 이메일 열거 방지(B2)**: `/v1/auth/signup`은 신규·이미 인증·미인증 모두 `{status:'pending_confirmation'}`. 메일만 달라진다(신규·미인증=인증 메일, 인증 완료=`already_registered` 안내 메일 `{origin}/sign-in`). 미인증 재가입은 `/v1/auth/resend`와 같은 60초·1시간 제한, 인증 완료 계정 안내 메일도 60초 1통·1시간 4통. 탈퇴(익명화) 계정의 예전 주소는 비어 있어 새 가입으로 처리되고, 익명화 주소(`@deleted.invalid`)로 가입을 시도하면 같은 응답을 주되 메일은 보내지 않는다. 메일 제목 접두는 `[바라 평생교육원]`, 안내 메일에 문의 전화(`siteConfig.phone`)와 운영시간(`SUPPORT_HOURS`=`siteConfig.supportHours`, 값이 비면 줄 생략). 앱은 `already_registered` 분기를 없애고 문구를 `bara-edu-lms.signup-enumeration-copy.md`대로 바꿨다. 인증 전 로그인(`email_not_confirmed`)은 방법 A(별도 문구, 메일을 새로 보내지 않음).
 - [x] **탈퇴 단일 트랜잭션(B3)**: `POST /v1/account/withdraw`(`{reason, detail?}`) 한 번으로 진행 중 수강 확인 → 학습 이력 파기·진단 PII 비움 → 계정 익명화 → profiles 탈퇴 → 전체 세션 삭제를 한 DB 트랜잭션에서 한다(중간 실패는 전부 롤백). 사진 삭제는 커밋 뒤, 실패는 로그만. 진행 중 수강이면 `409 conflict`(`active_enrollment`). 옛 경로(`/v1/auth/withdraw-anonymize`, `account.withdrawCleanup`, 앱의 여러 번 호출)는 삭제했다.
 - [x] **세션 쿠키 슬라이딩(B4)**: `/v1/auth/session` 응답에 `expiresAt`(슬라이딩이 반영된 값)을 추가하고, `renewed`(이 요청에서 실제로 연장했는가)도 함께 준다. `proxy.ts`는 `renewed`가 true일 때만 같은 옵션(httpOnly, secure(prod), sameSite lax, path /)으로 쿠키를 다시 쓴다 — 매 요청 쓰면 공개 페이지 응답에 토큰이 실려 CDN 캐시에 섞일 수 있다(QA B-1, 개인정보 B-3). 쿠키를 쓰거나 지우는 모든 proxy 응답에는 `Cache-Control: private, no-store`를 붙이고, 503 rewrite도 같다.
