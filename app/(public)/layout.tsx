@@ -17,15 +17,16 @@ export default async function PublicLayout({ children }: { children: React.React
   // 이 레이아웃 어디에도 해당 처리가 없었다(qa-reviewer 지적). 다른 (public) 페이지는
   // window.print()를 쓰지 않아 영향 없다.
   return (
-    <>
+    // 본문이 짧아도 푸터가 화면 맨 아래에 붙도록 세로 flex + main flex-1((auth)·404와 같은 구조).
+    <div className="flex min-h-screen flex-col print:block print:min-h-0">
       <DraftSweeper />
       <div className="print-hide">
         <AppHeader kind={user ? 'user' : 'public'} />
       </div>
-      <main>{children}</main>
+      <main className="flex-1">{children}</main>
       <div className="print-hide">
         <Footer />
       </div>
-    </>
+    </div>
   );
 }
