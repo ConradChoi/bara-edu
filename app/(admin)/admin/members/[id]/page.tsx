@@ -1,15 +1,27 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { sendPasswordResetEmail } from '@/app/actions/admin-members';
+import AdminMfaCard, { type AdminMfaCardInfo } from '@/components/admin/AdminMfaCard';
 import MemberProfileEditor from '@/components/admin/MemberProfileEditor';
 import ProfileEditHistory from '@/components/admin/ProfileEditHistory';
 import StatusBadge from '@/components/admin/StatusBadge';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import { listMemberProfileEditsApi } from '@/lib/db/admin-profile';
+import { adminGetMfa, type AdminMfaInfo } from '@/lib/db/mfa';
+import { createClient } from '@/lib/db/server';
+import { MFA_COPY, fill } from '@/lib/mfa-copy';
+import { kstLongDate, kstWhen } from '@/lib/mfa-format';
 import { getAdminMemberDetail, getCourseExamSubmissionHistory } from '@/lib/supabase/admin-queries';
 import type { EnrollmentStatus } from '@/lib/types';
 
 export const metadata: Metadata = { title: '회원 상세 | 관리자' };
+
+// M5 카드의 상태 문구(서울 시각). 대상의 등록일·마지막 사용·등록 코드 만료 시각.
+function mfaStateText(i: AdminMfaInfo): string {
+  if (i.state === 'enrolled') return fill(MFA_COPY['MFA-RESET-STATE-ON'], { date: kstLongDate(i.enrolledAt), at: kstWhen(i.lastUsedAt) });
+  if (i.state === 'reset_pending' && i.ticketPendingUntil) return fill(MFA_COPY['MFA-RESET-STATE-RESET'], { at: kstWhen(i.ticketPendingUntil) });
+  return MFA_COPY['MFA-RESET-STATE-OFF'];
+}
 
 const ENROLLMENT_STATUS_LABEL: Record<EnrollmentStatus, string> = {
   pending: '대기',
@@ -39,6 +51,14 @@ export default async function AdminMemberDetailPage({
   const examSubmissions = await getCourseExamSubmissionHistory({ userId: id });
   // 정보 수정 이력(값 없음). 이 조회는 접속 기록을 남기지 않는다(위 상세 조회 기록에 포함).
   const edits = await listMemberProfileEditsApi(id, 5);
+  // 2단계 인증 카드(M5): 대상이 활성 관리자일 때만. 옛 API(경로 없음)에서는 카드를 그리지 않는다(배포 순서 호환).
+  let mfaCard: { info: AdminMfaCardInfo; isSelf: boolean } | null = null;
+  if (profile.role === 'admin' && profile.status === 'active') {
+    const [mfa, me] = await Promise.all([adminGetMfa(id), (await createClient()).auth.getUser()]);
+    if (mfa.ok || mfa.reason !== 'unsupported') {
+      mfaCard = { info: mfa.ok ? { state: mfa.info.state, stateText: mfaStateText(mfa.info) } : null, isSelf: me.data.user?.id === id };
+    }
+  }
 
   return (
     <div className="flex max-w-[640px] flex-col gap-6">
@@ -80,6 +100,8 @@ export default async function AdminMemberDetailPage({
         pendingCount={enrollments.filter((e) => e.status === 'pending').length}
         certificateCount={certificates.length}
       />
+
+      {mfaCard && <AdminMfaCard targetId={profile.id} targetName={profile.name} isSelf={mfaCard.isSelf} info={mfaCard.info} />}
 
       {profile.status === 'active' && profile.email && emailConfirmed === false && (
         // 가입을 마무리하지 않은 회원은 비밀번호가 없어 관리자가 대신 인증할 수 없다(대표 결정 5).

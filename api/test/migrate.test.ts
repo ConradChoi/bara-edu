@@ -188,7 +188,8 @@ test('이관된 $2a$ 해시 계정이 기존 비밀번호로 로그인', async (
   const stored = await target.adminPool.query<{ encrypted_password: string }>('select encrypted_password from auth.users where id = $1', [ids.admin]);
   expect(stored.rows[0]!.encrypted_password.startsWith('$2a$')).toBe(true);
 
-  const config = loadConfig({ DATABASE_URL: 'postgresql://x/x', BARA_SERVICE_KEY: KEY });
+  // 관리자 2단계 인증의 off 모드: 한 번도 등록하지 않은 관리자는 비밀번호만으로 세션을 받는다(이 테스트는 해시 호환만 본다)
+  const config = loadConfig({ DATABASE_URL: 'postgresql://x/x', BARA_SERVICE_KEY: KEY, ADMIN_MFA_MODE: 'off' });
   const app = buildApp({ config, pool: target.pool, mailer: new MemoryMailer(), storage: new MemoryStorage() });
   await app.ready();
   try {

@@ -6,7 +6,10 @@ import { kstStamp } from '../mail/kst.js';
 import { hashPassword, verifyPassword } from './passwords.js';
 import { hit, release, reserve } from './rate-limit.js';
 import { consumeEmailTokenIn, invalidateEmailTokensIn, issueEmailToken, issueEmailTokenIn, lockUserSignupIn, lockUserTokensIn, peekEmailTokenUserIn } from './tokens.js';
-import { createSession, revokeOtherSessionsIn } from './sessions.js';
+import { revokeOtherSessionsIn } from './sessions.js';
+import type { MfaMode } from '../config.js';
+import { loginOutcomeIn } from './mfa.js';
+import { planAlertsIn, selfOnlySuffix } from './mfa-alerts.js';
 import { MAX_ATTEMPTS_PER_USER, MAX_PASSWORD_TRIES } from './signup-link.js';
 
 type SignupInput = { email: string; password: string; name: string; phone?: string | null; origin: string };
@@ -119,10 +122,18 @@ const dummyHash = hashPassword('bara-dummy-password');
 
 export type LoginResult =
   | { kind: 'ok'; sessionToken: string; expiresAt: Date; userId: string }
+  // 관리자: 세션 대신 2단계 대기표(기획서 4.1)
+  | { kind: 'mfa'; mfa: 'required' | 'enroll_required'; challengeToken: string; challengeExpiresAt: Date; enrollReason?: 'first' | 'reset' }
   | { kind: 'rate_limited' }
   | { kind: 'fail'; detail: 'invalid_credentials' | 'email_not_confirmed' | 'password_reset_required' };
 
-export async function login(pool: pg.Pool, ttlDays: number, email: string, password: string): Promise<LoginResult> {
+export async function login(
+  pool: pg.Pool,
+  ttlDays: number,
+  email: string,
+  password: string,
+  opts: { mode: MfaMode; ip: string | null } = { mode: 'enforce', ip: null },
+): Promise<LoginResult> {
   const reservation = await reserve(pool, LOGIN_FAIL_BUCKET, email, LOGIN_FAIL_LIMIT, LOGIN_FAIL_WINDOW);
   if (reservation === null) return { kind: 'rate_limited' };
   const r = await withService(pool, (tx) =>
@@ -152,8 +163,10 @@ export async function login(pool: pg.Pool, ttlDays: number, email: string, passw
   if (check === 'unsupported') return { kind: 'fail', detail: 'password_reset_required' };
   if (!user.email_confirmed_at) return { kind: 'fail', detail: 'email_not_confirmed' };
   await release(pool, reservation);
-  const s = await createSession(pool, user.id, ttlDays);
-  return { kind: 'ok', sessionToken: s.token, expiresAt: s.expiresAt, userId: user.id };
+  // 비밀번호가 맞은 사람에게만 관리자 여부가 드러난다(2.2 이메일 열거). 관리자는 모드·계정 상태에 따라 세션 또는 대기표.
+  const o = await withService(pool, (tx) => loginOutcomeIn(tx, user.id, { mode: opts.mode, ttlDays, ip: opts.ip }));
+  if (o.kind === 'session') return { kind: 'ok', ...o.session };
+  return { kind: 'mfa', mfa: o.mfa, challengeToken: o.challengeToken, challengeExpiresAt: o.challengeExpiresAt, ...(o.enrollReason ? { enrollReason: o.enrollReason } : {}) };
 }
 
 export async function changePassword(pool: pg.Pool, userId: string, currentToken: string, currentPassword: string, newPassword: string): Promise<boolean> {
@@ -181,11 +194,11 @@ export async function requestReset(pool: pg.Pool, deliver: MailDeliver, email: s
 }
 
 // 성공하면 비밀번호 변경 알림(password_changed) 메일을 큐에 넣는다. 발송 실패는 결과에 영향이 없다(deliver는 기다리지 않는다).
-export async function resetPassword(pool: pg.Pool, deliver: MailDeliver, token: string, newPassword: string, ip: string | null = null): Promise<boolean> {
+export async function resetPassword(pool: pg.Pool, deliver: MailDeliver, token: string, newPassword: string, ip: string | null = null, alertTo: readonly string[] = []): Promise<boolean> {
   // 쓸 수 없는 토큰이면 해시 계산(bcrypt) 전에 끝낸다(개인정보·보안 점검 I-2). 최종 판단은 아래 트랜잭션의 소모 결과다.
   if (!(await withService(pool, (tx) => peekEmailTokenUserIn(tx, token, 'recovery')))) return false;
   const newHash = await hashPassword(newPassword);
-  const email = await withService(pool, async (tx) => {
+  const done = await withService(pool, async (tx) => {
     // 락 순서: 그 회원의 토큰 전부(token_hash 순) -> 시도 -> 사용자. 토큰 하나만 먼저 갱신하면 가입 확정과 서로 기다리다 데드락이 난다.
     // 재설정 링크는 그 메일함의 주인만 열 수 있으므로 인증도 함께 끝낸다(미인증 회원 복구 경로).
     const owner = await peekEmailTokenUserIn(tx, token, 'recovery');
@@ -205,16 +218,21 @@ export async function resetPassword(pool: pg.Pool, deliver: MailDeliver, token: 
     // 같은 트랜잭션이라 재설정이 롤백되면 제한 기록도 남는다. 로그인 IP 제한(login-ip)은 그대로 둔다.
     await tx.query('delete from auth.rate_events where bucket = $1 and key = lower($2)', [LOGIN_FAIL_BUCKET, u.rows[0].email]);
     // 관리자 계정은 메일함만으로 복구되므로 기록을 남긴다(개인정보·보안 점검 I-3). 같은 트랜잭션이라 기록이 실패하면 재설정도 롤백된다.
+    // 2단계 인증 데이터와 mfa-fail 잠김은 건드리지 않는다(기획서 2.5). 다른 관리자·운영 주소에도 알린다(admin_password_reset, 2.13).
+    const isAdmin = (await tx.query<{ role: string }>('select role::text as role from profiles where id = $1', [id])).rows[0]?.role === 'admin';
+    const at = kstStamp(new Date());
+    const plan = isAdmin ? await planAlertsIn(tx, id, alertTo, { own: null, alert: 'password_reset', at }) : null;
     await tx.query(
       `insert into admin_access_logs (admin_id, target_user_id, action, detail, ip_address)
        select id, id, $2, $3, $4 from profiles where id = $1 and role = 'admin'`,
       // IP 형식이 아니면 버린다(ops 접속 기록과 같은 기준 — 기록에 임의 문자열이 들어가지 않게)
-      [id, ADMIN_RESET_ACTION, ADMIN_RESET_DETAIL, ip !== null && isIP(ip) ? ip : null],
+      [id, ADMIN_RESET_ACTION, `${ADMIN_RESET_DETAIL}${plan ? selfOnlySuffix(plan) : ''}`, ip !== null && isIP(ip) ? ip : null],
     );
-    return u.rows[0].email;
+    return { email: u.rows[0].email, isAdmin, at, alerts: plan?.messages ?? [] };
   });
-  if (email === null) return false;
-  if (!UNDELIVERABLE.test(email)) deliver({ to: email, template: 'password_changed', at: kstStamp(new Date()) });
+  if (done === null) return false;
+  if (!UNDELIVERABLE.test(done.email)) deliver({ to: done.email, template: 'password_changed', at: done.at, ...(done.isAdmin ? { adminLine: true } : {}) });
+  for (const m of done.alerts) deliver(m);
   return true;
 }
 

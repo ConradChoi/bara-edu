@@ -9,6 +9,9 @@ import { WITHDRAWAL_REASON_KEYS } from './withdraw-reasons.js';
 import { withdrawAccount } from './withdraw.js';
 import { changePassword, confirmEmailAsAdmin, listConfirmations, login, requestReset, resendConfirmation, resetPassword, sendResetAsAdmin, signup } from './service.js';
 import { checkSignupLink, completeSignup } from './signup-link.js';
+import { registerMfaRoutes } from './mfa-routes.js';
+import { LogFailed } from './mfa.js';
+import { isIP } from 'node:net';
 
 type SessionRow = {
   id: string;
@@ -72,6 +75,8 @@ export function registerAuthRoutes(app: FastifyInstance): void {
   };
   const originAllowed = (origin: string) => app.deps.config.siteOrigins.includes(origin);
 
+  registerMfaRoutes(app, deliver);
+
   app.post('/v1/auth/signup', async (req, reply) => {
     const body = signupBody.safeParse(req.body);
     if (!body.success) return sendError(reply, 'validation', INVALID, fieldOf(body.error));
@@ -126,9 +131,24 @@ export function registerAuthRoutes(app: FastifyInstance): void {
     const body = loginBody.safeParse(req.body);
     if (!body.success) return sendError(reply, 'validation', INVALID, fieldOf(body.error));
     if (await ipLimited(req, 'login-ip', 50, 900)) return tooMany(reply);
-    const r = await login(app.deps.pool, app.deps.config.sessionTtlDays, body.data.email, body.data.password);
+    const ip = clientIp(req);
+    let r: Awaited<ReturnType<typeof login>>;
+    try {
+      r = await login(app.deps.pool, app.deps.config.sessionTtlDays, body.data.email, body.data.password, {
+        mode: app.deps.config.mfa.mode,
+        ip: ip !== null && isIP(ip) ? ip : null,
+      });
+    } catch (err) {
+      // 관리자 로그인 접속 기록 실패: 세션을 만들지 않는다(전체 롤백)
+      if (err instanceof LogFailed) return sendError(reply, 'unavailable', 'log_failed');
+      throw err;
+    }
     if (r.kind === 'rate_limited') return tooMany(reply);
     if (r.kind === 'fail') return sendError(reply, 'unauthenticated', r.detail);
+    // 관리자: 세션 대신 2단계 대기표(기획서 4.1). 대기표는 본문으로만 준다.
+    if (r.kind === 'mfa') {
+      return { mfa: r.mfa, challengeToken: r.challengeToken, challengeExpiresAt: r.challengeExpiresAt, ...(r.enrollReason ? { enrollReason: r.enrollReason } : {}) };
+    }
     return { sessionToken: r.sessionToken, expiresAt: r.expiresAt, userId: r.userId };
   });
 
@@ -172,7 +192,7 @@ export function registerAuthRoutes(app: FastifyInstance): void {
     if (!body.success) return sendError(reply, 'validation', INVALID, fieldOf(body.error));
     // 가짜 토큰을 대량으로 보내 비밀번호 해시(bcrypt) 계산으로 CPU를 쓰게 하는 것을 막는다(개인정보·보안 점검 I-2, 2026-11-26)
     if (await ipLimited(req, 'reset-password-ip', 30, 900)) return tooMany(reply);
-    if (!(await resetPassword(app.deps.pool, deliver, body.data.token, body.data.newPassword, clientIp(req)))) return sendError(reply, 'validation', 'invalid_token');
+    if (!(await resetPassword(app.deps.pool, deliver, body.data.token, body.data.newPassword, clientIp(req), app.deps.config.mfa.alertTo))) return sendError(reply, 'validation', 'invalid_token');
     return { ok: true };
   });
 
@@ -236,6 +256,9 @@ export function registerAuthRoutes(app: FastifyInstance): void {
 
   app.get('/v1/auth/session', async (req, reply) => {
     const userId = req.auth.userId;
+    // 관리자 세션이 이 요청에서 12시간(max)·1시간 미사용(idle)으로 끝났으면 이유를 한 번 싣는다(기획서 4.9, 1.3 D3)
+    const ended = req.auth.endedReason;
+    if (!userId && (ended === 'max' || ended === 'idle')) return sendError(reply, 'unauthenticated', 'session_expired', undefined, { reason: ended });
     if (!userId) return sendError(reply, 'unauthenticated', '로그인이 필요합니다.');
     const r = await withService(app.deps.pool, (tx) =>
       tx.query<SessionRow>(

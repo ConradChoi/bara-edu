@@ -15,8 +15,8 @@ const STATUS: Record<ErrorCode, number> = {
 };
 
 // `field`는 400 validation에서 문제가 된 입력 칸의 이름이다(앱이 칸별 안내에 쓴다). 없으면 응답에 넣지 않는다.
-// `extra`는 403 wrong_password의 attemptsLeft처럼 앱이 읽는 추가 숫자 필드다(error 객체 안에 그대로 들어간다).
-export function sendError(reply: FastifyReply, code: ErrorCode, message: string, field?: string, extra?: Record<string, number>): FastifyReply {
+// `extra`는 403 wrong_password의 attemptsLeft, 429 mfa_locked의 lockScope처럼 앱이 읽는 추가 필드다(error 객체 안에 그대로 들어간다).
+export function sendError(reply: FastifyReply, code: ErrorCode, message: string, field?: string, extra?: Record<string, number | string | boolean>): FastifyReply {
   return reply.code(STATUS[code]).send({ error: { code, message, ...(field ? { field } : {}), ...(extra ?? {}) } });
 }
 

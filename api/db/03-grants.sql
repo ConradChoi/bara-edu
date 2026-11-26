@@ -9,6 +9,7 @@ grant execute on all functions in schema public to bara_edu_anon, bara_edu_authe
 
 revoke execute on function public.purge_unverified_signups() from public, bara_edu_anon, bara_edu_authenticated;
 revoke execute on function public.purge_old_admin_access_logs() from public, bara_edu_anon, bara_edu_authenticated;
+revoke execute on function public.purge_expired_mfa_rows() from public, bara_edu_anon, bara_edu_authenticated;
 revoke execute on function public.claim_diagnosis(uuid) from bara_edu_anon;
 revoke execute on function public.get_diagnosis_detail(uuid) from bara_edu_anon;
 revoke execute on function public.purge_unclaimed_diagnosis_pii() from public, bara_edu_anon, bara_edu_authenticated;

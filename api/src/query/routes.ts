@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { withAnon, withUser, type Tx } from '../db/context.js';
 import { sendError } from '../http/errors.js';
+import { touchAdminSession } from '../auth/sessions.js';
 import { buildCount, buildSelect, buildWrite, filtersWithinLimits, QueryError, requestSchema } from './build.js';
 import type { Catalog } from './catalog.js';
 import { toDbError } from './db-error.js';
@@ -40,6 +41,8 @@ export function registerQueryRoutes(app: FastifyInstance, getCatalog: () => Prom
       return { rows, n };
     };
     const userId = req.auth.userId;
+    // 관리자의 쓰기 요청은 "사용"이다(1시간 미사용 판정, 기획서 2.3). 읽기는 사용이 아니다.
+    if (userId && q.action !== 'select') await touchAdminSession(app.deps.pool, String(req.headers['x-bara-session']));
     let result: Awaited<ReturnType<typeof exec>>;
     try {
       result = userId ? await withUser(app.deps.pool, userId, exec) : await withAnon(app.deps.pool, exec);

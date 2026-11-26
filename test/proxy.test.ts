@@ -229,3 +229,61 @@ test('proxy: /forgot-password·/reset-password는 공개 경로 — 로그인 �
     expect(passedThrough(await proxy(request(path, 'tok')))).toBe(true);
   }
 });
+
+// ---- 관리자 2단계 인증: 미사용 판정의 "사용"(기획서 2.3, 보안 점검 M-1), 자동 로그아웃 이유(4.9) ----
+const withHeaders = (path: string, token: string, extra: Record<string, string>) =>
+  new NextRequest(`https://bara-edu.kr${path}`, { headers: { cookie: `bara_session=${token}`, ...extra } });
+
+test('proxy: /admin 화면 요청에만 x-bara-activity: admin, 프리페치·회원 화면·공개 화면에는 없음', async () => {
+  fetchMock.mockImplementation(async () => session({ role: 'admin', status: 'active' }));
+  await proxy(request('/admin/members', 'tok'));
+  expect(fetchMock.mock.calls.at(-1)![1].headers['x-bara-activity']).toBe('admin');
+  await proxy(withHeaders('/admin/members', 'tok', { rsc: '1' })); // 클라이언트 이동(RSC)도 사람이 연 화면
+  expect(fetchMock.mock.calls.at(-1)![1].headers['x-bara-activity']).toBe('admin');
+  const prefetches: Record<string, string>[] = [{ 'next-router-prefetch': '1' }, { 'next-router-segment-prefetch': '/_tree' }, { purpose: 'prefetch' }, { 'sec-purpose': 'prefetch;prerender' }];
+  for (const h of prefetches) {
+    await proxy(withHeaders('/admin/members', 'tok', h));
+    expect(fetchMock.mock.calls.at(-1)![1].headers['x-bara-activity'], JSON.stringify(h)).toBeUndefined();
+  }
+  for (const path of ['/my', '/learn/c1', '/', '/courses', '/sign-in/otp']) {
+    await proxy(request(path, 'tok'));
+    expect(fetchMock.mock.calls.at(-1)![1].headers['x-bara-activity'], path).toBeUndefined();
+  }
+});
+
+test('proxy: 관리자 세션 12시간·1시간 만료(401 reason) → /sign-in?redirect=…&ended=max|idle, 그 밖의 401은 지금처럼', async () => {
+  for (const reason of ['max', 'idle'] as const) {
+    fetchMock.mockResolvedValueOnce(json(401, { error: { code: 'unauthenticated', message: 'session_expired', reason } }));
+    const res = await proxy(request('/admin/members', 'tok'));
+    expect(location(res)).toBe(`/sign-in?redirect=%2Fadmin%2Fmembers&ended=${reason}`);
+    expect(cookieDeleted(res)).toBe(true);
+  }
+  fetchMock.mockResolvedValueOnce(json(401, { error: { code: 'unauthenticated', message: 'session_expired', reason: 'mfa_required' } }));
+  expect(location(await proxy(request('/admin', 'tok')))).toBe('/sign-in?redirect=%2Fadmin');
+  // 공개 경로에서 끝난 세션은 쿠키만 지우고 그대로(이유를 보여 줄 화면이 없다)
+  fetchMock.mockResolvedValueOnce(json(401, { error: { code: 'unauthenticated', message: 'session_expired', reason: 'idle' } }));
+  const pub = await proxy(request('/', 'tok'));
+  expect(passedThrough(pub)).toBe(true);
+  expect(cookieDeleted(pub)).toBe(true);
+});
+
+test('proxy: /sign-in/otp·/sign-in/recovery·/sign-in/otp-setup은 공개 경로 — 쿠키 없이도, 로그인한 상태에서도 통과', async () => {
+  for (const path of ['/sign-in/otp', '/sign-in/recovery', '/sign-in/otp-setup?reason=reset']) {
+    expect(passedThrough(await proxy(request(path)))).toBe(true);
+    fetchMock.mockResolvedValueOnce(session({ role: 'admin', status: 'active' }));
+    const res = await proxy(request(path, 'tok'));
+    expect(passedThrough(res)).toBe(true);
+    expect(location(res)).toBeNull();
+  }
+});
+
+test('proxy: /admin/security는 관리자 경로(비로그인 → 로그인, 비관리자 → /)', async () => {
+  expect(location(await proxy(request('/admin/security')))).toBe('/sign-in?redirect=%2Fadmin%2Fsecurity');
+  fetchMock.mockResolvedValueOnce(session({ role: 'learner', status: 'active' }));
+  expect(location(await proxy(request('/admin/security', 'tok')))).toBe('/');
+});
+
+test('proxy: 관리자 세션은 renewed가 오지 않아 쿠키를 늘리지 않는다', async () => {
+  fetchMock.mockResolvedValueOnce(json(200, { user: { id: 'u1', email: 'a@b.kr', emailConfirmedAt: null }, profile: { role: 'admin', status: 'active' }, expiresAt: '2026-11-27T02:00:00.000Z', renewed: false }));
+  expect(setCookie(await proxy(request('/admin', 'tok')))).toBe('');
+});

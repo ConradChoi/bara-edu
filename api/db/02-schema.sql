@@ -1767,6 +1767,34 @@ $$;
 revoke execute on function public.purge_unverified_signups() from public, bara_edu_anon, bara_edu_authenticated;
 revoke execute on function public.purge_old_admin_access_logs() from public, bara_edu_anon, bara_edu_authenticated;
 
+-- ===================== RPC: 관리자 2단계 인증 임시 행 정리 (2026-11-26) =====================
+-- 기획서 2.11·6장 보관 기간: 등록 대기는 만료 즉시, 대기표는 만료 1일 뒤, 등록 코드는 만료·사용 1일 뒤 지운다.
+-- 등록(mfa_factors)·복구 코드·계정 이력(mfa_account_state)은 여기서 지우지 않는다(강등·탈퇴 절차가 지운다).
+-- 시도 제한 기록(auth.rate_events의 mfa-* bucket)은 기존 25시간 정리 규칙을 따른다.
+create or replace function public.purge_expired_mfa_rows()
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_enrollments integer;
+  v_challenges integer;
+  v_tickets integer;
+begin
+  delete from auth.mfa_enrollments where expires_at < now();
+  get diagnostics v_enrollments = row_count;
+  delete from auth.mfa_challenges where expires_at < now() - interval '1 day';
+  get diagnostics v_challenges = row_count;
+  delete from auth.mfa_enroll_tickets
+   where expires_at < now() - interval '1 day' or used_at < now() - interval '1 day';
+  get diagnostics v_tickets = row_count;
+  return v_enrollments + v_challenges + v_tickets;
+end;
+$$;
+
+revoke execute on function public.purge_expired_mfa_rows() from public, bara_edu_anon, bara_edu_authenticated;
+
 
 -- ===================== module: 도형심리 역량진단 /selfcheck (2026-09-14) =====================
 -- 결제·수강 이전 유입 퍼널. LMS 도메인과 분리된 별도 기능 — 근거는
