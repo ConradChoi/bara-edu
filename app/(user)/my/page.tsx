@@ -1,6 +1,8 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { changePassword, updateContactInfo, withdraw } from '@/app/actions/account';
+import { deleteMyDiagnosisResult } from '@/app/actions/diagnosis';
+import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import WithdrawForm from '@/components/mypage/WithdrawForm';
 import PendingClaimRedirect from '@/components/auth/PendingClaimRedirect';
 import {
@@ -8,12 +10,13 @@ import {
   getMyCertificatesWithCourse,
   getProgressStatsForCourses,
 } from '@/lib/supabase/classroom-queries';
-import { getMyDiagnosisResults } from '@/lib/supabase/diagnosis-queries';
+import { getMyDiagnosisResults, type MyDiagnosisResult } from '@/lib/supabase/diagnosis-queries';
 import { getMyEnrollments, type MyEnrollment } from '@/lib/supabase/queries';
 import { createClient } from '@/lib/db/server';
 import type { EnrollmentStatus } from '@/lib/types';
 import { siteConfig } from '@/data/site-config';
 import { DIAGNOSIS_TIER_LABELS, type DiagnosisTier } from '@/data/diagnosis/config';
+import { DELETE_RESULT_COPY, fill, WITHDRAW_NOTE } from '@/data/diagnosis/consent-copy';
 
 const SETTINGS_SUCCESS_MESSAGE: Record<string, string> = {
   password: '비밀번호를 변경했어요.',
@@ -70,9 +73,11 @@ export default async function MyPage({
     welcome?: string;
     settingsSuccess?: string;
     settingsError?: string;
+    deleted?: string;
+    deleteError?: string;
   }>;
 }) {
-  const { tab = 'dashboard', withdrawError, welcome, settingsSuccess, settingsError } = await searchParams;
+  const { tab = 'dashboard', withdrawError, welcome, settingsSuccess, settingsError, deleted, deleteError } = await searchParams;
   const supabase = await createClient();
   const {
     data: { user },
@@ -217,33 +222,7 @@ export default async function MyPage({
             </ul>
           )
         ) : tab === 'diagnosis' ? (
-          diagnosisResults.length === 0 ? (
-            <div className="flex flex-col items-center gap-3 py-10 text-center">
-              <p className="text-[13px] text-n-6">아직 자가진단 이력이 없어요</p>
-              <Link href="/selfcheck" className="rounded-pill bg-pink px-4 py-2 text-[13px] font-semibold text-white">
-                도형심리 역량진단 받아보기
-              </Link>
-            </div>
-          ) : (
-            <ul className="flex flex-col gap-3">
-              {diagnosisResults.map((d) => (
-                <li key={d.accessToken} className="flex items-center justify-between rounded-lg border border-n-3 p-4">
-                  <div className="flex flex-col gap-1">
-                    <span className="text-[14px] font-semibold text-n-9">{DIAGNOSIS_TIER_LABELS[d.recommendedTier]}</span>
-                    <span className="text-[12px] text-n-6">
-                      {new Date(d.createdAt).toLocaleDateString('ko-KR')} · {Math.round(d.totalScore)}점
-                    </span>
-                  </div>
-                  <Link
-                    href={`/selfcheck/result/${d.accessToken}`}
-                    className="rounded-pill border border-n-3 px-3 py-1.5 text-[12px] font-medium text-n-7"
-                  >
-                    결과 보기
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          )
+          <DiagnosisSection results={diagnosisResults} deleted={deleted === '1'} deleteError={deleteError === '1'} />
         ) : tab === 'applications' ? (
           <EnrollmentList enrollments={enrollments} emptyMessage="신청한 강좌가 없어요" showStatus />
         ) : (
@@ -261,7 +240,7 @@ export default async function MyPage({
         <div className="mt-10 flex items-center justify-between border-t border-n-3 pt-6">
           <div>
             <p className="text-[13px] font-semibold text-n-9">회원 탈퇴</p>
-            <p className="text-[12px] text-n-6">탈퇴 시 개인정보는 즉시 익명화되고 학습 이력은 파기돼요.</p>
+            <p className="text-[12px] text-n-6">{WITHDRAW_NOTE}</p>
           </div>
           <WithdrawForm action={withdraw} />
         </div>
@@ -309,6 +288,74 @@ function DashboardSection({
           {latestDiagnosis ? DIAGNOSIS_TIER_LABELS[latestDiagnosis.recommendedTier] : '아직 진단받은 이력이 없어요'}
         </p>
       </Link>
+    </div>
+  );
+}
+
+// 자가진단내역(민감정보 동의 철회 = 진단 기록 지우기, 디자인 스펙 D4). 완료·실패 배너는 목록 위에 두고 새로고침 전까지 유지한다.
+function DiagnosisSection({ results, deleted, deleteError }: { results: MyDiagnosisResult[]; deleted: boolean; deleteError: boolean }) {
+  return (
+    <div className="flex flex-col gap-4">
+      {deleted && (
+        <div role="status" className="rounded-md border border-success bg-success/10 px-3.5 py-3 text-[15px] font-semibold text-n-9">
+          {DELETE_RESULT_COPY.done}
+        </div>
+      )}
+      {deleteError && (
+        <div role="alert" className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[15px] font-medium text-n-9">
+          {fill(DELETE_RESULT_COPY.fail, { phone: siteConfig.phone })}
+        </div>
+      )}
+      {results.length === 0 ? (
+        <div className="flex flex-col items-center gap-3 py-10 text-center">
+          <p className="text-[13px] text-n-6">{DELETE_RESULT_COPY.empty}</p>
+          <Link href="/selfcheck" className="rounded-pill bg-pink px-4 py-2 text-[13px] font-semibold text-white">
+            {DELETE_RESULT_COPY.emptyBtn}
+          </Link>
+        </div>
+      ) : (
+        <ul className="flex flex-col gap-3">
+          {results.map((d) => {
+            const date = new Date(d.createdAt).toLocaleDateString('ko-KR');
+            return (
+              <li key={d.accessToken} className="flex flex-col gap-3 rounded-lg border border-n-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex flex-col gap-1">
+                  <span className="text-[14px] font-semibold text-n-9">{DIAGNOSIS_TIER_LABELS[d.recommendedTier]}</span>
+                  <span className="text-[12px] text-n-6">
+                    {date} · {Math.round(d.totalScore)}점
+                  </span>
+                </div>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <Link
+                    href={`/selfcheck/result/${d.accessToken}`}
+                    className="flex min-h-12 w-full items-center justify-center rounded-pill border border-n-3 px-4 text-[14px] font-medium text-n-7 sm:w-auto"
+                  >
+                    결과 보기
+                  </Link>
+                  <ConfirmDialog
+                    triggerLabel={DELETE_RESULT_COPY.trigger}
+                    triggerAriaLabel={fill(DELETE_RESULT_COPY.triggerSr, { date })}
+                    triggerClassName="flex min-h-12 w-full items-center justify-center rounded-pill border border-n-3 px-4 text-[14px] font-medium text-danger sm:w-auto"
+                    title={DELETE_RESULT_COPY.title}
+                    description={DELETE_RESULT_COPY.body}
+                    confirmLabel={DELETE_RESULT_COPY.confirm}
+                    cancelLabel={DELETE_RESULT_COPY.cancel}
+                    pendingLabel={DELETE_RESULT_COPY.busy}
+                    tone="danger"
+                    size="lg"
+                    describe
+                    initialFocus="cancel"
+                    extraCheckbox={
+                      d.hasLead ? { name: 'deleteLeads', label: DELETE_RESULT_COPY.withLeads, help: DELETE_RESULT_COPY.withLeadsHelp, defaultChecked: true } : undefined
+                    }
+                    action={deleteMyDiagnosisResult.bind(null, d.accessToken)}
+                  />
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </div>
   );
 }
