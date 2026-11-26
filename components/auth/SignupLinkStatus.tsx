@@ -2,34 +2,15 @@
 
 import { useEffect, useRef, type ReactNode } from 'react';
 import Link from 'next/link';
-import { siteConfig } from '@/data/site-config';
 import ResendConfirmationForm from '@/components/auth/ResendConfirmationForm';
-import { PRIMARY_BTN, SECONDARY_BTN } from '@/components/error/styles';
-import { CircleCheckIcon, ClockIcon, LockIcon, PhoneIcon, WifiOffIcon } from '@/components/error/icons';
+import SupportPhone from '@/components/auth/SupportPhone';
+import { STATUS_DESC_CLASS as DESC_CLASS, STATUS_TITLE_CLASS as TITLE_CLASS } from '@/components/auth/styles';
+import { LINK_CLASS, PRIMARY_BTN, SECONDARY_BTN } from '@/components/error/styles';
+import { CircleCheckIcon, ClockIcon, LockIcon, WifiOffIcon } from '@/components/error/icons';
 
 // 가입 마무리 링크의 상태 화면(디자인 스펙 V-2.3~V-2.6, 문구 문서 4.4~4.7).
 // 좌측 정렬이고 채운 버튼은 화면마다 1개다. 색은 인디고 단색(경고색을 쓰지 않는다).
 export type SignupLinkStatusKind = 'locked' | 'expired' | 'invalid' | 'done' | 'unavailable' | 'rate_limited';
-
-const TITLE_CLASS = 'scroll-mt-20 mt-5 text-2xl font-bold leading-[1.35] text-n-9 break-keep outline-none md:text-[28px]';
-const DESC_CLASS = 'mt-3 text-lg leading-[1.7] text-n-7 break-keep';
-const LINK_CLASS = `inline-flex min-h-11 items-center text-base text-indigo underline underline-offset-4 ${'focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-indigo'}`;
-
-function Phone() {
-  const digits = siteConfig.phone.replace(/[^0-9]/g, '');
-  return (
-    <div className="flex flex-col gap-1.5">
-      <a href={`tel:${digits}`} className={`${SECONDARY_BTN} !flex-col !gap-0 !py-2`}>
-        <span className="inline-flex items-center gap-2">
-          <PhoneIcon className="size-5" />
-          전화 문의
-        </span>
-        <span className="whitespace-nowrap text-xl">{siteConfig.phone}</span>
-      </a>
-      <p className="text-sm leading-[1.6] text-n-6 break-keep">{siteConfig.supportHours}</p>
-    </div>
-  );
-}
 
 export default function SignupLinkStatus({
   status,
@@ -68,7 +49,7 @@ export default function SignupLinkStatus({
             처음부터 다시 가입하기
           </Link>
           <p className="mt-3 text-base leading-[1.7] text-n-7 break-keep">다시 가입이 어려우면 전화로 문의해 주세요.</p>
-          <Phone />
+          <SupportPhone />
         </>
       );
       break;
@@ -92,7 +73,7 @@ export default function SignupLinkStatus({
             이미 가입을 마쳤다면 로그인하기
           </Link>
           <p className="mt-3 text-base leading-[1.7] text-n-7 break-keep">어려우면 전화로 문의해 주세요.</p>
-          <Phone />
+          <SupportPhone />
         </>
       );
       break;
@@ -106,7 +87,7 @@ export default function SignupLinkStatus({
             로그인하기
           </Link>
           <p className="mt-3 text-base leading-[1.7] text-n-7 break-keep">비밀번호가 기억나지 않으면 전화로 문의해 주세요.</p>
-          <Phone />
+          <SupportPhone />
         </>
       );
       break;
@@ -131,7 +112,7 @@ export default function SignupLinkStatus({
               다시 시도하기
             </a>
           )}
-          <Phone />
+          <SupportPhone />
         </>
       );
   }

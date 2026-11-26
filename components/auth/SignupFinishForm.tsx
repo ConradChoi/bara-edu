@@ -3,16 +3,15 @@
 import { useActionState, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { finishSignup, type SignupFinishState } from '@/app/actions/auth';
-import { siteConfig } from '@/data/site-config';
 import PasswordField, { FOCUS_RING } from '@/components/auth/PasswordField';
 import SignupLinkStatus from '@/components/auth/SignupLinkStatus';
-import { AlertIcon, ChevronDownIcon, PhoneIcon, RefreshIcon } from '@/components/error/icons';
+import SupportPhone from '@/components/auth/SupportPhone';
+import { NOTICE } from '@/components/auth/styles';
+import { AlertIcon, ChevronDownIcon, RefreshIcon } from '@/components/error/icons';
 import { SECONDARY_BTN } from '@/components/error/styles';
 
 const initialState: SignupFinishState = undefined;
 const MAX_ATTEMPTS = 5;
-
-const NOTICE = 'flex gap-3 rounded-md border-l-4 border-danger bg-n-1 px-4 py-3 text-base leading-[1.6] text-n-9 break-keep';
 
 type Props = {
   token: string;
@@ -53,7 +52,6 @@ export default function SignupFinishForm({ token, email, requestedLabel, remaini
     return <SignupLinkStatus status={state.status} focusOnMount />;
   }
 
-  const digits = siteConfig.phone.replace(/[^0-9]/g, '');
   const describedBy = wrong ? 'confirm-password-error' : showEmpty ? 'confirm-password-empty' : undefined;
 
   return (
@@ -197,14 +195,7 @@ export default function SignupFinishForm({ token, email, requestedLabel, remaini
             처음부터 다시 가입하기
           </Link>
           <p className="text-base leading-[1.7] text-n-7 break-keep">다시 가입이 어려우면 전화로 문의해 주세요.</p>
-          <a href={`tel:${digits}`} className={`${SECONDARY_BTN} !flex-col !gap-0 !py-2`}>
-            <span className="inline-flex items-center gap-2">
-              <PhoneIcon className="size-5" />
-              전화 문의
-            </span>
-            <span className="whitespace-nowrap text-xl">{siteConfig.phone}</span>
-          </a>
-          <p className="text-sm leading-[1.6] text-n-6 break-keep">운영시간 {siteConfig.supportHours}</p>
+          <SupportPhone hoursLabel="운영시간" />
         </div>
       </details>
 
