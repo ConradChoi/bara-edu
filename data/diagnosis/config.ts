@@ -10,6 +10,7 @@ export const DIAGNOSIS_VERSION = 'shape-v1';
 // submitDiagnosis()가 제출 성공 직후 심는 httpOnly 쿠키 이름 — "이 브라우저가 방금 이
 // 토큰을 제출했다"는, 클라이언트가 위조할 수 없는 유일한 신호다. 결과 페이지가 이 쿠키와
 // 토큰이 일치할 때만 로그인/가입 후 확인 없는 자동 귀속(AutoClaim)을 허용한다
+// 쿠키 path는 '/'(로그인 액션 요청 안에서 결과 페이지가 렌더되므로). 로그아웃은 옛 '/selfcheck' 경로도 지운다.
 // (app/actions/diagnosis.ts, app/(public)/selfcheck/result/[token]/page.tsx 양쪽에서 참조).
 export const RECENT_SUBMIT_COOKIE = 'bara_selfcheck_recent_token';
 

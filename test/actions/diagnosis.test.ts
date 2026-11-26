@@ -51,7 +51,7 @@ test('정상 제출: 민감정보 동의와 고정 버전(sc-v1)을 보내고 �
   expect(args.p_consent_sensitive_version).toBe(CURRENT_SENSITIVE_CONSENT_VERSION);
   expect(args.p_consent_privacy).toBe(true);
   expect(args.p_consent_privacy_doc_version).toBe(10);
-  expect(cookieSet).toHaveBeenCalledWith('bara_selfcheck_recent_token', 'TOKEN', expect.objectContaining({ httpOnly: true }));
+  expect(cookieSet).toHaveBeenCalledWith('bara_selfcheck_recent_token', 'TOKEN', expect.objectContaining({ httpOnly: true, path: '/', sameSite: 'lax', maxAge: 86400 }));
 });
 
 test('앱이 먼저 막는다: 개인정보 → 민감정보 → 버전 순서, API를 부르지 않는다', async () => {

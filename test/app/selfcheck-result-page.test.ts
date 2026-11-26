@@ -14,7 +14,8 @@ vi.mock('@/lib/supabase/diagnosis-queries', () => ({
 }));
 vi.mock('@/lib/db/server', () => ({ createClient: async () => ({ auth: { getUser: async () => ({ data: { user }, error: null }) } }) }));
 vi.mock('@/app/actions/diagnosis', () => ({ claimDiagnosis: async () => {}, submitDiagnosisLead: async () => {}, deleteMyDiagnosisResult: async () => {} }));
-vi.mock('next/headers', () => ({ cookies: async () => ({ get: () => undefined }) }));
+let recentCookie: string | undefined;
+vi.mock('next/headers', () => ({ cookies: async () => ({ get: (n: string) => (n === 'bara_selfcheck_recent_token' && recentCookie ? { value: recentCookie } : undefined) }) }));
 
 import Page from '@/app/(public)/selfcheck/result/[token]/page';
 
@@ -108,4 +109,18 @@ test('비로그인 열람자에게 지우는 방법(SC-RES-GUEST-DELETE-HELP)이
   expect(owner).not.toContain(RESULT_COPY.guestDeleteHelp.slice(0, 12));
   user = null;
   detail = null;
+});
+
+test('쿠키 토큰이 URL 토큰과 같으면 제출 브라우저로 보고 연결 확인 상자 없이 자동 귀속', async () => {
+  user = { id: 'u1' };
+  detail = null;
+  summary = baseSummary;
+  recentCookie = 't';
+  try {
+    const html = await render();
+    expect(html).not.toContain('이 진단 결과가 본인 것이 맞나요?');
+    expect(html).not.toContain(RESULT_COPY.claimWarn);
+  } finally {
+    recentCookie = undefined;
+  }
 });

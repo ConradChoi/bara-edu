@@ -371,7 +371,10 @@ export async function logout() {
   // 자가진단 결과 연결용 쿠키(제출한 브라우저 표시)도 함께 지운다. 공용 기기에서 로그아웃한 뒤 남지 않게(개인정보 점검 R-4).
   // 브라우저 임시 저장 초안(localStorage)은 서버가 못 지우므로 로그아웃 버튼(LogoutForm)이 보내기 전에 지운다.
   try {
-    (await cookies()).delete({ name: RECENT_SUBMIT_COOKIE, path: '/selfcheck' });
+    // 현재 경로('/')와 배포 전에 발급된(최대 24시간) 옛 경로('/selfcheck') 둘 다 지운다.
+    const jar = await cookies();
+    jar.delete({ name: RECENT_SUBMIT_COOKIE, path: '/' });
+    jar.delete({ name: RECENT_SUBMIT_COOKIE, path: '/selfcheck' });
   } catch {
     // 쿠키 삭제 실패가 로그아웃을 막으면 안 된다. 값(토큰)은 남기지 않고 한 줄만 기록한다.
     console.error('[logout] selfcheck result cookie delete failed');

@@ -168,6 +168,8 @@ test('logout 액션: API 호출 후 쿠키 삭제, /로 이동', async () => {
   await expect(actions.logout()).rejects.toThrow('REDIRECT:/');
   expect(store.delete).toHaveBeenCalledWith('bara_session');
   // 자가진단 결과 연결 쿠키도 함께 지운다(개인정보 점검 R-4)
+  expect(store.delete).toHaveBeenCalledWith({ name: 'bara_selfcheck_recent_token', path: '/' });
+  // 배포 전에 발급된 쿠키(옛 경로)도 지운다
   expect(store.delete).toHaveBeenCalledWith({ name: 'bara_selfcheck_recent_token', path: '/selfcheck' });
 });
 

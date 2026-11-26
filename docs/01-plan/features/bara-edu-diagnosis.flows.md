@@ -243,7 +243,7 @@ State A 화면 안의 [로그인]/[회원가입] 버튼을 누르는 순간부�
                      → [취소] → State A로 유지(로그인은 된 채로, 이 결과와는 연결하지 않음)
 ```
 
-**구현 시 변경됨(2026-09-14, qa-reviewer + privacy-security-officer 지적)**: 이 절이 원래 제안한 "sessionStorage 플래그로 판단"은 실제 구현에서 **클라이언트가 URL에 붙인 `?claim=auto` 쿼리파라미터를 서버가 그대로 신뢰하는 방식**으로 잘못 구현됐다 — 공유받은 결과 링크를 아무나 열어 로그인 버튼만 눌러도 이 파라미터가 항상 붙어 확인 없이 귀속되는 치명적 결함이었다. 수정본은 sessionStorage보다 한 단계 더 안전한 **httpOnly 쿠키**를 쓴다: `submitDiagnosis()`가 제출 성공 직후 그 토큰 값을 담은 httpOnly 쿠키(`RECENT_SUBMIT_COOKIE`, 24시간, `/selfcheck` 경로)를 심고, 결과 페이지는 이 쿠키와 URL의 토큰이 일치할 때만 "방금 이 결과를 직접 제출한 세션"으로 판단한다. sessionStorage와 달리 클라이언트 JS가 값을 읽거나 위조할 수 없어(httpOnly) 더 강한 보장을 준다.
+**구현 시 변경됨(2026-09-14, qa-reviewer + privacy-security-officer 지적)**: 이 절이 원래 제안한 "sessionStorage 플래그로 판단"은 실제 구현에서 **클라이언트가 URL에 붙인 `?claim=auto` 쿼리파라미터를 서버가 그대로 신뢰하는 방식**으로 잘못 구현됐다 — 공유받은 결과 링크를 아무나 열어 로그인 버튼만 눌러도 이 파라미터가 항상 붙어 확인 없이 귀속되는 치명적 결함이었다. 수정본은 sessionStorage보다 한 단계 더 안전한 **httpOnly 쿠키**를 쓴다: `submitDiagnosis()`가 제출 성공 직후 그 토큰 값을 담은 httpOnly 쿠키(`RECENT_SUBMIT_COOKIE`, 24시간, `/` 경로 — 로그인 서버 액션 요청(POST /sign-in) 안에서 결과 페이지가 렌더되므로 `/selfcheck`로 좁히면 쿠키가 전송되지 않는다. 2026-11-26 수정, 로그아웃은 옛 `/selfcheck` 경로도 함께 삭제)를 심고, 결과 페이지는 이 쿠키와 URL의 토큰이 일치할 때만 "방금 이 결과를 직접 제출한 세션"으로 판단한다. sessionStorage와 달리 클라이언트 JS가 값을 읽거나 위조할 수 없어(httpOnly) 더 강한 보장을 준다.
 
 **claim 원자성(동시성)**: `admin-enrollments.ts`의 조건부 update 패턴을 그대로 승계한다 — `update(...).eq('id', resultId).eq('user_id', null).select()`. 두 요청이 동시에 들어와도(같은 사용자가 여러 탭을 열었거나, 극히 드물게 서로 다른 두 사용자가 거의 동시에 접근) 먼저 반영된 쪽만 성공하고 나중 쪽은 `data.length === 0`으로 실패를 감지해 재조회 후 최신 상태(이미 귀속됨)를 기준으로 다시 분기한다.
 
