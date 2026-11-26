@@ -9,6 +9,7 @@ import PrintButton from '@/components/diagnosis/PrintButton';
 import RadarChart from '@/components/diagnosis/RadarChart';
 import ScoreBar from '@/components/diagnosis/ScoreBar';
 import { DIAGNOSIS_AREAS, DIAGNOSIS_DISCLAIMER, DIAGNOSIS_TIER_LABELS, RECENT_SUBMIT_COOKIE } from '@/data/diagnosis/config';
+import { RESULT_COPY } from '@/data/diagnosis/consent-copy';
 import { getDiagnosisDetail, getDiagnosisSummary } from '@/lib/supabase/diagnosis-queries';
 import { createClient } from '@/lib/db/server';
 
@@ -30,13 +31,14 @@ export default async function DiagnosisResultPage({
   const isRecentSubmitter = cookieStore.get(RECENT_SUBMIT_COOKIE)?.value === token;
 
   const summary = await getDiagnosisSummary(token);
+  // 없음·90일 파기·탈퇴·셀프 삭제·배포 때 일괄 삭제를 구분하지 않는다(정의서 4.4절, SC-RES-NOTFOUND-*).
   if (!summary) {
     return (
       <div className="mx-auto flex max-w-[420px] flex-col items-center gap-3 px-6 py-16 text-center">
-        <p className="text-[15px] font-semibold text-n-9">결과를 찾을 수 없어요</p>
-        <p className="text-[12.5px] text-n-6">링크가 정확한지 확인해 주세요.</p>
+        <p className="text-[15px] font-semibold text-n-9">{RESULT_COPY.notFoundTitle}</p>
+        <p className="text-[12.5px] text-n-6">{RESULT_COPY.notFoundDesc}</p>
         <Link href="/selfcheck" className="mt-2 rounded-pill bg-pink px-5 py-2 text-[13px] font-semibold text-white">
-          새로 진단받기
+          {RESULT_COPY.notFoundBtn}
         </Link>
       </div>
     );
@@ -55,6 +57,7 @@ export default async function DiagnosisResultPage({
     return (
       <div className="mx-auto flex max-w-[420px] flex-col gap-4 px-6 py-10">
         <ResultSummaryCard summary={summary} tierLabel={tierLabel} />
+        <ResultLinkNotice />
         <div className="rounded-lg border border-warning bg-warning/10 px-4 py-3.5 text-[12.5px] font-medium text-warning">
           이 진단 결과는 이미 다른 계정에 연결되어 있어요. 본인의 결과가 맞다면 고객센터로 문의해 주세요.
         </div>
@@ -87,6 +90,7 @@ export default async function DiagnosisResultPage({
       )}
 
       <ResultSummaryCard summary={summary} tierLabel={tierLabel} />
+      <ResultLinkNotice />
 
       {showClaimPrompt && (
         <div className="flex flex-col gap-2 rounded-lg border border-n-3 bg-n-1 p-4">
@@ -137,6 +141,18 @@ export default async function DiagnosisResultPage({
       )}
 
       <p className="print-hide text-[11px] text-n-5">{DIAGNOSIS_DISCLAIMER}</p>
+    </div>
+  );
+}
+
+// 결과 링크 공개 범위 고지(제23조 제3항, 대표 결정 4 "안내만", 디자인 스펙 D3). 모든 열람자, 인쇄 제외, 닫기 없음.
+function ResultLinkNotice() {
+  return (
+    <div className="print-hide flex items-start gap-2 rounded-md bg-info/10 px-3.5 py-3 text-[14px] text-n-8">
+      <span aria-hidden="true" className="font-semibold text-info">
+        i
+      </span>
+      <p>{RESULT_COPY.linkNotice}</p>
     </div>
   );
 }
