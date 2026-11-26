@@ -120,6 +120,8 @@ test('쿠키 토큰이 URL 토큰과 같으면 제출 브라우저로 보고 연
     const html = await render();
     expect(html).not.toContain('이 진단 결과가 본인 것이 맞나요?');
     expect(html).not.toContain(RESULT_COPY.claimWarn);
+    // AutoClaim(숨은 폼 자동 제출)이 실제로 렌더된다
+    expect(html).toContain('결과를 연결하는 중이에요');
   } finally {
     recentCookie = undefined;
   }

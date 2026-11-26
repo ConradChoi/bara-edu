@@ -23,7 +23,7 @@
 | 결과 화면(강사과정 사전 적합 후보만) | 같음 | 이름, 연락처, 문의 내용, 연락 동의 | `diagnosis_leads` | `submitDiagnosisLead` → `submit_diagnosis_lead` |
 
 - 로그인 상태로 제출하면 `user_id`·`claimed_at`이 바로 채워진다(회원 결과). 로그인 상태면 이름·휴대전화·이메일을 `profiles`에서 미리 채워 준다(수정 가능).
-- 비회원 결과는 `user_id is null`. 나중에 로그인·가입하면 결과 링크에서 연결(claim)된다. 제출한 그 브라우저(httpOnly 쿠키 `bara_selfcheck_recent_token`, 24시간)면 자동, 아니면 [이 결과를 내 계정에 연결하기] 버튼으로 연결한다.
+- 비회원 결과는 `user_id is null`. 나중에 로그인·가입하면 결과 링크에서 연결(claim)된다. 제출한 그 브라우저(httpOnly 쿠키 `bara_selfcheck_recent_token`, 24시간, 경로 `/` — 2026-11-26 수정)면 자동, 아니면 [이 결과를 내 계정에 연결하기] 버튼으로 연결한다.
 - 결과 링크 `/selfcheck/result/{access_token}`: **로그인 없이 누구나** 추천 단계·전체 점수·추천 과정을 본다(`get_diagnosis_summary`). 영역별 점수·강점·보완은 소유 회원만 본다(`get_diagnosis_detail`). 30문항 원응답은 관리자만 본다.
 - 관리자: `/admin/selfcheck` 목록은 이름 원문 + 연락처 마스킹 + 학습 경험·전체 점수·추천 단계·회원 여부를 보여 준다(목록 열람 자체는 접속 기록 없음). 상세 `/admin/selfcheck/[id]`는 이름·연락처 원문, 6영역 점수, 30문항 원응답을 보여 주며 열 때 `조회`가 기록된다(기록 실패 시 원문 없음).
 
