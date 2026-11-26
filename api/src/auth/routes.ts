@@ -170,7 +170,7 @@ export function registerAuthRoutes(app: FastifyInstance): void {
   app.post('/v1/auth/reset-password', async (req, reply) => {
     const body = resetBody.safeParse(req.body);
     if (!body.success) return sendError(reply, 'validation', INVALID, fieldOf(body.error));
-    if (!(await resetPassword(app.deps.pool, body.data.token, body.data.newPassword))) return sendError(reply, 'validation', 'invalid_token');
+    if (!(await resetPassword(app.deps.pool, deliver, body.data.token, body.data.newPassword))) return sendError(reply, 'validation', 'invalid_token');
     return { ok: true };
   });
 

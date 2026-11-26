@@ -192,3 +192,97 @@ test('reset-password 성공 시 그 회원의 다른 recovery·confirm 토큰도
   expect(await verifyStatus(confirm)).toBe(409);
   expect((await login(email, 'brandnew123')).statusCode).toBe(200);
 });
+
+const AT_RE = /^\d{4}년 \d{1,2}월 \d{1,2}일 (오전|오후) \d{1,2}시 \d{1,2}분$/;
+const loginFailCount = async (email: string) =>
+  Number((await ctx.adminPool.query("select count(*) from auth.rate_events where bucket = 'login-fail' and key = $1", [email])).rows[0].count);
+
+test('reset-password 성공 → 그 회원의 가입 이메일로 password_changed 알림 1통(링크·비밀번호 없음, profile_changed와 같은 시각 형식)', async () => {
+  const { email, id } = await addUser();
+  const token = await issueEmailToken(ctx.pool, id, 'recovery');
+  expect((await post('/v1/auth/reset-password', { token, newPassword: 'brandnew123' })).statusCode).toBe(200);
+  expect(mailer.sent).toHaveLength(1);
+  const msg = mailer.sent[0];
+  expect(msg).toMatchObject({ to: email, template: 'password_changed' });
+  expect(Object.keys(msg).sort()).toEqual(['at', 'template', 'to']);
+  expect(msg.template === 'password_changed' && msg.at).toMatch(AT_RE);
+  expect(JSON.stringify(msg)).not.toContain('brandnew123');
+});
+
+test('reset-password 실패(잘못된·이미 쓴 토큰, 규칙 위반)는 알림 메일을 보내지 않는다', async () => {
+  const { id } = await addUser();
+  const token = await issueEmailToken(ctx.pool, id, 'recovery');
+  expect((await post('/v1/auth/reset-password', { token: 'nope', newPassword: 'brandnew123' })).statusCode).toBe(400);
+  expect((await post('/v1/auth/reset-password', { token, newPassword: 'short' })).statusCode).toBe(400);
+  expect(mailer.sent).toHaveLength(0);
+  expect((await post('/v1/auth/reset-password', { token, newPassword: 'brandnew123' })).statusCode).toBe(200);
+  mailer.sent.length = 0;
+  expect((await post('/v1/auth/reset-password', { token, newPassword: 'another1234' })).statusCode).toBe(400);
+  expect(mailer.sent).toHaveLength(0);
+});
+
+test('reset-password: 알림 메일 발송이 실패해도 재설정은 200이고 그대로 반영된다', async () => {
+  const { email, id } = await addUser();
+  const failApp = buildApp({ config: app.deps.config, pool: ctx.pool, mailer: { async send() { throw new Error('ses down'); } }, storage: new MemoryStorage() });
+  const token = await issueEmailToken(ctx.pool, id, 'recovery');
+  const r = await failApp.inject({ method: 'POST', url: '/v1/auth/reset-password', headers: { 'x-bara-service-key': KEY }, payload: { token, newPassword: 'brandnew123' } });
+  await flushMail();
+  await flushMail();
+  await failApp.close();
+  expect(r.statusCode).toBe(200);
+  expect(r.json()).toEqual({ ok: true });
+  expect((await login(email, 'brandnew123')).statusCode).toBe(200);
+});
+
+test('reset-password: 알림 메일은 응답을 기다리지 않는다(발송이 멈춰 있어도 응답이 온다)', async () => {
+  const { email, id } = await addUser();
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  const called: string[] = [];
+  const slowApp = buildApp({ config: app.deps.config, pool: ctx.pool, mailer: { async send(m) { called.push(m.template); await gate; } }, storage: new MemoryStorage() });
+  const token = await issueEmailToken(ctx.pool, id, 'recovery');
+  const r = await slowApp.inject({ method: 'POST', url: '/v1/auth/reset-password', headers: { 'x-bara-service-key': KEY }, payload: { token, newPassword: 'brandnew123' } });
+  expect(r.statusCode).toBe(200);
+  await flushMail();
+  expect(called).toEqual(['password_changed']);
+  release();
+  await slowApp.close();
+  expect((await login(email, 'brandnew123')).statusCode).toBe(200);
+});
+
+test('reset-password 성공 → 그 이메일의 login-fail 제한 기록 삭제(대표 결정 5), 다른 이메일 기록은 그대로', async () => {
+  const { email, id } = await addUser();
+  const other = await addUser();
+  for (let i = 0; i < 10; i++) expect((await login(email, 'wrongpass1')).statusCode).toBe(401);
+  for (let i = 0; i < 3; i++) await login(other.email, 'wrongpass1');
+  expect((await login(email, 'password1')).statusCode).toBe(429); // 제한에 걸림
+  expect(await loginFailCount(email)).toBe(10);
+  const token = await issueEmailToken(ctx.pool, id, 'recovery');
+  expect((await post('/v1/auth/reset-password', { token, newPassword: 'brandnew123' })).statusCode).toBe(200);
+  expect(await loginFailCount(email)).toBe(0);
+  expect(await loginFailCount(other.email)).toBe(3);
+  expect((await login(email, 'brandnew123')).statusCode).toBe(200);
+});
+
+test('reset-password 실패(잘못된 토큰)는 login-fail 기록을 지우지 않는다', async () => {
+  const { email } = await addUser();
+  for (let i = 0; i < 10; i++) await login(email, 'wrongpass1');
+  expect((await post('/v1/auth/reset-password', { token: 'nope', newPassword: 'brandnew123' })).statusCode).toBe(400);
+  expect(await loginFailCount(email)).toBe(10);
+  expect((await login(email, 'password1')).statusCode).toBe(429);
+});
+
+test('reset-password: 대문자가 섞여 저장된 이메일(이관 계정)도 정규화 키의 login-fail 기록을 지운다', async () => {
+  const stored = `Pw.Mixed${++n}@Bara-Edu.kr`;
+  const key = stored.toLowerCase();
+  const r = await ctx.adminPool.query<{ id: string }>(
+    'insert into auth.users (email, encrypted_password, email_confirmed_at) values ($1, $2, now()) returning id',
+    [stored, await bcrypt.hash('password1', 10)],
+  );
+  for (let i = 0; i < 10; i++) await login(key, 'wrongpass1');
+  expect(await loginFailCount(key)).toBe(10);
+  const token = await issueEmailToken(ctx.pool, r.rows[0].id, 'recovery');
+  expect((await post('/v1/auth/reset-password', { token, newPassword: 'brandnew123' })).statusCode).toBe(200);
+  expect(await loginFailCount(key)).toBe(0);
+  expect((await login(key, 'brandnew123')).statusCode).toBe(200);
+});

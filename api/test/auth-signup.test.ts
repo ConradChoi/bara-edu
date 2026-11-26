@@ -86,7 +86,7 @@ test('이미 인증한 계정으로 가입 → 같은 응답 + already_registere
   const r = await signup({ email: email.toUpperCase(), name: '다른이름', password: 'otherpass1' });
   expect(r.statusCode).toBe(200);
   expect(r.json()).toEqual({ status: 'pending_confirmation' });
-  expect(mailer.sent).toEqual([{ to: email, template: 'already_registered', link: `${ORIGIN}/sign-in` }]);
+  expect(mailer.sent).toEqual([{ to: email, template: 'already_registered', link: `${ORIGIN}/sign-in`, forgotLink: `${ORIGIN}/forgot-password` }]);
   const after = await ctx.adminPool.query('select u.encrypted_password, p.name from auth.users u join public.profiles p on p.id = u.id where u.email = $1', [email]);
   expect(after.rows[0].encrypted_password).toBe(before.rows[0].encrypted_password);
   expect(after.rows[0].name).toBe('원래이름');
@@ -510,7 +510,7 @@ test('login: 미인증 계정은 가입 시도의 비밀번호가 맞으면 emai
   expect(bad.json().error.message).toBe('invalid_credentials');
 });
 
-test('셀프 비밀번호 재설정(request-reset)으로도 미인증 계정을 확정할 수 있다: 메일함 주인만 링크를 받고, 쓰면 인증 완료 + 모든 가입 시도·링크 무효 (앱 화면에는 이 요청 경로가 없다)', async () => {
+test('셀프 비밀번호 재설정(request-reset, 앱 /forgot-password 화면)으로도 미인증 계정을 확정할 수 있다: 메일함 주인만 링크를 받고, 쓰면 인증 완료 + 모든 가입 시도·링크 무효', async () => {
   const email = 'selfreset1@bara-edu.kr';
   await signup({ email, password: 'attackerpw1', name: '선점자' });
   const signupLink = tokenOf(mailer.sent.at(-1)!.link);

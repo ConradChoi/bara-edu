@@ -1,6 +1,7 @@
 import type pg from 'pg';
 import { withService, type Tx } from '../db/context.js';
 import type { MailMessage } from '../mail/mailer.js';
+import { kstStamp } from '../mail/kst.js';
 import { hashPassword, verifyPassword } from './passwords.js';
 import { hit, release, reserve } from './rate-limit.js';
 import { consumeEmailTokenIn, invalidateEmailTokensIn, issueEmailToken, issueEmailTokenIn, lockUserSignupIn, lockUserTokensIn, peekEmailTokenUserIn } from './tokens.js';
@@ -56,7 +57,8 @@ export async function signup(pool: pg.Pool, deliver: MailDeliver, input: SignupI
     // 같은 주소로 가입을 반복해 안내 메일을 쏟아내지 못하게 resend와 같은 간격으로 제한한다
     // 하루 1통(가장 엄격한 것부터 확인): 특정 주소로 안내 메일을 쏟아내 SES 발신 평판을 해치는 것을 막는다
     if ((await hit(pool, 'already-24h', input.email, 1, 86_400)) && (await hit(pool, 'already-60s', input.email, 1, 60)) && (await hit(pool, 'already-1h', input.email, 4, 3600))) {
-      deliver({ to: input.email, template: 'already_registered', link: `${input.origin}/sign-in` });
+      // origin은 허용 목록(siteOrigins)을 통과한 요청 값이다(가입 인증·재설정 링크와 같은 출처)
+      deliver({ to: input.email, template: 'already_registered', link: `${input.origin}/sign-in`, forgotLink: `${input.origin}/forgot-password` });
     }
     return 'pending_confirmation';
   }
@@ -107,6 +109,7 @@ export async function resendConfirmation(pool: pg.Pool, deliver: MailDeliver, em
   if (token) deliver({ to: email, template: 'confirm', link: confirmLink(origin, token) });
 }
 
+const LOGIN_FAIL_BUCKET = 'login-fail';
 const LOGIN_FAIL_LIMIT = 10;
 const LOGIN_FAIL_WINDOW = 15 * 60;
 const dummyHash = hashPassword('bara-dummy-password');
@@ -117,7 +120,7 @@ export type LoginResult =
   | { kind: 'fail'; detail: 'invalid_credentials' | 'email_not_confirmed' | 'password_reset_required' };
 
 export async function login(pool: pg.Pool, ttlDays: number, email: string, password: string): Promise<LoginResult> {
-  const reservation = await reserve(pool, 'login-fail', email, LOGIN_FAIL_LIMIT, LOGIN_FAIL_WINDOW);
+  const reservation = await reserve(pool, LOGIN_FAIL_BUCKET, email, LOGIN_FAIL_LIMIT, LOGIN_FAIL_WINDOW);
   if (reservation === null) return { kind: 'rate_limited' };
   const r = await withService(pool, (tx) =>
     tx.query<{ id: string; encrypted_password: string | null; email_confirmed_at: Date | null }>(
@@ -174,26 +177,33 @@ export async function requestReset(pool: pg.Pool, deliver: MailDeliver, email: s
   deliver({ to: email, template: 'recovery', link: `${origin}/reset-password?token=${token}` });
 }
 
-export async function resetPassword(pool: pg.Pool, token: string, newPassword: string): Promise<boolean> {
+// 성공하면 비밀번호 변경 알림(password_changed) 메일을 큐에 넣는다. 발송 실패는 결과에 영향이 없다(deliver는 기다리지 않는다).
+export async function resetPassword(pool: pg.Pool, deliver: MailDeliver, token: string, newPassword: string): Promise<boolean> {
   const newHash = await hashPassword(newPassword);
-  return withService(pool, async (tx) => {
+  const email = await withService(pool, async (tx) => {
     // 락 순서: 그 회원의 토큰 전부(token_hash 순) -> 시도 -> 사용자. 토큰 하나만 먼저 갱신하면 가입 확정과 서로 기다리다 데드락이 난다.
     // 재설정 링크는 그 메일함의 주인만 열 수 있으므로 인증도 함께 끝낸다(미인증 회원 복구 경로).
     const owner = await peekEmailTokenUserIn(tx, token, 'recovery');
-    if (!owner) return false;
+    if (!owner) return null;
     await lockUserSignupIn(tx, owner);
     const id = await consumeEmailTokenIn(tx, token, 'recovery'); // 잠금을 기다리는 사이 쓰였을 수 있어 다시 소모한다
-    if (!id) return false;
-    await tx.query(
-      'update auth.users set encrypted_password = $2, email_confirmed_at = coalesce(email_confirmed_at, now()), updated_at = now() where id = $1',
+    if (!id) return null;
+    const u = await tx.query<{ email: string }>(
+      'update auth.users set encrypted_password = $2, email_confirmed_at = coalesce(email_confirmed_at, now()), updated_at = now() where id = $1 returning email',
       [id, newHash],
     );
     await tx.query('delete from auth.sessions where user_id = $1', [id]);
     await invalidateEmailTokensIn(tx, id);
     // 가입 시도(다른 사람이 넣은 비밀번호 해시 포함)는 모두 무효. 가입 링크는 위에서 사용 처리됐다.
     await tx.query('delete from auth.signup_attempts where user_id = $1', [id]);
-    return true;
+    // 메일함 주인임이 확인됐으므로 그 이메일의 로그인 실패 제한을 푼다(대표 결정 2026-11-26 5번). 키는 login과 같은 정규화 이메일(소문자).
+    // 같은 트랜잭션이라 재설정이 롤백되면 제한 기록도 남는다. 로그인 IP 제한(login-ip)은 그대로 둔다.
+    await tx.query('delete from auth.rate_events where bucket = $1 and key = lower($2)', [LOGIN_FAIL_BUCKET, u.rows[0].email]);
+    return u.rows[0].email;
   });
+  if (email === null) return false;
+  if (!UNDELIVERABLE.test(email)) deliver({ to: email, template: 'password_changed', at: kstStamp(new Date()) });
+  return true;
 }
 
 export type AdminConfirmResult = 'ok' | 'not_found' | 'password_not_set';
