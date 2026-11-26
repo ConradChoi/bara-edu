@@ -46,6 +46,7 @@
 | 11-26 17:4x | WAS `/app/bara-edu/shared/api.env` | 변경 | 백업 `api.env.bak-20261126-mfa` 후 `BARA_MFA_KEY_PARAMS`·`BARA_MFA_KEY_CURRENT=1`·`ADMIN_MFA_MODE=optional`·`ADMIN_MFA_GRACE_UNTIL=2026-12-03T21:00+09:00`·`ADMIN_SECURITY_ALERT_TO`(대표 지정 운영 주소) 추가. 옛 API는 읽지 않음(재시작 전 영향 없음) |
 | 11-26 17:45 | `bara_edu` | 변경 | 패치 `2026-11-26-admin-mfa.sql` 적용(`set local role bara_edu_service`), COMMIT. auth.mfa_* 8개 테이블, sessions 컬럼 3개, `purge_expired_mfa_rows` 확인(카탈로그 조회). 기존 데이터 변경 없음 |
 | 11-26 17:5x | Amplify 앱 | 배포 | main `afc948b`(관리자 2단계 인증 화면, 옛 API와 호환) #77 SUCCEED, 주요 화면 정상, API 5xx 0건. API 릴리스 `afc948b`는 WAS에 빌드만 해 둠(21:00 전환 예정) |
+| 11-26 17:55 | WAS `bara-edu-api` | 변경 | 대표 지시로 21:00 대신 즉시 전환: API 릴리스 `afc948b` 설치·재시작(직전 `76c75fa` 보존). 시작 로그 `mfa_mode=optional`, 키 버전 1, `mfa_mode_changed`(지운 관리자 세션 0건), healthz 200, API 5xx 0건. 복구 CLI `admin-mfa mfa-report --operator claude-deploy` 운영 실행 확인(활성 관리자 1명, 미등록) |
 
 ## 같은 날 함께 정리한 것
 
