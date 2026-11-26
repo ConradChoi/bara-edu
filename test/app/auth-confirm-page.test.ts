@@ -50,6 +50,19 @@ test('ready: 제목·정보 영역·비밀번호 칸·주 버튼, 접힌 도움�
   expect(h).toContain(siteConfig.supportHours);
 });
 
+test('ready의 "기억나지 않아요": [비밀번호 새로 정하기](윤곽선)가 맨 위, 다시 가입하기는 텍스트 링크, 채운 버튼은 [가입 완료하기] 하나', async () => {
+  checkSignupLink.mockResolvedValue({ ok: true, link: READY });
+  const h = await html(TOKEN);
+  const details = h.slice(h.indexOf('<details'), h.indexOf('</details>'));
+  expect(details).toContain('이메일로 비밀번호를 새로 정할 수 있어요. 새로 정하면 가입도 함께 끝나요.');
+  expect(details).toMatch(/<a class="[^"]*border-indigo bg-n-0[^"]*" href="\/forgot-password">비밀번호 새로 정하기<\/a>/);
+  expect(details).toMatch(/다른 방법: <a class="inline-flex min-h-11[^"]*" href="\/sign-up\?email=a%40b.kr">처음부터 다시 가입하기<\/a>/);
+  expect(details.indexOf('href="/forgot-password"')).toBeLessThan(details.indexOf('href="/sign-up'));
+  expect(details).toContain('전화로 문의하기');
+  expect(details).toContain(`운영시간 ${siteConfig.supportHours}`);
+  expect(h.split('bg-indigo').length - 1).toBe(1);
+});
+
 test('GET은 읽기 전용: checkSignupLink만 부르고 확정(completeSignup)은 부르지 않는다', async () => {
   checkSignupLink.mockResolvedValue({ ok: true, link: READY });
   await html(TOKEN);
@@ -77,17 +90,25 @@ test.each([
   expect(h).not.toContain('가입 완료하기');
 });
 
-test('locked: 다시 가입하기가 주 버튼, 이메일은 모르므로 /sign-up 그대로', async () => {
+test('locked: [비밀번호 새로 정하기]가 유일한 채운 버튼, 다시 가입하기는 윤곽선으로(이메일은 모르므로 /sign-up 그대로)', async () => {
   checkSignupLink.mockResolvedValue({ ok: true, link: { state: 'locked' } });
   const h = await html(TOKEN);
-  expect(h).toContain('href="/sign-up"');
-  expect(h).toContain('처음부터 다시 가입하기');
+  expect(h).toContain('이메일로 비밀번호를 새로 정할 수 있어요. 새로 정하면 가입도 함께 끝나요.');
+  expect(h).toMatch(/<a class="[^"]*bg-indigo text-white[^"]*" href="\/forgot-password">비밀번호 새로 정하기<\/a>/);
+  expect(h).toMatch(/<a class="[^"]*border-indigo bg-n-0[^"]*" href="\/sign-up">처음부터 다시 가입하기<\/a>/);
+  expect(h.split('bg-indigo text-white').length - 1).toBe(1);
+  expect(h.indexOf('href="/forgot-password"')).toBeLessThan(h.indexOf('href="/sign-up"'));
+  expect(h).toContain('어려우면 전화로 문의해 주세요.');
+  expect(h).not.toContain('처음부터 다시 가입하면 새 인증 메일을 보내 드려요.');
 });
 
-test('expired/invalid: 메일 다시 받기(채운 버튼)와 다시 가입하기, 로그인 링크', async () => {
+test('expired/invalid: 메일 다시 받기(채운 버튼)와 다시 가입하기, 로그인 링크, 그 사이 재설정 한 줄', async () => {
   checkSignupLink.mockResolvedValue({ ok: true, link: { state: 'expired' } });
   const h = await html(TOKEN);
   expect(h).toContain('메일 다시 받기');
+  expect(h).toMatch(/비밀번호가 기억나지 않으면 <a class="[^"]*" href="\/forgot-password">비밀번호 새로 정하기<\/a>를 눌러 주세요\./);
+  expect(h.indexOf('메일 다시 받기')).toBeLessThan(h.indexOf('href="/forgot-password"'));
+  expect(h.indexOf('href="/forgot-password"')).toBeLessThan(h.indexOf('href="/sign-up"'));
   expect(h).toContain('처음부터 다시 가입하기');
   expect(h).toContain('href="/sign-in"');
 });
@@ -138,7 +159,8 @@ test('틀림: 오류 박스·남은 횟수, 3회째부터 펼침, 마지막 1번
   actionState = { kind: 'wrong_password', attemptsLeft: 2 };
   h = await html(TOKEN);
   expect(h).toContain('open=""');
-  expect(h).toContain('아래에서 다시 가입할 수 있어요');
+  // 남은 2번 이하: 재설정 링크를 직접 건다(대표 결정 8, P-3)
+  expect(h).toMatch(/비밀번호가 기억나지 않으면 <a class="[^"]*" href="\/forgot-password">비밀번호 새로 정하기<\/a>를 눌러 주세요\./);
   actionState = { kind: 'wrong_password', attemptsLeft: 1 };
   expect(await html(TOKEN)).toContain('마지막 1번 남았어요. 천천히 확인해 주세요.');
 });

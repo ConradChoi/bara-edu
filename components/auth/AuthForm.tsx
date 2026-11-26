@@ -8,6 +8,7 @@ import ResendConfirmationForm from '@/components/auth/ResendConfirmationForm';
 import PasswordField from '@/components/auth/PasswordField';
 import { ConfirmNote, usePasswordConfirm } from '@/components/auth/usePasswordConfirm';
 import { AlertIcon } from '@/components/error/icons';
+import { LINK_CLASS } from '@/components/error/styles';
 
 const initialState: AuthFormState = undefined;
 
@@ -36,6 +37,15 @@ export default function AuthForm({ mode, redirectTo, defaultEmail }: AuthFormPro
             <p className="text-[14px] leading-relaxed text-n-7">
               받은 인증 메일의 링크를 눌러 주세요. 링크를 열면 가입할 때 정한 비밀번호를 한 번 더 입력해요. 메일이 없으면 아래에서 다시 받을 수 있어요.
             </p>
+          </div>
+          {/* 비밀번호가 맞은 사람에게만 보이는 화면이라 "가입도 함께 끝나요"라고 말해도 열거가 아니다(카피 EP-PENDING-LOGIN). 재전송보다 먼저 둔다(P-3). */}
+          <div className="flex flex-col gap-1">
+            <p className="text-[14px] leading-relaxed text-n-7">
+              가입할 때 정한 비밀번호가 기억나지 않나요? 비밀번호를 새로 정하면 가입도 함께 끝나요.
+            </p>
+            <Link href="/forgot-password" className={`${LINK_CLASS} self-start`}>
+              비밀번호 새로 정하기
+            </Link>
           </div>
           <div className="flex flex-col gap-2 border-t border-n-3 pt-4">
             <ResendConfirmationForm defaultEmail={state.email} />
@@ -68,6 +78,14 @@ export default function AuthForm({ mode, redirectTo, defaultEmail }: AuthFormPro
         <div className="flex flex-col gap-2 border-t border-n-3 pt-4">
           <p className="text-[12.5px] text-n-6">메일이 오지 않았거나 인증 링크가 만료됐나요? 아래에서 메일을 다시 받을 수 있어요.</p>
           <ResendConfirmationForm defaultEmail={state.email} />
+          {/* 가입 여부를 암시하는 "이미"·"다시"를 쓰지 않는다(카피 EP-SIGNUP-DONE) */}
+          <p className="text-[12.5px] text-n-6">
+            비밀번호가 기억나지 않으면{' '}
+            <Link href="/forgot-password" className={LINK_CLASS}>
+              비밀번호 찾기
+            </Link>
+            를 눌러 주세요.
+          </p>
         </div>
         <div className="flex flex-col items-center gap-2">
           <Link href="/sign-in" className="text-center text-[13px] font-medium text-pink">
@@ -147,7 +165,13 @@ export default function AuthForm({ mode, redirectTo, defaultEmail }: AuthFormPro
           </div>
         </>
       ) : (
-        <Field label="비밀번호" name="password" type="password" placeholder="비밀번호를 입력하세요" required />
+        <div className="flex flex-col gap-1">
+          <Field label="비밀번호" name="password" type="password" placeholder="비밀번호를 입력하세요" required />
+          {/* 비밀번호 칸 바로 아래, 왼쪽 정렬(P-3). 이메일은 URL로 넘기지 않는다(대표 결정 6). */}
+          <Link href="/forgot-password" className={`${LINK_CLASS} self-start`}>
+            비밀번호를 잊으셨나요?
+          </Link>
+        </div>
       )}
       {mode === 'signup' && <Field label="연락처" name="phone" placeholder="010-0000-0000" />}
       {mode === 'signup' && (

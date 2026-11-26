@@ -40,15 +40,19 @@ export default function SignupLinkStatus({
       body = (
         <>
           <p className={DESC_CLASS}>비밀번호가 5번 맞지 않아서 이 링크를 잠갔어요. 개인정보를 지키기 위한 조치예요.</p>
-          <p className={DESC_CLASS}>처음부터 다시 가입하면 새 인증 메일을 보내 드려요.</p>
+          <p className={DESC_CLASS}>이메일로 비밀번호를 새로 정할 수 있어요. 새로 정하면 가입도 함께 끝나요.</p>
         </>
       );
+      // 대표 결정 8: 핵심 행동이 "비밀번호 새로 정하기"로 바뀐다. 이 화면엔 다른 채운 버튼이 없어 이것을 채운 버튼으로 둔다(P-7 #1).
       actions = (
         <>
-          <Link href="/sign-up" className={PRIMARY_BTN}>
+          <Link href="/forgot-password" className={PRIMARY_BTN}>
+            비밀번호 새로 정하기
+          </Link>
+          <Link href="/sign-up" className={SECONDARY_BTN}>
             처음부터 다시 가입하기
           </Link>
-          <p className="mt-3 text-base leading-[1.7] text-n-7 break-keep">다시 가입이 어려우면 전화로 문의해 주세요.</p>
+          <p className="mt-3 text-base leading-[1.7] text-n-7 break-keep">어려우면 전화로 문의해 주세요.</p>
           <SupportPhone />
         </>
       );
@@ -66,6 +70,14 @@ export default function SignupLinkStatus({
       actions = (
         <>
           <ResendConfirmationForm size="lg" />
+          {/* 핵심 행동은 메일 다시 받기(채운 버튼 유지). 재설정은 바로 아래 한 줄(P-7 #2). */}
+          <p className="text-base leading-[1.7] text-n-7 break-keep">
+            비밀번호가 기억나지 않으면{' '}
+            <Link href="/forgot-password" className={LINK_CLASS}>
+              비밀번호 새로 정하기
+            </Link>
+            를 눌러 주세요.
+          </p>
           <Link href="/sign-up" className={SECONDARY_BTN}>
             처음부터 다시 가입하기
           </Link>
