@@ -1,5 +1,6 @@
 import { expect, test } from 'vitest';
 import { loadConfig, PLAINTEXT_WARNING, SERVICE_KEY_ERROR } from '../src/config.js';
+import { makeKeyring } from '../src/auth/mfa-crypto.js';
 
 test('서비스 키가 32자 미만이면 거절', () => {
   expect(() => loadConfig({ DATABASE_URL: 'postgresql://x', BARA_SERVICE_KEY: 'short' })).toThrow(/BARA_SERVICE_KEY/);
@@ -33,7 +34,11 @@ const PROD = {
   AWS_REGION: 'ap-northeast-2',
   TLS_CERT_FILE: '/etc/bara-edu/tls/api.crt',
   TLS_KEY_FILE: '/etc/bara-edu/tls/api.key',
+  ADMIN_MFA_MODE: 'enforce',
 };
+// 운영의 2단계 인증 키는 SSM에서 읽은 키 링으로만 받는다(secrets.ts resolveMfaKeyring)
+const RING = makeKeyring(new Map([[1, Buffer.alloc(32, 7)]]), 1);
+const prod = (env: NodeJS.ProcessEnv) => loadConfig(env, { mfaKeyring: RING });
 
 test('서비스 키는 바이트 기준 32 이상, 없으면 고정 문구로 거절(값은 문구에 없음)', () => {
   expect(() => loadConfig({ DATABASE_URL: 'postgresql://x' })).toThrow(SERVICE_KEY_ERROR);
@@ -64,7 +69,7 @@ test('API_HOST 기본값은 127.0.0.1, TLS는 둘 다 있어야 한다', () => {
 });
 
 test('운영: 필수값이 모두 있으면 시작', () => {
-  expect(loadConfig(PROD)).toMatchObject({ tls: { certFile: PROD.TLS_CERT_FILE, keyFile: PROD.TLS_KEY_FILE }, plaintextAllowed: false });
+  expect(prod(PROD)).toMatchObject({ tls: { certFile: PROD.TLS_CERT_FILE, keyFile: PROD.TLS_KEY_FILE }, plaintextAllowed: false });
 });
 
 test('운영: MAIL_FROM·S3_BUCKET·AWS_REGION 중 하나라도 없으면 거절', () => {
@@ -82,7 +87,7 @@ test('운영: TLS 없으면 거절, BARA_ALLOW_PLAINTEXT=1일 때만 허용(경�
   const noTls = { ...PROD, TLS_CERT_FILE: undefined, TLS_KEY_FILE: undefined };
   expect(() => loadConfig(noTls)).toThrow(/requires TLS_CERT_FILE and TLS_KEY_FILE/);
   expect(() => loadConfig({ ...noTls, BARA_ALLOW_PLAINTEXT: 'true' })).toThrow(/requires TLS_CERT_FILE/);
-  expect(loadConfig({ ...noTls, BARA_ALLOW_PLAINTEXT: '1' })).toMatchObject({ tls: null, plaintextAllowed: true });
+  expect(prod({ ...noTls, BARA_ALLOW_PLAINTEXT: '1' })).toMatchObject({ tls: null, plaintextAllowed: true });
   expect(PLAINTEXT_WARNING).toMatch(/not encrypted/);
 });
 
