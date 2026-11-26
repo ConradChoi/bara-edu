@@ -111,13 +111,16 @@ export function hmacEquals(a: Buffer, b: Buffer): boolean {
 
 // 시작 시 키 검증(보안 점검 M-6): 읽은 버전마다 auth.mfa_key_check 행을 풀어 정해진 평문과 비교한다.
 // 현재 버전의 행이 없으면 만든다. 현재가 아닌 버전의 행이 없으면 거절한다(한 번도 현재 키로 쓰인 적 없는 키는 검증할 수 없다).
-export async function verifyKeyCheckIn(tx: Tx, ring: MfaKeyring): Promise<{ created: number[] }> {
+// create=false(운영 명령): 행이 없는 버전도 거절한다. 검증 행은 API 시작만 만든다(셸의 키가 API와 다를 때 새 행을 심지 못하게).
+export async function verifyKeyCheckIn(tx: Tx, ring: MfaKeyring, opts: { create?: boolean } = {}): Promise<{ created: number[] }> {
+  const create = opts.create ?? true;
   await tx.query('select pg_advisory_xact_lock(hashtext($1))', ['bara_edu.mfa_key_check']);
   const created: number[] = [];
   for (const v of ring.versions) {
     const r = await tx.query<{ ciphertext: Buffer; iv: Buffer }>('select ciphertext, iv from auth.mfa_key_check where key_version = $1', [v]);
     const ad = Buffer.from(`bara-mfa|key-check|v${v}`);
     if (r.rowCount === 0) {
+      if (!create) throw new MfaKeyError(`MFA key v${v} has no key check row (start the API with this key first)`);
       if (v !== ring.current) throw new MfaKeyError(`MFA key v${v} has no key check row (only the current key may create one)`);
       const s = seal(ring.subkey(v, 'key-check'), ad, Buffer.from(KEY_CHECK_PLAINTEXT));
       await tx.query('insert into auth.mfa_key_check (key_version, ciphertext, iv) values ($1, $2, $3)', [v, s.ciphertext, s.iv]);

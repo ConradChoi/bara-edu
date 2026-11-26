@@ -7,12 +7,12 @@ import { withService } from '../src/db/context.js';
 import { issueEnrollTicketIn } from '../src/auth/mfa.js';
 import { planAlertsIn, selfOnlySuffix } from '../src/auth/mfa-alerts.js';
 import { applyModeTransition, initMfa } from '../src/auth/mfa-mode.js';
-import { makeKeyring, MfaKeyError, type MfaKeyring } from '../src/auth/mfa-crypto.js';
+import { makeKeyring, MfaKeyError, verifyKeyCheckIn, type MfaKeyring } from '../src/auth/mfa-crypto.js';
 import { createSession } from '../src/auth/sessions.js';
 import { issueEmailToken } from '../src/auth/tokens.js';
 import { MemoryMailer, type MailMessage } from '../src/mail/mailer.js';
 import { SesMailer } from '../src/mail/ses.js';
-import { runCli, TICKET_WARNING, type CliDeps } from '../scripts/admin-mfa.js';
+import { KEY_MISMATCH_MESSAGE, runCli, TICKET_WARNING, type CliDeps } from '../scripts/admin-mfa.js';
 import type { MfaMode } from '../src/config.js';
 import type pg from 'pg';
 
@@ -23,6 +23,8 @@ const apps = {} as Record<MfaMode, { app: FastifyInstance; mailer: MemoryMailer;
 
 beforeAll(async () => {
   ctx = await setupTestDb();
+  // API 시작(initMfa)이 만드는 v1 키 검증 행. 운영 명령은 이 행과 맞는 키로만 동작한다.
+  await withService(ctx.pool, (tx) => verifyKeyCheckIn(tx, RING_V1));
   for (const mode of ['off', 'optional', 'enforce'] as const) {
     const a = mfaApp(ctx, { mode, alertTo: ALERT_TO, grace: '2026-12-03T00:00:00+09:00' });
     await a.app.ready();
@@ -467,6 +469,34 @@ test('CLI admin-sessions-revoke: 관리자 세션만 전부 삭제', async () =>
   expect((await call('GET', '/v1/auth/session', undefined, S(ls))).statusCode).toBe(200);
 });
 
+test('운영 명령의 키가 API의 키(auth.mfa_key_check)와 다르면 rekey·reset·ticket 모두 쓰기 전에 멈춘다', async () => {
+  const wrongV1 = makeKeyring(new Map([[1, Buffer.alloc(32, 7)]]), 1);
+  const wrongBoth = makeKeyring(new Map([[1, Buffer.alloc(32, 7)], [2, Buffer.alloc(32, 8)]]), 2);
+  const a = await enrolledAdmin();
+  const fresh = await addUser(ctx, { admin: true });
+  const snap = async () => ({
+    factors: await q('select user_id, encode(secret_ciphertext, $1) c, key_version from auth.mfa_factors order by user_id', ['hex']),
+    tickets: await q('select user_id from auth.mfa_enroll_tickets order by user_id'),
+    checks: await q('select key_version, encode(ciphertext, $1) c from auth.mfa_key_check order by 1', ['hex']),
+    logs: (await q('select count(*)::int n from admin_access_logs'))[0].n,
+    sessions: (await q('select count(*)::int n from auth.sessions'))[0].n,
+  });
+  await mfaSession(ctx, a.id);
+  const before = await snap();
+  const runs = [
+    await cli(['mfa-rekey', '--operator', '개발'], { keyring: wrongBoth }),
+    await cli(['mfa-reset', '--email', a.email, '--operator', '개발', '--reason', 'lost_phone'], { keyring: wrongV1 }),
+    await cli(['mfa-ticket', '--email', fresh.email, '--operator', '개발'], { keyring: wrongV1 }),
+  ];
+  for (const r of runs) {
+    expect(r.code).toBe(1);
+    expect(r.err[0]).toContain(KEY_MISMATCH_MESSAGE);
+    expect(r.out.join('\n')).not.toMatch(/등록 코드: \d/);
+    expect(r.mailer.sent).toHaveLength(0);
+  }
+  expect(await snap()).toEqual(before);
+});
+
 // ---- 2.14 모드 전환
 
 test('I-2 모드 전환: 모드가 바뀐 첫 시작에만 비밀번호만의 관리자 세션 삭제(2단계 세션·학습자 세션은 유지), 같은 모드 재시작은 그대로', async () => {
@@ -551,6 +581,13 @@ test('I-5 키 교체: 현재 v2에서 v1 복구 코드·v1 등록 코드 검증 
     // 3단계: mfa-rekey(버전이 하나뿐이면 거절)
     expect((await cli(['mfa-rekey', '--operator', '개발'])).code).toBe(1);
     const ring12 = makeKeyring(new Map([[1, Buffer.from(MASTER_V1, 'base64')], [2, Buffer.from(MASTER_V2, 'base64')]]), 2);
+    // API가 v2 키로 먼저 시작해야 v2 검증 행이 생긴다. 그 전의 rekey는 거절(아무것도 안 바뀜)
+    const before = await q('select user_id, key_version from auth.mfa_factors order by user_id');
+    const early = await cli(['mfa-rekey', '--operator', '개발'], { keyring: ring12 });
+    expect(early.code).toBe(1);
+    expect(early.err[0]).toContain(KEY_MISMATCH_MESSAGE);
+    expect(await q('select user_id, key_version from auth.mfa_factors order by user_id')).toEqual(before);
+    await initMfa(ctx.pool as pg.Pool, { mode: 'enforce', graceUntil: null, alertTo: [], keyring: ring12 }, { info() {}, warn() {} });
     const r = await cli(['mfa-rekey', '--operator', '개발'], { keyring: ring12 });
     expect(r.code).toBe(0);
     expect(r.out[0]).toMatch(/^다시 암호화한 등록: [1-9]\d*건\(현재 버전 v2\)/);

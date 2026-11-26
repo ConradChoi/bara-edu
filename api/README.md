@@ -162,11 +162,11 @@ npm run admin-mfa -- mfa-ticket --email <관리자> --operator "이름"         
 npm run admin-mfa -- mfa-reset  --email <관리자> --operator "이름" --reason lost_phone   # 관리자가 한 명뿐일 때 초기화 + 등록 코드
 npm run admin-mfa -- mfa-unlock --email <관리자> --operator "이름" --reason owner_locked # 잠금 해제
 npm run admin-mfa -- mfa-clear  --email <강등된 계정> --operator "이름"                  # 강등 뒤 정리
-npm run admin-mfa -- mfa-rekey  --operator "이름"                                       # 키 교체 3단계
+npm run admin-mfa -- mfa-rekey  --operator "이름"                                       # 키 교체 3단계(API를 새 키로 먼저 재시작)
 npm run admin-mfa -- admin-sessions-revoke --operator "이름"                            # 관리자 세션 전부 삭제(비상)
 ```
 
-`--reason`: `mfa-reset`은 `lost_phone`/`new_phone`/`app_deleted`/`sole_admin_locked`/`key_lost`/`incident`, `mfa-unlock`은 `owner_locked`/`attack_suspected`. `--operator`는 1~50자, `;`·`=`·제어 문자 불가. 종료 코드: 0 성공, 1 실패, 2 사용법 오류. 등록 코드는 경고 문구 다음 줄에 한 번만 출력되므로 세션 기록을 끈 상태에서 실행하고 전화·대면으로만 전달한다. `MAIL_FROM`이 없으면 보안 알림 메일을 보내지 못한 수를 출력한다.
+`--reason`: `mfa-reset`은 `lost_phone`/`new_phone`/`app_deleted`/`sole_admin_locked`/`key_lost`/`incident`, `mfa-unlock`은 `owner_locked`/`attack_suspected`. `--operator`는 1~50자, `;`·`=`·제어 문자 불가. 종료 코드: 0 성공, 1 실패, 2 사용법 오류. 등록 코드는 경고 문구 다음 줄에 한 번만 출력되므로 세션 기록을 끈 상태에서 실행하고 전화·대면으로만 전달한다. `MAIL_FROM`이 없으면 보안 알림 메일을 보내지 못한 수를 출력한다. `mfa-reset`·`mfa-ticket`·`mfa-rekey`는 셸의 키가 API의 키(`auth.mfa_key_check`)와 다르면 아무것도 바꾸지 않고 종료 코드 1로 멈춘다.
 
 운영 DB 패치: `db/patches/2026-11-26-admin-mfa.sql`(`begin; set local role bara_edu_service; \i <파일>; commit;`). 순서: 앱 배포 → 패치 → API(`ADMIN_MFA_MODE=optional`, `ADMIN_MFA_GRACE_UNTIL`, 키 SSM 등록 후).
 

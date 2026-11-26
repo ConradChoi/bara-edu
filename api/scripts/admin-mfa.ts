@@ -16,7 +16,7 @@ import { SESv2Client } from '@aws-sdk/client-sesv2';
 import { loadConfig } from '../src/config.js';
 import { createPool } from '../src/db/pool.js';
 import { withService, type Tx } from '../src/db/context.js';
-import { decryptSecret, encryptSecret, type MfaKeyring } from '../src/auth/mfa-crypto.js';
+import { decryptSecret, encryptSecret, MfaKeyError, verifyKeyCheckIn, type MfaKeyring } from '../src/auth/mfa-crypto.js';
 import { planAlertsIn, selfOnlySuffix } from '../src/auth/mfa-alerts.js';
 import {
   clearUserMfaIn,
@@ -73,6 +73,13 @@ const requireRing = (deps: CliDeps) => {
   return deps.keyring;
 };
 
+// 암호문·HMAC을 읽거나 쓰는 명령은 쓰기 전에 같은 트랜잭션에서 키 검증(auth.mfa_key_check)을 먼저 한다.
+// 셸의 키가 API와 다르면(다른 BARA_MFA_KEY_PARAMS) 아무것도 쓰지 않고 멈춘다. 검증 행은 만들지 않는다(API 시작만 만든다).
+async function checkRingIn(tx: Tx, ring: MfaKeyring): Promise<void> {
+  await verifyKeyCheckIn(tx, ring, { create: false });
+}
+export const KEY_MISMATCH_MESSAGE = '2단계 인증 키가 API의 키와 다릅니다(auth.mfa_key_check 불일치). 아무것도 바꾸지 않았습니다. BARA_MFA_KEY_PARAMS·BARA_MFA_KEY_CURRENT가 API 서버와 같은지 확인하세요';
+
 async function send(deps: CliDeps, mails: MailMessage[]): Promise<void> {
   if (!deps.mailer) {
     if (mails.length) deps.err(`메일 ${mails.length}통을 보내지 못했습니다(MAIL_FROM 없음). 대상·다른 관리자에게 직접 알려 주세요.`);
@@ -127,6 +134,7 @@ export async function runCli(argv: string[], deps: CliDeps): Promise<number> {
     }
   } catch (err) {
     if (err instanceof CliError) deps.err(err.message);
+    else if (err instanceof MfaKeyError) deps.err(`${KEY_MISMATCH_MESSAGE} (${err.message})`);
     else if (err instanceof LogFailed) deps.err('접속 기록을 남기지 못해 아무것도 바꾸지 않았습니다');
     else deps.err(`실패(${(err as { code?: string; name?: string })?.code ?? (err as Error)?.name ?? 'error'})`);
     return 1;
@@ -137,6 +145,7 @@ async function mfaReset(deps: CliDeps, email: string, operator: string, reason: 
   if (!reason || !(RESET_REASONS as readonly string[]).includes(reason)) throw new CliError(`--reason은 ${RESET_REASONS.join(', ')} 중 하나여야 합니다`);
   const ring = requireRing(deps);
   const r = await withService(deps.pool, async (tx) => {
+    await checkRingIn(tx, ring);
     const t = await findTarget(tx, email);
     if (t.role !== 'admin' || t.status !== 'active') throw new CliError('대상이 활성 관리자가 아닙니다');
     const ticket = await resetTargetIn(tx, ring, t.id, null);
@@ -157,6 +166,7 @@ async function mfaReset(deps: CliDeps, email: string, operator: string, reason: 
 async function mfaTicket(deps: CliDeps, email: string, operator: string): Promise<number> {
   const ring = requireRing(deps);
   const ticket = await withService(deps.pool, async (tx) => {
+    await checkRingIn(tx, ring);
     const t = await findTarget(tx, email);
     if (t.role !== 'admin' || t.status !== 'active') throw new CliError('대상이 활성 관리자가 아닙니다');
     await lockUserMfaIn(tx, t.id);
@@ -253,6 +263,7 @@ async function mfaRekey(deps: CliDeps): Promise<number> {
   const ring = requireRing(deps);
   if (ring.versions.length < 2) throw new CliError('키 버전이 하나뿐입니다. 새 키를 BARA_MFA_KEY_PARAMS에 더하고 BARA_MFA_KEY_CURRENT를 바꾼 뒤 실행하세요');
   const r = await withService(deps.pool, async (tx) => {
+    await checkRingIn(tx, ring);
     const fs = await tx.query<{ user_id: string; secret_ciphertext: Buffer; secret_iv: Buffer; key_version: number }>(
       'select user_id, secret_ciphertext, secret_iv, key_version from auth.mfa_factors where key_version <> $1 order by user_id for update',
       [ring.current],
