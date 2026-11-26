@@ -750,3 +750,10 @@ revoke execute on function public.delete_my_diagnosis_result(uuid, boolean) from
 3. 임시 저장 복원 대화상자 크기 조정은 이번 범위에 넣는다(접근성 개선, 동작 변화 없음).
 4. Figma 시안은 만들지 않는다. 이 문서와 문구 문서로 구현한다.
 5. 문구 슬롯 이름은 문구 문서(`-copy.md`, SC-*)를 기준으로 맞춘다.
+
+### 문구·처리방침 열린 문제 처리 (2026-11-26)
+
+- RDS 저장 암호화 확인: `ylia-pg-01` StorageEncrypted=True(2026-11-26 조회). 문구 문서 §9.3의 암호화 문장을 처리방침 v10 제8조에 넣는다.
+- v10 시행일은 앱 배포일로 한다(7일 전 고지는 실 운영 전이라 대표 결정으로 생략).
+- 제8조 (1)의 접근 통제(RLS) 문장: 이전 뒤 API도 행 수준 보안 정책(withUser + RLS)을 쓰므로 유지. 개인정보·보안 점검에서 재확인.
+- 새 오류 코드 `SC-ERR-CONSENT`에 대응하는 API 오류(동의 없음)와 선택 문구 SC-SENS-WITHDRAW는 backend-developer가 API 계약에서 확정한다.
