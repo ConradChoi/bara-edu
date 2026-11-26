@@ -409,7 +409,7 @@ CLI 명령 전체(`api/src/db/cli.ts`). 모든 명령은 `--operator`(작업자 
 | 용도 | 후보 | 이유·주의 |
 |---|---|---|
 | TOTP 계산·검증 | (1) `otpauth`, (2) `otplib`, (3) `node:crypto`로 직접 구현(RFC 6238, 30줄 내외) | (1) 의존성이 없고 `otpauth://` 주소 생성까지 지원. (2) 가장 널리 쓰였지만 메이저 버전 전환기라 API가 바뀌었는지 확인 필요. (3) 의존성 0, RFC 테스트 벡터로 검증 가능. 어느 쪽이든 재사용 방지(2.8)는 라이브러리 밖에서 직접 구현해야 한다(라이브러리의 "window" 검증은 칸 번호를 돌려주는지 확인) |
-| QR 그리기 | `qrcode`(서버에서 SVG 문자열 생성) | 앱 서버에서만 그린다. 외부 QR API 금지. 브라우저 번들에 넣지 않는다 |
+| QR 그리기 | **확정: `uqr` 0.1.3**(정확한 버전 고정, frontend-developer 2026-11-26) | 의존성 0, ESM, 행렬만 계산하고 앱이 SVG `<path>` 하나로 그린다(`lib/qr.ts`, `server-only`). 외부 QR API·네트워크 호출 없음, 브라우저 번들에 들어가지 않는다(서버 컴포넌트·서버 액션에서만 import). `qrcode`는 의존성이 여러 개(yargs 등 CLI 포함)라 공급망 표면이 커서 제외. 비밀 키는 SVG와 설정 키 표시로만 쓰이고 로그·캐시에 남지 않는다(no-store) |
 | 암호화·HMAC·HKDF | `node:crypto` | 추가 의존성 불필요 |
 | 32진 인코딩 | 위 TOTP 라이브러리에 포함되거나 직접 구현 | RFC 4648 base32(패딩 없음) |
 
@@ -1078,7 +1078,10 @@ POST인 이유: 대기표를 본문으로만 받기 위해서다(4.0).
 | 보관·정리 | 등록 대기: 만료 즉시(매일 03:50 정리), 대기표: 만료 1일 뒤, 등록 코드: 만료 또는 사용 1일 뒤. 접속 기록은 기존 2년 정리 그대로. 등록·복구 코드·계정 상태는 초기화·강등 정리·탈퇴 때 삭제 |
 | 테스트(9.4) | `api/test/totp.test.ts`, `mfa-crypto.test.ts`, `admin-mfa-login.test.ts`, `admin-mfa-enroll.test.ts`, `admin-mfa-admin.test.ts`, `patch-admin-mfa.test.ts`. 보안 점검 I-1~I-8은 테스트 이름 앞에 `I-n`. 전체 608개 통과 |
 | 운영 준비(ops) | SSM SecureString `/bara-edu/api/mfa-key-v1`(base64 32바이트), WAS 환경 `BARA_MFA_KEY_PARAMS=1=/bara-edu/api/mfa-key-v1`, `BARA_MFA_KEY_CURRENT=1`, `ADMIN_MFA_MODE=optional`, `ADMIN_MFA_GRACE_UNTIL`, `ADMIN_SECURITY_ALERT_TO`, 인스턴스 역할에 새 파라미터 `ssm:GetParameter` 권한 |
-| 남은 것 | 앱(9.2), qa-reviewer 리뷰, privacy-security-officer 구현 점검, 7.1 배포 절차 |
+| 앱(9.2, frontend-developer) | 완료. 커밋 39c4bbf(proxy·자동 로그아웃 안내), 9f52eea(로그인 2단계·복구 코드·로그인 중 등록), 21997ea(관리자 화면: 배너·내 보안 설정·초기화 카드·보안 이벤트·운영자 열). 테스트 `test/proxy.test.ts`, `next-config-headers.test.ts`, `app/sign-in-page.test.ts`, `actions/mfa-login.test.ts`, `app/mfa-login-pages.test.ts`, `actions/admin-mfa.test.ts`, `app/admin-mfa-pages.test.ts`. 옛 API 호환(로그인 응답에 mfa 없음 → 지금과 같음, status 404 → 메뉴·배너·카드·열 숨김, `/admin/security` 준비 중) 테스트 포함 |
+| 앱 구현 차이 | (1) 입구 C(인증 앱 바꾸기)의 재확인 단계는 진행 표시 문구 칸이 없어 표시하지 않고 3단계로 센다. (2) 스토어 링크는 앱마다 하나(문구 칸이 하나)라 공식 안내 페이지로 연결. (3) 잠김·대기표 사용 불가·새로고침·등록 시간 지남 화면은 확정 문구를 제목·본문으로 나눠 보여 준다(글자는 그대로). (4) 초기화 카드의 메모 칸은 늘 보이고 라벨로 "기타를 고르면 꼭 적어 주세요"를 안내. (5) 유예 기간 [나중에] 버튼은 넣지 않음(배너가 계속 안내). (6) M5 대상 변경 알림의 "새로고침" 버튼 라벨은 정의서 본문에서 가져옴. (7) 복구 코드 로그인 성공은 redirect 값 또는 `/admin`. (8) 인쇄 시 숨긴 영역 때문에 빈 쪽이 생길 수 있음(QA 확인). (9) `getMfaStatus`는 관리자 레이아웃에서 요청당 한 번(React `cache`) |
+| ux-writer 검수 대기 문구 | `lib/mfa-copy.ts`의 APP-MFA-NOT-READY-TITLE/BODY, APP-MFA-RESET-NEED-MFA, APP-MFA-CHANGE-DONE-TITLE/BODY, APP-MFA-NEW-WINDOW |
+| 남은 것 | qa-reviewer 리뷰(실기기 6자리 입력·one-time-code 자동 채움, 인쇄 A4 배치, 스크린리더 코드 읽기·포커스, 모바일 앱 딥링크), privacy-security-officer 구현 점검, 7.1 배포 절차 |
 
 ## 대표 결정
 

@@ -1460,6 +1460,17 @@ export default function CourseForm({ categories, action, defaultValues, submitLa
 | 재설정 링크 토큰 없음·200자 초과(메일 앱이 링크를 자름) | 서버를 부르지 않고 링크 오류 화면 | "이 링크는 쓸 수 없어요" + [재설정 메일 다시 받기](채운 버튼) | ☐ |
 | 재설정 중 연결 불가(503·네트워크) | 입력 유지, 다시 받기 링크 없음 | "지금 연결이 원활하지 않아요. 입력한 내용은 그대로예요. 잠시 후 다시 눌러 주세요." | ☐ |
 | 재설정 URL의 토큰 노출 | `/reset-password`에 `Cache-Control: private, no-store`·`Referrer-Policy: no-referrer`·`X-Robots-Tag: noindex`(`CONFIRM_PAGE_HEADERS`). `/forgot-password`는 no-store·noindex. 이메일은 URL로 넘기지 않는다 | — | ☐ |
+| 관리자 로그인 2단계(`/sign-in/otp`·`/recovery`) 번호 틀림·재사용 | 칸 아래 `role=alert`·`aria-invalid`, 칸을 비우고 칸으로 포커스, 시계 도움말 펼침. 재사용은 남은 횟수 없이 | MFA-LOGIN-ERR-WRONG(`{n}번 더`)·-USED / MFA-REC-ERR-WRONG | ☐ |
+| 관리자 2단계 대기표 만료·5회 실패·계정 변경·계정 잠김(15분·24시간) | 폼을 상태 화면으로 바꾸고(제목 포커스) `bara_mfa` 쿠키 삭제. 잠김은 채운 버튼 없이 [로그인 화면으로]·[비밀번호 새로 정하기]. 쿠키 없이 들어오면 리다이렉트 대신 만료 화면 | MFA-LOGIN-ERR-EXPIRED·-EXHAUSTED·-DEMOTED·-LOCKED(`{m}`)·-LOCKED-DAILY | ☐ |
+| 관리자 2단계 429(IP)·503·기타 | 폼 위 알림, 폼 유지 | MFA-LOGIN-ERR-RATE·-UNAVAILABLE·-OTHER | ☐ |
+| 2단계 인증 등록(`/sign-in/otp-setup`): 등록 코드 틀림·사용 불가(5번째 실패·만료·사용됨, start·confirm의 409 포함) | 틀림은 칸 아래 남은 횟수, 사용 불가는 상태 화면 + 쿠키 삭제 | MFA-TICKET-ERR-WRONG / MFA-TICKET-ERR-DEAD | ☐ |
+| 등록 확인 번호 틀림·등록 대기 만료(5회·10분)·새로고침 | 틀림은 같은 QR을 다시 그리고 칸 오류, 만료는 QR을 숨기고 알림 + [QR 새로 만들기](renew), 새로고침은 `enroll/current`로 같은 QR | MFA-CONFIRM-ERR-WRONG·-EXPIRED | ☐ |
+| 복구 코드 화면 새로고침·뒤로 가기 | 다시 보여 주지 않는다(세션이 있으면 안내 + [관리자 화면으로]). 보관 확인을 안 했으면 M6 배너가 이어서 알린다 | MFA-RC-RELOAD | ☐ |
+| 관리자 세션 12시간·1시간 미사용 만료 | proxy가 401 `reason`을 읽어 `/sign-in?redirect=…&ended=max\|idle`. 프리페치는 사용으로 세지 않는다 | MFA-SESSION-MAX·-IDLE(관리자 경로면 -WHY) + -NOTE | ☐ |
+| 내 보안 설정 재확인 틀림·재사용·잠김, 세션 끝 | 칸 오류 / 알림(잠김) / 상태 카드에 다시 로그인 링크 | MFA-SEC-RECHECK-ERR-WRONG·MFA-CHANGE-RC-ERR·MFA-CONFIRM-ERR-LOCKED·MFA-RESET-ERR-401 | ☐ |
+| 회원 상세 2단계 인증 초기화 실패 | 입력 검사는 칸별(본인 확인·사유·메모·내 번호), 번호 틀림은 그 칸만 비움. 잠김·대상 변경(409)·기록 실패(503 `log_failed`)·연결 불가·비밀번호만 세션(403)은 카드 위 알림, 입력 유지 | MFA-RESET-ERR-* / (검수 대상) APP-MFA-RESET-NEED-MFA | ☐ |
+| 옛 API(2단계 인증 경로 없음 404, 배포 순서 앱 → DB → API) | 로그인은 지금과 같다(응답에 mfa 없음). 배너·"내 보안 설정" 메뉴·회원 상세 카드·운영자 목록 열·대시보드 보안 이벤트 카드는 그리지 않고, `/admin/security`는 준비 중 | (검수 대상) APP-MFA-NOT-READY-* | ☐ |
+| 보안 이벤트 조회 실패 | 카드만 실패, 대시보드 나머지는 정상 | MFA-EVENT-LOADERR | ☐ |
 
 ---
 
@@ -1545,3 +1556,4 @@ export default function CourseForm({ categories, action, defaultValues, submitLa
 | 1.7 | 2026-11-25 | 6.1절 정정·보강 — 미인증 재가입은 "마지막 가입자가 이긴다"(근본 해결은 인증 시 비밀번호 재확인, 다음 배포), 쿠키는 renewed일 때만·no-store, 승인 정원 확인, 락 순서, 안내 메일 24시간 상한, 사진 재정리 작업 | AI Team |
 | 1.8 | 2026-11-26 | 회원 상세 이름·연락처 수정 구현(F-ADMM-7) — `MemberProfileEditor`(같은 카드 안 보기→편집→확인), `Notice` 컴포넌트, `ConfirmDialog` `size`·`cancelLabel` 옵션, 서버 액션은 실패를 redirect가 아닌 값으로 반환해 입력 보존, 성공은 `revalidatePath`, 이력 [더 보기]는 서버 액션(조회 접속 기록 중복 방지), 마이페이지 이름·휴대전화 안내 문구 변경. Error Handling 표에 4건 추가 | AI Team |
 | 1.9 | 2026-11-26 | 비밀번호 찾기 구현(F-AUTH-5) — `/forgot-password`(입력→보냄을 같은 URL에서, 열거 방지, 60초 다시 받기), `/reset-password` 큰 글씨 정리·[보기] 토글·다시 받기 링크·보안 헤더, 진입점(로그인·인증 대기·가입 직후·가입 마무리), 공용 `LINK_CLASS`·`NOTICE`·`SupportPhone`·`usePasswordConfirm` 추출. Error Handling 표에 8건 추가. 정의서: bara-edu-lms.password-reset-request.md | AI Team |
+| 1.10 | 2026-11-26 | 관리자 2단계 인증 앱 구현(M1~M7) — 로그인 2단계·복구 코드·로그인 중 등록(QR은 앱 서버에서 SVG, `uqr` 0.1.3), 내 보안 설정, 회원 상세 초기화 카드, 배너, 보안 이벤트 카드, 운영자 목록 열, 자동 로그아웃 안내. Error Handling 표에 11건 추가. 정의서: bara-edu-lms.admin-totp.md | AI Team |
