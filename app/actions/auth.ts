@@ -373,7 +373,8 @@ export async function logout() {
   try {
     (await cookies()).delete({ name: RECENT_SUBMIT_COOKIE, path: '/selfcheck' });
   } catch {
-    // 쿠키 삭제 실패가 로그아웃을 막으면 안 된다.
+    // 쿠키 삭제 실패가 로그아웃을 막으면 안 된다. 값(토큰)은 남기지 않고 한 줄만 기록한다.
+    console.error('[logout] selfcheck result cookie delete failed');
   }
   redirect('/');
 }

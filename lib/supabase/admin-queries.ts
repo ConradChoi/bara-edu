@@ -1546,7 +1546,7 @@ export async function getAdminDiagnosisLeads(
       } = await supabase.auth.getUser();
       if (user && await verifyRevealToken('diagnosis_lead', reveal.id, user.id, reveal.token, reveal.exp)) {
         const target = rows.find((r) => r.id === reveal.id);
-        verifiedReveal = await logAdminAccess(supabase, target?.user_id ?? null, '조회', `강사과정 문의 연락처 열람(${reveal.id})`);
+        verifiedReveal = await logAdminAccess(supabase, target?.user_id ?? null, '조회', `강사과정 문의 이름·연락처 열람(${reveal.id})`);
       }
     } catch (err) {
       console.error('[getAdminDiagnosisLeads] reveal token verification failed:', err);
