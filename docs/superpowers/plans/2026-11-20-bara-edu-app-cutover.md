@@ -513,7 +513,7 @@ test('이메일 미인증 계정도 그대로 이관(email_confirmed_at null)', 
 10. **같은 날**:
     - 개인정보처리방침 새 버전 게시 — 관리자 법적 문서 기능으로 `docs/01-plan/features/bara-edu-lms.legal-privacy.md`의 갱신본(제5조 위탁·국외이전, 시행일 2026-11-24)을 올린다(`supabase/seed.sql`은 고치지 않는다).
     - 운영자 접근 기록 작성: 이관·psql 작업마다 누가·언제·무엇을(대상 DB, 실행 명령 종류, 조회/변경 범위).
-11. **2026-12-01**:
+11. **2026-12-01** → **2026-11-26 완료(대표 결정으로 앞당김, 운영자 접근 기록 11-26 12:33~13:0x)**: 프로젝트 통째 삭제(12:55)로 데이터·Storage·키·DB 비밀번호 폐기, Amplify `SUPABASE_*` 변수 삭제, 빌드 캐시는 비울 수단이 없어 두었음(옛 키는 무효), 로컬 supabase.env 삭제.
     - Supabase 프로젝트의 데이터와 Storage 삭제, 삭제 기록(일시·범위·작업자) 작성.
     - Supabase `service_role` 키와 DB 비밀번호 교체 또는 폐기(과거 빌드 산출물에 들어 있었다).
     - Amplify 콘솔의 `SUPABASE_*`·`NEXT_PUBLIC_SUPABASE_*` 변수 삭제, 빌드 캐시 비우기.

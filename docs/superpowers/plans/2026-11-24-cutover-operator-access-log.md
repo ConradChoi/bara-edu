@@ -1,4 +1,4 @@
-# 서버 전환 운영자 접근 기록 (2026-11-23 ~ 11-26)
+# 서버 전환 운영자 접근 기록 (2026-11-23 ~ 11-26, Supabase 삭제 포함)
 
 런북 10번 "운영자 접근 기록". 이관·DB 관리자 작업마다 누가·언제·무엇을 했는지 남긴다.
 
@@ -34,9 +34,12 @@
 | 11-26 08:10 | `bara_edu`(읽기 전용) | 조회 | 패치 전 확인 — 새로 파기 대상이 되는 비회원 진단 행 0건(월별 0), `diagnosis_leads` 소유자 `bara_edu_service`, 정책 select·update 2개. 건수만 조회 |
 | 11-26 08:11 | `bara_edu` | 변경 | 패치 `2026-11-26-privacy-followups.sql` 적용(`set local role bara_edu_service`) — `purge_unclaimed_diagnosis_pii` 조건 확대, `diagnosis_leads_admin_update` 정책 제거. COMMIT, 확인: 정책 select 1개만, 함수 갱신됨. 앱 배포(Amplify #68) 뒤 적용 |
 | 11-26 08:12 | `bara_edu`(읽기 전용) | 조회 | 리드 메모 개인정보 형태 점검 — 메모 있는 리드 0건, 해당 0건. 건수만 조회 |
+| 11-26 12:33 | Amplify 앱 `d2se60288osxp1` | 변경 | 앱 환경변수 `NEXT_PUBLIC_SUPABASE_URL`·`NEXT_PUBLIC_SUPABASE_ANON_KEY`·`SUPABASE_SERVICE_ROLE_KEY` 삭제(코드 참조 없음 확인), 재빌드 #70 SUCCEED, 주요 화면 200 |
+| 11-26 12:55 | Supabase 프로젝트(서울 리전) | 삭제 | 대표가 대시보드에서 프로젝트 통째 삭제 — 데이터(DB)·Storage(사진)·API 키(anon·service_role)·DB 비밀번호가 함께 폐기됨. 대표 결정으로 예정일(12/1)보다 앞당김 |
+| 11-26 13:0x | 로컬 | 확인·삭제 | 삭제 확인: 프로젝트 API 주소 DNS 없음(REST·Storage 응답 없음), DB 풀러 접속 시 tenant not found. 로컬 `~/.config/bara-edu/supabase.env` 삭제. Amplify 빌드 캐시는 콘솔에 비우는 기능이 없어 두었음 — 남아 있을 수 있는 옛 키는 프로젝트 삭제로 무효 |
 
 ## 같은 날 함께 정리한 것
 
 - Amplify 미리보기 브랜치 `feat/app-cutover` 삭제, API `SITE_ORIGINS`에서 미리보기 주소 제거 후 재시작(healthz 200)
 - 로컬의 미리보기 basic auth 비밀번호 파일, Supabase CA 임시 파일 삭제
-- 남겨 둔 것: 로컬 `~/.config/bara-edu/supabase.env`(0600) — 12/1 Supabase 키 교체·삭제 작업 때까지. RDS 마스터 비밀번호는 Secrets Manager에만 있음
+- 남겨 둔 것: 로컬 `~/.config/bara-edu/supabase.env`(0600) — 12/1 Supabase 키 교체·삭제 작업 때까지 → 2026-11-26 Supabase 프로젝트 삭제 뒤 삭제함. RDS 마스터 비밀번호는 Secrets Manager에만 있음
