@@ -3,7 +3,7 @@
 - 작성일: 2026-11-26
 - 작성: service-planner
 - 근거: 대표 지시 2026-11-26 (회원 스스로 재설정 메일 요청, 본인 확인은 이메일만 하고 휴대폰 본인인증은 하지 않는다)
-- 상태: 초안. 10장의 질문에 대표 답변이 오면 확정한다. 코드는 바꾸지 않았다.
+- 상태: 확정(대표 결정 2026-11-26). API 구현 완료, 앱 구현 완료(2026-11-26, 11장). qa-reviewer·privacy-security-officer 검토 후 배포.
 - 문구: 이 문서의 문구는 초안이다. 최종 문구는 ux-writer가 정한다. 말투 기준은 `bara-edu-lms.signup-enumeration-copy.md`(쉬운 `~해요`체, 이모지·느낌표 없음, 사용자를 탓하지 않기)를 따른다.
 - 검토 필요: 이메일 주소를 입력받고 메일을 보내므로 privacy-security-officer 점검 후 배포한다(8장). API는 이미 있어 계약 변경은 필수가 아니다(5장). 앱 쪽 호출 함수의 반환값만 넓혀야 한다.
 - 관련 문서: `bara-edu-lms.signup-verify-password.md`(가입 마무리, 이하 "가입 마무리 문서"), `bara-edu-lms.signup-enumeration-copy.md`(이하 "열거 방지 문서")
@@ -388,23 +388,23 @@ A·C·D는 구현 완료(5.1·5.1a·5.1b), B는 보류(대표 결정 4), E는 �
 
 | 영역 | 파일 | 변경 | 필수 여부 |
 |---|---|---|---|
-| 앱 | `app/(auth)/forgot-password/page.tsx`(신규), `components/auth/ForgotPasswordForm.tsx`(신규) | 2장 화면 | 필수 |
-| 앱 | `app/actions/auth.ts` | 서버 액션 `requestPasswordReset` 추가 | 필수 |
-| 앱 | `lib/db/auth.ts` | `requestReset` 반환값을 `ok/reason`으로 확장(429·연결 불가 구분) | 필수 |
-| 앱 | `app/(auth)/sign-in/page.tsx` 또는 `components/auth/AuthForm.tsx` | "비밀번호를 잊으셨나요?" 링크, 인증 대기(`source=login`) 화면 링크, 가입 직후 안내 화면 보조 링크 | 필수 |
-| 앱 | 가입 마무리 화면(`SignupFinishForm.tsx`, `SignupLinkStatus.tsx`) | `locked`·`expired`·기억나지 않아요 영역에 링크(질문 8) | 필수(질문 8 승인 시) |
-| 앱 | `components/auth/ResetPasswordForm.tsx` | 토큰 없음·오류 상태에 다시 요청 링크, [보기] 토글, 안내 문구 | 필수 |
-| 앱 | `app/(auth)/sign-in/page.tsx` | 성공 배너 한 줄 추가 | 권장 |
-| 앱 | `next.config.ts` | `/reset-password`에 `CONFIRM_PAGE_HEADERS` 적용 | 필수(토큰이 URL에 있음) |
-| 앱 | `proxy.ts` | `/forgot-password`를 공개 경로로(로그인 상태 리다이렉트 목록 점검) | 확인 필요 |
-| 앱 | 푸터·사이트맵·robots | `/forgot-password`는 색인 제외 | 권장 |
+| 앱 | `app/(auth)/forgot-password/page.tsx`(신규), `components/auth/ForgotPasswordForm.tsx`(신규) | 2장 화면 | 완료(2026-11-26) |
+| 앱 | `app/actions/auth.ts` | 서버 액션 `requestPasswordReset` 추가 | 완료(2026-11-26. 상태 `{ requested, email, resend } \| { error, email, resend }`, 오류는 종류만 돌려주고 문구는 화면) |
+| 앱 | `lib/db/auth.ts` | `requestReset` 반환값을 `ok/reason`으로 확장(429·연결 불가 구분) | 완료(2026-11-26. `resetPassword`도 `invalid_token`·`unavailable` 구분) |
+| 앱 | `app/(auth)/sign-in/page.tsx` 또는 `components/auth/AuthForm.tsx` | "비밀번호를 잊으셨나요?" 링크, 인증 대기(`source=login`) 화면 링크, 가입 직후 안내 화면 보조 링크 | 완료(2026-11-26) |
+| 앱 | 가입 마무리 화면(`SignupFinishForm.tsx`, `SignupLinkStatus.tsx`) | `locked`·`expired`·기억나지 않아요 영역에 링크(질문 8) | 완료(2026-11-26, P-7 처리 1·2. 남은 2번 이하 오답 도움말도 재설정 링크로) |
+| 앱 | `components/auth/ResetPasswordForm.tsx` | 토큰 없음·오류 상태에 다시 요청 링크, [보기] 토글, 안내 문구 | 완료(2026-11-26. 큰 글씨 정리, 토큰 없음은 `ResetLinkInvalid`) |
+| 앱 | `app/(auth)/sign-in/page.tsx` | 성공 배너 한 줄 추가 | 완료(2026-11-26, 글자 대비 정리 포함) |
+| 앱 | `next.config.ts` | `/reset-password`에 `CONFIRM_PAGE_HEADERS` 적용 | 완료(2026-11-26. `/forgot-password`에는 no-store·noindex) |
+| 앱 | `proxy.ts` | `/forgot-password`를 공개 경로로(로그인 상태 리다이렉트 목록 점검) | 확인 완료(2026-11-26): proxy는 `/my`·`/learn`·`/admin`만 보호하고 로그인 상태의 인증 화면을 리다이렉트하지 않는다. 코드 변경 없음, 테스트로 고정 |
+| 앱 | 푸터·사이트맵·robots | `/forgot-password`는 색인 제외 | 완료(2026-11-26): 앱에 sitemap·robots 파일이 없어 메타 `robots: noindex`와 `X-Robots-Tag` 헤더로 처리. 푸터에는 링크 없음 |
 | API | `api/src/auth/service.ts`·`routes.ts` | `request-reset` 계약은 변경 없음 | 없음 |
 | API | `api/src/auth/service.ts` `resetPassword` | 성공 시 `login-fail` 기록 삭제(질문 5) | 완료(2026-11-26, 5.1a) |
 | API | `api/src/mail/ses.ts` | `already_registered` 메일에 `/forgot-password` 링크(`link` 필드 활용 또는 본문), `recovery`에 "한 번만 쓸 수 있어요"·"링크가 안 열리면 복사" 한 줄 | 완료(2026-11-26, 5.1b. `forgotLink` 필드로 본문 줄) |
 | API | 새 템플릿·`mailer.ts` | 재설정 완료 알림 메일(질문 3) | 완료(2026-11-26, `password_changed`, 5.1a·5.1b) |
 | 테스트 | `api/test/auth-limits.test.ts` 등 | 응답 시간 측정(5.2) | 미구현(비대기만 테스트로 보장, QA 측정) |
 | 테스트 | `api/test/auth-signup.test.ts` 513행 | 테스트 이름의 "앱 화면에는 이 요청 경로가 없다" 수정 | 완료(2026-11-26) |
-| 테스트 | `test/lib/db/auth.test.ts`, `test/app/*` | `requestReset` 반환 확장, 서버 액션·화면 테스트, `/reset-password` 헤더 | 필수 |
+| 테스트 | `test/lib/db/auth.test.ts`, `test/app/*` | `requestReset` 반환 확장, 서버 액션·화면 테스트, `/reset-password` 헤더 | 완료(2026-11-26: `test/actions/forgot-password.test.ts`, `test/app/{forgot-password,reset-password,sign-in}-page.test.ts`, `test/next-config-headers.test.ts`, `test/proxy.test.ts`) |
 
 ## 12. 구현 후 함께 갱신할 문서 (문서 동기화 원칙)
 

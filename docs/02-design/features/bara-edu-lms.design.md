@@ -1452,6 +1452,14 @@ export default function CourseForm({ categories, action, defaultValues, submitLa
 | 회원 상세 수정 중 다른 관리자가 먼저 저장(stale) | 현재 값으로 폼을 다시 채우고 이유·메모는 유지, 본인 확인 체크 해제 | 경고 알림 "다른 관리자가 먼저 고쳤어요" + 내가 입력한 값 표시 | ☐ |
 | 회원 상세 수정 저장 실패(5xx·접속 기록 실패) | 입력값 유지, 확인 단계에 머무름, [다시 저장] | "입력한 내용은 그대로예요. 잠시 후 다시 시도해 주세요." | ☐ |
 | 회원 상세 수정 성공 + 안내 메일 접수 불확실 | 저장은 성공, 보조 경고 | "안내 메일을 보내지 못했을 수 있어요. 회원에게 전화로 한 번 알려 주세요." | ☐ |
+| 비밀번호 찾기(`/forgot-password`) 빈 값·형식 오류 | 서버를 부르지 않는다. JS가 있으면 칸 아래 안내(`role=alert`)·`aria-invalid`·칸 포커스, 브라우저 말풍선은 막는다 | "이메일을 입력해 주세요" / "올바른 이메일 형식이 아니에요. 예: name@example.com" | ☐ |
+| 비밀번호 찾기 결과가 계정 유무·이메일 한도에 따라 다름(열거) | API가 늘 `200 { ok: true }`, 서버 액션도 늘 같은 `requested` 상태. 화면은 입력한 이메일 외에 서버 값을 쓰지 않는다(테스트로 HTML 동일성 고정) | "메일함을 확인해 주세요" + 조건 문구("가입한 이메일이 맞다면 …") | ☐ |
+| 비밀번호 찾기 429(IP 제한)·연결 불가·기타 실패(origin·서비스 키) | 입력값 유지(제어 입력, JS 없으면 서버가 칸을 다시 채움). 연결 불가·기타 실패는 주 버튼 아래 전화 버튼 | 칸 위 알림 "요청이 많아요. … 입력한 이메일은 그대로예요." / "지금 연결이 원활하지 않아요. …" / "메일을 보내지 못했어요. … 전화 {번호}" | ☐ |
+| 보냄 화면 [메일 다시 받기] 연타 | 60초 `aria-disabled`(서버 `reset-60s`와 맞춤), 끝날 때 한 번만 알림. JS 없으면 활성이고 서버 한도가 막는다. 결과 문구는 "다시 요청했어요"(실제로 안 보냈을 수 있어 "다시 보냈어요"는 쓰지 않는다) | 상태 줄 `aria-live=polite` | ☐ |
+| 재설정 링크 만료·이미 사용·잘못된 토큰(`/reset-password` 400 `invalid_token`) | 입력 유지, 폼 맨 위 알림 안에 [재설정 메일 다시 받기](윤곽선) → `/forgot-password` | "비밀번호를 바꾸지 못했어요. 링크가 만료됐거나 이미 썼을 수 있어요. 새 메일을 받아 주세요." | ☐ |
+| 재설정 링크 토큰 없음·200자 초과(메일 앱이 링크를 자름) | 서버를 부르지 않고 링크 오류 화면 | "이 링크는 쓸 수 없어요" + [재설정 메일 다시 받기](채운 버튼) | ☐ |
+| 재설정 중 연결 불가(503·네트워크) | 입력 유지, 다시 받기 링크 없음 | "지금 연결이 원활하지 않아요. 입력한 내용은 그대로예요. 잠시 후 다시 눌러 주세요." | ☐ |
+| 재설정 URL의 토큰 노출 | `/reset-password`에 `Cache-Control: private, no-store`·`Referrer-Policy: no-referrer`·`X-Robots-Tag: noindex`(`CONFIRM_PAGE_HEADERS`). `/forgot-password`는 no-store·noindex. 이메일은 URL로 넘기지 않는다 | — | ☐ |
 
 ---
 
@@ -1536,3 +1544,4 @@ export default function CourseForm({ categories, action, defaultValues, submitLa
 | 1.6 | 2026-11-25 | 6.1절 보강 — 미인증 재가입 덮어쓰기, 수강신청 잠금 트랜잭션, 퀴즈 채점 규칙, auth 400 field, 탈퇴 사유 검증 | AI Team |
 | 1.7 | 2026-11-25 | 6.1절 정정·보강 — 미인증 재가입은 "마지막 가입자가 이긴다"(근본 해결은 인증 시 비밀번호 재확인, 다음 배포), 쿠키는 renewed일 때만·no-store, 승인 정원 확인, 락 순서, 안내 메일 24시간 상한, 사진 재정리 작업 | AI Team |
 | 1.8 | 2026-11-26 | 회원 상세 이름·연락처 수정 구현(F-ADMM-7) — `MemberProfileEditor`(같은 카드 안 보기→편집→확인), `Notice` 컴포넌트, `ConfirmDialog` `size`·`cancelLabel` 옵션, 서버 액션은 실패를 redirect가 아닌 값으로 반환해 입력 보존, 성공은 `revalidatePath`, 이력 [더 보기]는 서버 액션(조회 접속 기록 중복 방지), 마이페이지 이름·휴대전화 안내 문구 변경. Error Handling 표에 4건 추가 | AI Team |
+| 1.9 | 2026-11-26 | 비밀번호 찾기 구현(F-AUTH-5) — `/forgot-password`(입력→보냄을 같은 URL에서, 열거 방지, 60초 다시 받기), `/reset-password` 큰 글씨 정리·[보기] 토글·다시 받기 링크·보안 헤더, 진입점(로그인·인증 대기·가입 직후·가입 마무리), 공용 `LINK_CLASS`·`NOTICE`·`SupportPhone`·`usePasswordConfirm` 추출. Error Handling 표에 8건 추가. 정의서: bara-edu-lms.password-reset-request.md | AI Team |
