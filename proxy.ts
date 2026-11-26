@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
-import { apiFetch } from '@/lib/db/api';
+import { apiFetch, isPrefetchRequest } from '@/lib/db/api';
 import { clientIpFrom } from '@/lib/db/client-ip';
-import { getSession, isDeadSession } from '@/lib/db/auth';
+import { getSession, isDeadSession, sessionEndedReason } from '@/lib/db/auth';
 
 const SESSION_COOKIE = 'bara_session';
 const USER_ROUTE_PREFIXES = ['/my', '/learn'];
@@ -9,10 +9,12 @@ const ADMIN_ROUTE_PREFIX = '/admin';
 // 세션 쿠키를 쓰거나 지우는 응답은 공유 캐시(CDN)에 저장되면 다른 방문자에게 쿠키가 나갈 수 있다 — 항상 private, no-store.
 const NO_STORE = 'private, no-store';
 
-function toSignIn(request: NextRequest, withRedirect: boolean): NextResponse {
+// ended: 관리자 세션이 12시간(max)·1시간 미사용(idle)으로 끝났을 때만. 로그인 화면이 이유별 안내를 고른다(기획서 4.9, 1.3 D3).
+function toSignIn(request: NextRequest, withRedirect: boolean, ended: 'max' | 'idle' | null = null): NextResponse {
   const url = request.nextUrl.clone();
   url.pathname = '/sign-in';
   if (withRedirect) url.searchParams.set('redirect', request.nextUrl.pathname);
+  if (ended) url.searchParams.set('ended', ended);
   return NextResponse.redirect(url);
 }
 
@@ -72,10 +74,12 @@ export async function proxy(request: NextRequest) {
   if (!token) return isProtected ? toSignIn(request, true) : NextResponse.next();
 
   const clientIp = clientIpFrom((n) => request.headers.get(n));
-  const r = await getSession(token, clientIp);
+  // 관리자 1시간 미사용 판정의 "사용"은 관리자 화면 요청뿐이다. 프리페치는 사람이 연 화면이 아니므로 붙이지 않는다(기획서 2.3, 보안 점검 M-1).
+  const adminActivity = isAdminRoute && !isPrefetchRequest((n) => request.headers.get(n));
+  const r = await getSession(token, clientIp, { adminActivity });
 
   if (isDeadSession(r)) {
-    return withoutSessionCookie(request, isProtected ? toSignIn(request, true) : null);
+    return withoutSessionCookie(request, isProtected ? toSignIn(request, true, sessionEndedReason(r)) : null);
   }
   if (!r.ok) {
     if (!isProtected) return NextResponse.next();
