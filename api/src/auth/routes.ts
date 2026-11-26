@@ -170,6 +170,8 @@ export function registerAuthRoutes(app: FastifyInstance): void {
   app.post('/v1/auth/reset-password', async (req, reply) => {
     const body = resetBody.safeParse(req.body);
     if (!body.success) return sendError(reply, 'validation', INVALID, fieldOf(body.error));
+    // 가짜 토큰을 대량으로 보내 비밀번호 해시(bcrypt) 계산으로 CPU를 쓰게 하는 것을 막는다(개인정보·보안 점검 I-2, 2026-11-26)
+    if (await ipLimited(req, 'reset-password-ip', 30, 900)) return tooMany(reply);
     if (!(await resetPassword(app.deps.pool, deliver, body.data.token, body.data.newPassword))) return sendError(reply, 'validation', 'invalid_token');
     return { ok: true };
   });

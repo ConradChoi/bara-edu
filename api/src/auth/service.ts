@@ -179,6 +179,8 @@ export async function requestReset(pool: pg.Pool, deliver: MailDeliver, email: s
 
 // 성공하면 비밀번호 변경 알림(password_changed) 메일을 큐에 넣는다. 발송 실패는 결과에 영향이 없다(deliver는 기다리지 않는다).
 export async function resetPassword(pool: pg.Pool, deliver: MailDeliver, token: string, newPassword: string): Promise<boolean> {
+  // 쓸 수 없는 토큰이면 해시 계산(bcrypt) 전에 끝낸다(개인정보·보안 점검 I-2). 최종 판단은 아래 트랜잭션의 소모 결과다.
+  if (!(await withService(pool, (tx) => peekEmailTokenUserIn(tx, token, 'recovery')))) return false;
   const newHash = await hashPassword(newPassword);
   const email = await withService(pool, async (tx) => {
     // 락 순서: 그 회원의 토큰 전부(token_hash 순) -> 시도 -> 사용자. 토큰 하나만 먼저 갱신하면 가입 확정과 서로 기다리다 데드락이 난다.

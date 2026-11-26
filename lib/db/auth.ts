@@ -147,7 +147,8 @@ export async function resetPassword(token: string, newPassword: string): Promise
   if (r.status === 400) {
     return r.error.message === 'invalid_token' ? { ok: false, reason: 'invalid_token' } : { ok: false, reason: 'validation', ...fieldOf(r) };
   }
-  return { ok: false, reason: r.status === 503 ? 'unavailable' : 'failed' };
+  // 429(IP 요청 제한)는 링크 문제가 아니므로 '잠시 후 다시'(unavailable)로 안내한다
+  return { ok: false, reason: r.status === 503 || r.status === 429 ? 'unavailable' : 'failed' };
 }
 
 // token and IP are explicit so proxy.ts can call this without next/headers
