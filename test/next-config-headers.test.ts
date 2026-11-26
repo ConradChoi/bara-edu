@@ -28,12 +28,12 @@ test('/forgot-password 응답 헤더: no-store·noindex (URL에 토큰·이메�
 
 test('헤더 규칙은 정해 둔 경로에만 건다', async () => {
   const rules = await nextConfig.headers!();
-  expect(rules.map((r) => r.source)).toEqual(['/auth/confirm', '/reset-password', '/forgot-password', '/sign-in/otp', '/sign-in/recovery', '/sign-in/otp-setup', '/admin/security']);
+  expect(rules.map((r) => r.source)).toEqual(['/auth/confirm', '/reset-password', '/forgot-password', '/sign-in/otp', '/sign-in/recovery', '/sign-in/otp-setup', '/admin/security', '/admin/members/:id']);
 });
 
-test('2단계 인증 화면(로그인 2단계·복구 코드·등록·내 보안 설정): no-store·no-referrer·noindex (기획서 3장 공통 규칙)', async () => {
+test('2단계 인증 화면(로그인 2단계·복구 코드·등록·내 보안 설정·회원 상세의 등록 코드 표시): no-store·no-referrer·noindex (기획서 3장 공통 규칙)', async () => {
   const rules = await nextConfig.headers!();
-  expect(MFA_PAGE_PATHS).toEqual(['/sign-in/otp', '/sign-in/recovery', '/sign-in/otp-setup', '/admin/security']);
+  expect(MFA_PAGE_PATHS).toEqual(['/sign-in/otp', '/sign-in/recovery', '/sign-in/otp-setup', '/admin/security', '/admin/members/:id']);
   for (const path of MFA_PAGE_PATHS) {
     const rule = rules.find((r) => r.source === path);
     expect(rule, path).toBeDefined();
