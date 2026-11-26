@@ -1,3 +1,4 @@
+import { isIP } from 'node:net';
 import type pg from 'pg';
 import { withService, type Tx } from '../db/context.js';
 import type { MailMessage } from '../mail/mailer.js';
@@ -207,7 +208,8 @@ export async function resetPassword(pool: pg.Pool, deliver: MailDeliver, token: 
     await tx.query(
       `insert into admin_access_logs (admin_id, target_user_id, action, detail, ip_address)
        select id, id, $2, $3, $4 from profiles where id = $1 and role = 'admin'`,
-      [id, ADMIN_RESET_ACTION, ADMIN_RESET_DETAIL, ip],
+      // IP 형식이 아니면 버린다(ops 접속 기록과 같은 기준 — 기록에 임의 문자열이 들어가지 않게)
+      [id, ADMIN_RESET_ACTION, ADMIN_RESET_DETAIL, ip !== null && isIP(ip) ? ip : null],
     );
     return u.rows[0].email;
   });

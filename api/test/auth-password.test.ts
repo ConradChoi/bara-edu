@@ -313,6 +313,16 @@ test('reset-password: 관리자 + IP 헤더 없음이면 ip_address는 null', as
   expect(rows[0].ip_address).toBeNull();
 });
 
+test('reset-password: 관리자 + IP 형식이 아닌 헤더면 ip_address는 null', async () => {
+  const { email, id } = await addUser();
+  await makeAdmin(id);
+  const r = await post('/v1/auth/reset-password', { token: await resetToken(email), newPassword: 'brandnew123' }, { 'x-bara-client-ip': 'not-an-ip; drop' });
+  expect(r.statusCode).toBe(200);
+  const rows = await resetLogs(id);
+  expect(rows).toHaveLength(1);
+  expect(rows[0].ip_address).toBeNull();
+});
+
 test('reset-password: 학습자 재설정은 기록하지 않는다', async () => {
   const { email, id } = await addUser();
   const r = await post('/v1/auth/reset-password', { token: await resetToken(email), newPassword: 'brandnew123' }, { 'x-bara-client-ip': '203.0.113.9' });
