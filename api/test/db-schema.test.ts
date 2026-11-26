@@ -88,6 +88,7 @@ const REVOKED: Array<[string, string[]]> = [
   ['public.purge_unclaimed_diagnosis_pii()', ['public', 'bara_edu_anon', 'bara_edu_authenticated']],
   ['public.purge_old_diagnosis_leads()', ['public', 'bara_edu_anon', 'bara_edu_authenticated']],
   ['public.get_my_diagnosis_results()', ['public', 'bara_edu_anon']],
+  ['public.delete_my_diagnosis_result(uuid, boolean)', ['public', 'bara_edu_anon']],
 ];
 
 test.each(REVOKED)('%s 실행 권한이 회수된 역할에는 없다', async (fn, roles) => {
@@ -103,6 +104,7 @@ test('회수 대상이 아닌 역할은 실행 권한을 유지한다', async ()
   expect(await q('bara_edu_authenticated', 'public.claim_diagnosis(uuid)')).toBe(true);
   expect(await q('bara_edu_authenticated', 'public.get_diagnosis_detail(uuid)')).toBe(true);
   expect(await q('bara_edu_authenticated', 'public.get_my_diagnosis_results()')).toBe(true);
+  expect(await q('bara_edu_authenticated', 'public.delete_my_diagnosis_result(uuid, boolean)')).toBe(true);
   expect(await q('bara_edu_anon', 'public.get_diagnosis_summary(uuid)')).toBe(true);
   expect(await q('bara_edu_service', 'public.purge_unverified_signups()')).toBe(true);
 });

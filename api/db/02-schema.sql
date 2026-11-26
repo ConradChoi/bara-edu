@@ -1805,9 +1805,9 @@ revoke execute on function public.purge_expired_mfa_rows() from public, bara_edu
 -- (향후 다른 자가진단 유형 확장 대비, 2026-09-14 대표 결정) DB 객체명은 `diagnosis_*`를
 -- 그대로 쓴다 — 두 번째 자가진단 유형이 실제로 생기기 전까지는 일반화하지 않기로 함.
 
--- respondent_name/phone/email은 의도적으로 not null이 아니다 — 90일 미귀속 자동 파기
--- (purge_unclaimed_diagnosis_pii()) 시점에 이 세 컬럼을 null로 비우고 점수/판정 결과만
--- 통계 목적으로 남기기 때문이다(제출 시점 검증은 submit_diagnosis() RPC가 담당).
+-- respondent_name/phone/email은 not null이 아니다 — 원래는 90일 미귀속 파기 때 이 세 컬럼만 비우고
+-- 점수를 남겼기 때문이다(2026-11-26부터 파기는 행 삭제, 아래 민감정보 동의 블록). 정정·삭제 절차로
+-- 이름만 지운 행이 있을 수 있어 nullable을 유지한다(제출 시점 검증은 submit_diagnosis() RPC가 담당).
 -- phone/email은 "회원가입 최소수집 원칙"에 따라 Phase 1부터 "둘 중 최소 1개"만 필수로
 -- 완화했다(privacy-security-officer M-4 지적, 대표 결정 2026-09-14) — RPC가 검증한다.
 create table if not exists diagnosis_results (
@@ -1843,6 +1843,27 @@ create index if not exists diagnosis_results_user_id_idx on diagnosis_results(us
 create index if not exists diagnosis_results_created_at_idx on diagnosis_results(created_at desc);
 create index if not exists diagnosis_results_tier_idx on diagnosis_results(recommended_tier);
 
+-- ----- 자가진단 민감정보 별도 동의: 컬럼·제약 (2026-11-26) 시작
+-- 기획: docs/02-design/features/bara-edu-lms.diagnosis-sensitive-consent.md 5장·"API 계약". 이 블록은
+-- api/db/patches/2026-11-26-diagnosis-consent.sql과 글자 그대로 같다(test/patch-diagnosis-consent.test.ts).
+-- 응답·점수는 민감정보로 보고(대표 결정 2026-11-26), 다른 동의와 따로 받은 민감정보 동의를 결과 행에 남긴다:
+-- 화면이 보여 준 동의 문구 버전(data/diagnosis/consent.ts, 예 sc-v1)과 서버 시각. 별도 동의 테이블은 두지 않는다
+-- (결과를 지우면 동의 기록도 함께 사라져야 "진단을 했다"는 사실이 남지 않는다).
+-- 제약은 not valid로 만든다: 새로 쓰는 행에는 바로 적용되고, 동의 전 기존 행은 정리 스크립트
+-- (patches/2026-11-26-diagnosis-consent-cleanup.sql)가 지운 뒤 validate·not null로 굳힌다.
+alter table diagnosis_results add column if not exists sensitive_consent_version text;
+alter table diagnosis_results add column if not exists sensitive_consented_at timestamptz;
+do $$ begin
+  alter table diagnosis_results add constraint diagnosis_results_sensitive_consent_required
+    check (sensitive_consent_version is not null and sensitive_consented_at is not null) not valid;
+exception when duplicate_object then null; end $$;
+-- ----- 자가진단 민감정보 별도 동의: 컬럼·제약 끝
+-- 정리 스크립트를 마친 뒤의 최종 상태(새 DB는 처음부터 이 상태). 동의 없는 기존 행이 남은 DB에 스키마를 다시 적용하면
+-- 여기서 실패한다(아무것도 지우지 않고 멈춘다) — 운영은 패치와 정리 스크립트로 옮긴다.
+alter table diagnosis_results validate constraint diagnosis_results_sensitive_consent_required;
+alter table diagnosis_results alter column sensitive_consent_version set not null;
+alter table diagnosis_results alter column sensitive_consented_at set not null;
+
 -- 문항별 원응답 30건. 문항/임계값이 개정돼도 재채점·분석이 가능하도록 보존한다.
 -- 관리자 전용 — 학습자 화면에는 어떤 경로로도 노출하지 않는다.
 create table if not exists diagnosis_answers (
@@ -1872,6 +1893,8 @@ create table if not exists diagnosis_leads (
 );
 create index if not exists diagnosis_leads_status_idx on diagnosis_leads(status);
 create index if not exists diagnosis_leads_created_at_idx on diagnosis_leads(created_at desc);
+-- 결과 삭제(파기·탈퇴·셀프 삭제) 때 문의의 result_id를 비우는 FK 처리와 has_lead 조회용(2026-11-26, 패치에도 같은 줄)
+create index if not exists diagnosis_leads_result_id_idx on diagnosis_leads(result_id);
 
 -- tier → 강좌 매핑(운영 설정). slug를 코드에 하드코딩하지 않는 이유는 F-ADMC-7 제약과
 -- 동일(관리자가 카테고리/강좌를 재구성해도 코드 배포 없이 매핑만 바꾸면 됨).
@@ -1931,6 +1954,9 @@ create policy "diagnosis_course_links_admin_update" on diagnosis_course_links fo
 -- 비회원도 호출 가능한 공개 RPC다(로그인 불필요) — 로그인 상태로 제출하면 그 자리에서
 -- user_id/claimed_at을 채워 claim 절차 자체를 건너뛴다(flows.md 1.5절). 클라이언트가 계산한
 -- 점수·추천 tier는 신뢰하지 않고 서버에서 30개 원응답만으로 재계산한다(기존 시험 RPC 원칙 승계).
+-- 2026-11-26 민감정보 별도 동의: 인자 2개(p_consent_sensitive, p_consent_sensitive_version)를 더했다. API의 RPC 카탈로그는
+-- 오버로드를 거부하므로 옛 시그니처를 먼저 지운다(패치 2026-11-26-diagnosis-consent.sql과 같은 줄).
+drop function if exists public.submit_diagnosis(text, text, text, diagnosis_experience, text, boolean, integer, boolean, jsonb, text, text, text);
 create or replace function public.submit_diagnosis(
   p_name text,
   p_phone text,
@@ -1939,6 +1965,8 @@ create or replace function public.submit_diagnosis(
   p_certificate_level text,
   p_consent_privacy boolean,
   p_consent_privacy_doc_version integer,
+  p_consent_sensitive boolean,
+  p_consent_sensitive_version text,
   p_age_confirmed boolean,
   p_answers jsonb,
   p_utm_source text default null,
@@ -1969,6 +1997,15 @@ declare
 begin
   if not coalesce(p_consent_privacy, false) then
     raise exception 'privacy consent required';
+  end if;
+  -- 민감정보(응답·결과) 처리 동의는 개인정보 동의와 따로 받는다(개인정보 보호법 제23조 제1항 제1호, 대표 결정 2026-11-26).
+  -- 버전은 화면이 그린 동의 문구 버전이다. 허용 목록은 data/diagnosis/consent.ts의 CURRENT_SENSITIVE_CONSENT_VERSION과
+  -- 같아야 한다(test/diagnosis-consent.test.ts). 오류 문구는 API가 400 validation(field consent / consent_version)으로 바꾼다.
+  if not coalesce(p_consent_sensitive, false) then
+    raise exception 'sensitive consent required';
+  end if;
+  if p_consent_sensitive_version is null or not (p_consent_sensitive_version = any (array['sc-v1'])) then
+    raise exception 'sensitive consent version mismatch';
   end if;
   -- 만 14세 미만 개인정보 수집은 법정대리인 동의가 별도로 필요하다(PIPA 제22조의2) —
   -- Phase 1은 비회원 직접수집 경로라 회원가입과 달리 이 확인이 없었다
@@ -2090,14 +2127,16 @@ begin
     access_token, user_id, claimed_at, respondent_name, phone, email, learning_experience, certificate_level,
     age_confirmed, version, score_theory, score_reading, score_analysis, score_counseling, score_case_record, score_teaching,
     total_score, recommended_tier, strength_areas, improvement_areas,
-    consent_privacy, consent_privacy_doc_version, utm_source, utm_medium, utm_campaign
+    consent_privacy, consent_privacy_doc_version, sensitive_consent_version, sensitive_consented_at,
+    utm_source, utm_medium, utm_campaign
   ) values (
     v_access_token, v_user_id, case when v_user_id is not null then now() else null end,
     btrim(p_name), nullif(btrim(coalesce(p_phone, '')), ''), nullif(btrim(coalesce(p_email, '')), ''), p_learning_experience,
     nullif(btrim(coalesce(p_certificate_level, '')), ''),
     true, 'shape-v1', v_theory, v_reading, v_analysis, v_counseling, v_case_record, v_teaching,
     v_overall, v_tier, coalesce(v_strength, '{}'), coalesce(v_improvement, '{}'),
-    true, p_consent_privacy_doc_version, p_utm_source, p_utm_medium, p_utm_campaign
+    true, p_consent_privacy_doc_version, p_consent_sensitive_version, now(),
+    p_utm_source, p_utm_medium, p_utm_campaign
   )
   returning id into v_result_id;
 
@@ -2316,12 +2355,11 @@ $$;
 revoke execute on function public.claim_diagnosis(uuid) from bara_edu_anon;
 revoke execute on function public.get_diagnosis_detail(uuid) from bara_edu_anon;
 
--- ===================== RPC: 미귀속 진단 결과 90일 경과 시 개인정보 파기 =====================
--- PM 문서 Q3 확정 사항의 실제 구현체 — 지금까지는 방침 문서에만 적혀 있고 이 함수 자체가
--- 없었다(privacy-security-officer C-1 지적). 회원에게 귀속되지 않은(user_id is null) 결과 중
--- 접수 90일이 지난 건은 이름/연락처만 null로 비우고, 점수·판정·문항 응답은 통계 목적으로
--- 남긴다(행 자체를 지우지 않음 — diagnosis_leads.result_id가 참조 중일 수도 있어 삭제 대신
--- 익명화를 택했다).
+-- ===================== RPC: 미귀속 진단 결과 90일 경과 시 파기 =====================
+-- 회원 계정에 연결되지 않은(user_id is null) 결과 중 진단 90일이 지난 것을 **행째 삭제**한다(응답은 FK cascade,
+-- 문의는 result_id만 null — 문의는 접수 1년 파기를 따로 따른다). 2026-11-26 대표 결정(민감정보 동의 기획 Q2):
+-- 이름·연락처만 비우면 결과 링크(access_token)로 응답·점수가 계속 열려 가명 민감정보로 남기 때문이다.
+-- 함수 이름은 스케줄러 등록명(api/src/jobs/scheduler.ts) 때문에 그대로 둔다. 반환값은 지운 결과 행 수.
 create or replace function public.purge_unclaimed_diagnosis_pii()
 returns integer
 language plpgsql
@@ -2329,16 +2367,13 @@ security definer
 set search_path = public
 as $$
 declare
-  v_updated_count integer;
+  v_deleted_count integer;
 begin
-  update diagnosis_results
-  set respondent_name = null, phone = null, email = null, certificate_level = null,
-      utm_source = null, utm_medium = null, utm_campaign = null
+  delete from diagnosis_results
   where user_id is null
-    and created_at < now() - interval '90 days'
-    and (respondent_name is not null or phone is not null or email is not null);
-  get diagnostics v_updated_count = row_count;
-  return v_updated_count;
+    and created_at < now() - interval '90 days';
+  get diagnostics v_deleted_count = row_count;
+  return v_deleted_count;
 end;
 $$;
 
@@ -2384,8 +2419,11 @@ alter table profiles add column if not exists withdrawal_reason_detail text;
 -- get_diagnosis_detail()과 동일한 최소수집 원칙을 지켜 이름/연락처/영역별 점수는
 -- 반환하지 않고 목록에 필요한 값만 내려준다 — 각 행 클릭 시 이동하는 기존
 -- /selfcheck/result/[token] 페이지가 본인 소유 확인 후 상세를 보여준다.
+-- 2026-11-26: has_lead(그 결과에 본인이 낸 강사과정 문의가 있는지)를 더했다 — 셀프 삭제 대화상자가 "문의도 함께 지우기"
+-- 체크를 보일지 정한다. 반환 형식이 바뀌어 create or replace가 안 되므로 지우고 다시 만든다(패치와 같은 줄).
+drop function if exists public.get_my_diagnosis_results();
 create or replace function public.get_my_diagnosis_results()
-returns table (access_token uuid, recommended_tier diagnosis_tier, total_score numeric, created_at timestamptz)
+returns table (access_token uuid, recommended_tier diagnosis_tier, total_score numeric, created_at timestamptz, has_lead boolean)
 language plpgsql
 security definer
 stable
@@ -2397,7 +2435,8 @@ begin
   end if;
 
   return query
-    select r.access_token, r.recommended_tier, r.total_score, r.created_at
+    select r.access_token, r.recommended_tier, r.total_score, r.created_at,
+           exists (select 1 from diagnosis_leads l where l.result_id = r.id and l.user_id = auth.uid())
     from diagnosis_results r
     where r.user_id = auth.uid()
     order by r.created_at desc;
@@ -2405,5 +2444,41 @@ end;
 $$;
 
 revoke execute on function public.get_my_diagnosis_results() from bara_edu_anon;
+
+-- ===================== RPC: 내 진단 결과 지우기 = 민감정보 동의 철회 (2026-11-26) =====================
+-- 기획: bara-edu-lms.diagnosis-sensitive-consent.md 5.4절·"API 계약" C2. 로그인한 회원이 자기 계정에 연결된 결과만
+-- 행째 지운다(응답·동의 기록 함께). 없거나 남의 결과면 false — 둘을 구분하지 않는다(정의서 11.3).
+-- p_delete_leads면 그 결과에 연결된 본인 문의(user_id = 나)를 먼저 지운다. 아니면 문의는 남고 result_id만 null(FK).
+-- 비회원 결과는 결과 링크만으로 지울 수 없다(링크는 공유될 수 있음) — 전화·이메일 정정·삭제 절차로 처리한다.
+create or replace function public.delete_my_diagnosis_result(p_token uuid, p_delete_leads boolean)
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_result_id uuid;
+begin
+  if v_user_id is null then
+    raise exception 'not authorized';
+  end if;
+
+  select id into v_result_id from diagnosis_results
+  where access_token = p_token and user_id = v_user_id
+  for update;
+  if not found then
+    return false;
+  end if;
+
+  if coalesce(p_delete_leads, false) then
+    delete from diagnosis_leads where result_id = v_result_id and user_id = v_user_id;
+  end if;
+  delete from diagnosis_results where id = v_result_id;
+  return true;
+end;
+$$;
+
+revoke execute on function public.delete_my_diagnosis_result(uuid, boolean) from bara_edu_anon;
 
 reset role;

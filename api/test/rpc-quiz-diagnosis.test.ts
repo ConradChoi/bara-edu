@@ -222,7 +222,7 @@ let diagN = 0; // submit_diagnosis는 같은 연락처의 짧은 시간 내 중�
 async function submitDiagnosis(who?: string) {
   const r = await rpc('submit_diagnosis', {
     p_name: '진단자', p_phone: `010-1111-${String(++diagN).padStart(4, '0')}`, p_email: `d${diagN}@example.com`, p_learning_experience: 'none', p_certificate_level: 'level1',
-    p_consent_privacy: true, p_consent_privacy_doc_version: 1, p_age_confirmed: true, p_answers: ANSWERS,
+    p_consent_privacy: true, p_consent_privacy_doc_version: 1, p_consent_sensitive: true, p_consent_sensitive_version: 'sc-v1', p_age_confirmed: true, p_answers: ANSWERS,
   }, who);
   expect(r.statusCode, r.body).toBe(200);
   return r.json().data[0] as { access_token: string; recommended_tier: string; total_score: number };
