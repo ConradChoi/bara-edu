@@ -1,8 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { changePassword, updateContactInfo, withdraw } from '@/app/actions/account';
-import { deleteMyDiagnosisResult } from '@/app/actions/diagnosis';
-import ConfirmDialog from '@/components/ui/ConfirmDialog';
+import DeleteDiagnosisResultDialog from '@/components/diagnosis/DeleteDiagnosisResultDialog';
 import WithdrawForm from '@/components/mypage/WithdrawForm';
 import PendingClaimRedirect from '@/components/auth/PendingClaimRedirect';
 import {
@@ -332,23 +331,12 @@ function DiagnosisSection({ results, deleted, deleteError }: { results: MyDiagno
                   >
                     결과 보기
                   </Link>
-                  <ConfirmDialog
+                  <DeleteDiagnosisResultDialog
+                    token={d.accessToken}
+                    hasLead={d.hasLead}
                     triggerLabel={DELETE_RESULT_COPY.trigger}
                     triggerAriaLabel={fill(DELETE_RESULT_COPY.triggerSr, { date })}
                     triggerClassName="flex min-h-12 w-full items-center justify-center rounded-pill border border-n-3 px-4 text-[14px] font-medium text-danger sm:w-auto"
-                    title={DELETE_RESULT_COPY.title}
-                    description={DELETE_RESULT_COPY.body}
-                    confirmLabel={DELETE_RESULT_COPY.confirm}
-                    cancelLabel={DELETE_RESULT_COPY.cancel}
-                    pendingLabel={DELETE_RESULT_COPY.busy}
-                    tone="danger"
-                    size="lg"
-                    describe
-                    initialFocus="cancel"
-                    extraCheckbox={
-                      d.hasLead ? { name: 'deleteLeads', label: DELETE_RESULT_COPY.withLeads, help: DELETE_RESULT_COPY.withLeadsHelp, defaultChecked: true } : undefined
-                    }
-                    action={deleteMyDiagnosisResult.bind(null, d.accessToken)}
                   />
                 </div>
               </li>

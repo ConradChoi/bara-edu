@@ -4,6 +4,9 @@
 // `**…**`는 굵게 표시할 부분(components/diagnosis/BoldText.tsx가 해석한다).
 // {phone}·{hours}·{date}는 화면이 siteConfig·값으로 채운다(전화번호·운영시간 하드코딩 금지).
 
+// 1. /selfcheck 랜딩
+export const LANDING_NOTE = '응답과 결과는 민감정보로 다루기 때문에, 시작할 때 따로 동의를 받아요.'; // SC-LAND-NOTE
+
 // 2.1 ① 개인정보 수집·이용 동의
 export const PRIVACY_CONSENT_COPY = {
   title: '개인정보 수집·이용 동의 (필수)', // SC-PRIV-TITLE
@@ -68,6 +71,8 @@ export function isSubmitErrorCode(v: string | undefined): v is SubmitErrorCode {
 // 4. /selfcheck/result/[token]
 export const RESULT_COPY = {
   linkNotice: '이 화면 주소(결과 링크)를 아는 사람은 누구나 추천 과정과 전체 점수를 볼 수 있어요. 결과 링크는 다른 사람에게 보내지 않도록 조심해 주세요.', // SC-RES-LINK-NOTICE
+  claimWarn: '본인이 직접 응답한 결과만 연결해 주세요. 연결하면 회원 탈퇴 때나 직접 지울 때까지 보관돼요.', // SC-RES-CLAIM-WARN
+  deleteBtn: '이 진단 기록 지우기', // SC-RES-DEL-BTN
   notFoundTitle: '결과를 찾을 수 없어요', // SC-RES-NOTFOUND-TITLE
   notFoundDesc: '링크가 정확한지 확인해 주세요. 보관 기간이 지났거나 지운 결과는 열리지 않아요.', // SC-RES-NOTFOUND-DESC
   notFoundBtn: '새로 진단받기', // SC-RES-NOTFOUND-BTN

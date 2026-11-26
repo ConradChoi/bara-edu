@@ -3,6 +3,8 @@ import Link from 'next/link';
 import { cookies } from 'next/headers';
 import { claimDiagnosis } from '@/app/actions/diagnosis';
 import AutoClaim from '@/components/diagnosis/AutoClaim';
+import ClearSelfcheckDraft from '@/components/diagnosis/ClearSelfcheckDraft';
+import DeleteDiagnosisResultDialog from '@/components/diagnosis/DeleteDiagnosisResultDialog';
 import LeadForm from '@/components/diagnosis/LeadForm';
 import PendingClaimLink from '@/components/diagnosis/PendingClaimLink';
 import PrintButton from '@/components/diagnosis/PrintButton';
@@ -10,7 +12,7 @@ import RadarChart from '@/components/diagnosis/RadarChart';
 import ScoreBar from '@/components/diagnosis/ScoreBar';
 import { DIAGNOSIS_AREAS, DIAGNOSIS_DISCLAIMER, DIAGNOSIS_TIER_LABELS, RECENT_SUBMIT_COOKIE } from '@/data/diagnosis/config';
 import { RESULT_COPY } from '@/data/diagnosis/consent-copy';
-import { getDiagnosisDetail, getDiagnosisSummary } from '@/lib/supabase/diagnosis-queries';
+import { getDiagnosisDetail, getDiagnosisSummary, getMyDiagnosisResults } from '@/lib/supabase/diagnosis-queries';
 import { createClient } from '@/lib/db/server';
 
 export const metadata: Metadata = { title: '진단 결과 | 도형심리 역량진단' };
@@ -56,6 +58,7 @@ export default async function DiagnosisResultPage({
   if (user && summary.hasOwner && !summary.isOwnedByCaller) {
     return (
       <div className="mx-auto flex max-w-[420px] flex-col gap-4 px-6 py-10">
+        {isRecentSubmitter && <ClearSelfcheckDraft />}
         <ResultSummaryCard summary={summary} tierLabel={tierLabel} />
         <ResultLinkNotice />
         <div className="rounded-lg border border-warning bg-warning/10 px-4 py-3.5 text-[12.5px] font-medium text-warning">
@@ -69,6 +72,7 @@ export default async function DiagnosisResultPage({
   if (user && !summary.hasOwner && isRecentSubmitter) {
     return (
       <div className="mx-auto flex max-w-[420px] flex-col items-center gap-3 px-6 py-16 text-center">
+        <ClearSelfcheckDraft />
         <p className="text-[13px] text-n-6">결과를 연결하는 중이에요...</p>
         <AutoClaim action={claimDiagnosis.bind(null, token)} />
       </div>
@@ -80,9 +84,21 @@ export default async function DiagnosisResultPage({
 
   // 상세는 "본인 소유로 확정된 경우"에만 조회한다 — 그 외(비로그인/미귀속/확인대기)에는 요약만.
   const detail = user && summary.isOwnedByCaller ? await getDiagnosisDetail(token) : null;
+  // 소유 회원만 [이 진단 기록 지우기](SC-RES-DEL-BTN). 상담 문의 유무는 내 결과 목록의 has_lead를 쓴다(API 계약 C3).
+  // 목록을 못 읽으면 문의 체크를 잘못 빼고 지우게 될 수 있어 버튼을 숨긴다(마이페이지에서 지울 수 있다).
+  let deleteTarget: { hasLead: boolean } | null = null;
+  if (detail) {
+    try {
+      const mine = (await getMyDiagnosisResults()).find((r) => r.accessToken === token);
+      if (mine) deleteTarget = { hasLead: mine.hasLead };
+    } catch {
+      deleteTarget = null;
+    }
+  }
 
   return (
     <div className="mx-auto flex max-w-[520px] flex-col gap-5 px-6 py-10">
+      {isRecentSubmitter && <ClearSelfcheckDraft />}
       {claimDenied === '1' && (
         <div className="rounded-md border border-warning bg-warning/10 px-3.5 py-3 text-[13px] font-medium text-warning">
           결과 연결에 실패했어요. 이미 다른 계정에 연결되어 있을 수 있어요.
@@ -95,6 +111,7 @@ export default async function DiagnosisResultPage({
       {showClaimPrompt && (
         <div className="flex flex-col gap-2 rounded-lg border border-n-3 bg-n-1 p-4">
           <p className="text-[12.5px] text-n-9">이 진단 결과가 본인 것이 맞나요? 내 계정에 연결하면 상세 결과를 볼 수 있어요.</p>
+          <p className="text-[12.5px] text-n-9">{RESULT_COPY.claimWarn}</p>
           <form action={claimDiagnosis.bind(null, token)}>
             <button type="submit" className="h-10 w-full rounded-pill bg-pink text-[13px] font-semibold text-white">
               이 결과를 내 계정에 연결하기
@@ -141,6 +158,17 @@ export default async function DiagnosisResultPage({
       )}
 
       <p className="print-hide text-[11px] text-n-5">{DIAGNOSIS_DISCLAIMER}</p>
+
+      {deleteTarget && (
+        <div className="print-hide flex justify-center">
+          <DeleteDiagnosisResultDialog
+            token={token}
+            hasLead={deleteTarget.hasLead}
+            triggerLabel={RESULT_COPY.deleteBtn}
+            triggerClassName="flex min-h-12 w-full items-center justify-center rounded-pill border border-n-3 px-4 text-[14px] font-medium text-danger"
+          />
+        </div>
+      )}
     </div>
   );
 }
