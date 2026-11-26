@@ -101,7 +101,7 @@
 | EP-LOCKED-GUIDE | `locked`, 해결 안내(변경) | 이메일로 비밀번호를 새로 정할 수 있어요. 새로 정하면 가입도 함께 끝나요. |
 | EP-LOCKED-BTN | `locked`, 주 버튼(변경) | 비밀번호 새로 정하기 |
 | EP-LOCKED-ALT | `locked`, 보조 | 처음부터 다시 가입하기 / 어려우면 전화로 문의해 주세요. 전화 `{siteConfig.phone}` / 운영시간 `{siteConfig.supportHours}` |
-| EP-EXPIRED-LINE | 가입 마무리 `expired`·`invalid`, [메일 다시 받기] 아래 한 줄 | 비밀번호가 기억나지 않으면 [비밀번호 새로 정하기]를 눌러 주세요. |
+| EP-EXPIRED-LINE | 가입 마무리 `expired`·`invalid`, [메일 다시 받기] 아래 한 줄. `done`(이미 가입 완료)에서는 로그인 버튼 아래에 같은 줄을 쓰고 전화는 그 아래 보조 | 비밀번호가 기억나지 않으면 [비밀번호 새로 정하기]를 눌러 주세요. |
 | EP-EXPIRED-BTN | 위 줄의 링크 이름 | 비밀번호 새로 정하기 |
 
 - 가입 직후 안내(EP-SIGNUP-DONE)에는 "이미"·"다시"를 쓰지 않는다. 가입 여부를 암시하기 때문이다. 링크 이름도 "비밀번호 찾기"로 중립적으로 둔다.
