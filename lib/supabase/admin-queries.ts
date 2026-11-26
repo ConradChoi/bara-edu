@@ -1559,7 +1559,7 @@ export async function getAdminDiagnosisLeads(
       id: row.id,
       createdAt: row.created_at,
       resultId: row.result_id,
-      name: row.name,
+      name: isRevealed ? row.name : maskName(row.name),
       contact: isRevealed ? row.contact : maskContact(row.contact),
       isRevealed,
       message: row.message,
@@ -1569,6 +1569,14 @@ export async function getAdminDiagnosisLeads(
       userId: row.user_id,
     };
   });
+}
+
+// 이름: 첫 글자 + '**'(글자 수와 무관). api/src/ops/admin-diagnosis.ts의 maskName(진단 결과 목록)과 같은 규칙이다.
+// 첫 글자는 코드 포인트 기준(확장 한자 등이 반쪽으로 잘리지 않게).
+export function maskName(name: string | null | undefined): string {
+  const t = (name ?? '').trim();
+  if (!t) return '-';
+  return `${Array.from(t)[0]}**`;
 }
 
 // 리드의 연락처는 "휴대전화 또는 이메일" 자유 입력 단일 필드라 두 형식을 다 마스킹해야

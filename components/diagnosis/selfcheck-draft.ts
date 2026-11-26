@@ -64,3 +64,23 @@ export function isSubmitSuccessRedirect(err: unknown): boolean {
 
 // 복원할 때 들어갈 페이지. 동의는 복원하지 않으므로 항상 1페이지(인덱스 0).
 export const RESTORE_PAGE = 0;
+
+// 브라우저 임시 저장 초안(v2·옛 키)을 모두 지운다. 로그아웃 때 쓴다. 저장소에 접근할 수 없으면 조용히 넘어간다.
+export function clearSelfcheckDraft(): void {
+  try {
+    window.localStorage.removeItem(DRAFT_KEY);
+    for (const key of LEGACY_DRAFT_KEYS) window.localStorage.removeItem(key);
+  } catch {
+    // ignore
+  }
+}
+
+// 기한(24시간)이 지났거나 형식이 틀린 초안을 지운다. 공개 화면 어디서든 열리는 순간 부른다(DraftSweeper).
+export function sweepExpiredDraft(version: string, now: number): void {
+  try {
+    const raw = window.localStorage.getItem(DRAFT_KEY);
+    if (raw && !parseDraft(raw, version, now)) window.localStorage.removeItem(DRAFT_KEY);
+  } catch {
+    // ignore
+  }
+}

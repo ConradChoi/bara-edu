@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { logout } from '@/app/actions/auth';
+import LogoutForm from '@/components/layout/LogoutForm';
 
 type AppHeaderProps = {
   kind: 'public' | 'user';
@@ -29,11 +30,11 @@ export default function AppHeader({ kind }: AppHeaderProps) {
       </nav>
       <div className="flex-1" />
       {kind === 'user' ? (
-        <form action={logout}>
+        <LogoutForm action={logout}>
           <button type="submit" className="text-[12.5px] text-n-6">
             로그아웃
           </button>
-        </form>
+        </LogoutForm>
       ) : (
         <Link href="/sign-in" className="text-[12.5px] text-n-6">
           로그인

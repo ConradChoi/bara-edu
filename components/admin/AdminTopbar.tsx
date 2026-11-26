@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { logout } from '@/app/actions/auth';
+import LogoutForm from '@/components/layout/LogoutForm';
 
 export default function AdminTopbar({ adminName }: { adminName: string }) {
   return (
@@ -12,11 +13,11 @@ export default function AdminTopbar({ adminName }: { adminName: string }) {
         사이트로 이동
       </Link>
       <span className="text-[12.5px] text-n-6">{adminName}</span>
-      <form action={logout}>
+      <LogoutForm action={logout}>
         <button type="submit" className="text-[12.5px] text-n-6">
           로그아웃
         </button>
-      </form>
+      </LogoutForm>
     </header>
   );
 }

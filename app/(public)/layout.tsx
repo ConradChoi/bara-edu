@@ -1,3 +1,4 @@
+import DraftSweeper from '@/components/diagnosis/DraftSweeper';
 import AppHeader from '@/components/layout/AppHeader';
 import Footer from '@/components/layout/Footer';
 import { createClient } from '@/lib/db/server';
@@ -17,6 +18,7 @@ export default async function PublicLayout({ children }: { children: React.React
   // window.print()를 쓰지 않아 영향 없다.
   return (
     <>
+      <DraftSweeper />
       <div className="print-hide">
         <AppHeader kind={user ? 'user' : 'public'} />
       </div>
