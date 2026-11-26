@@ -27,7 +27,7 @@ export type SensitiveConsentVersion = { effectiveFrom: string | null; text: Sens
 
 export const SENSITIVE_CONSENT_VERSIONS = {
   'sc-v1': {
-    effectiveFrom: null,
+    effectiveFrom: '2026-11-26',
     text: {
       title: '**민감정보**(자가진단 응답·결과) 처리 동의 (필수)',
       what: '민감정보는 법에서 더 조심해서 다루도록 정한 정보예요.',
