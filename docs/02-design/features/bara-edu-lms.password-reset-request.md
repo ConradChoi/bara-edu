@@ -407,4 +407,218 @@ flowchart TD
 
 ## 디자인 스펙
 
-> 작성: ui-ux-designer / 상태: 대기 (이 문서 승인 후 작성)
+> 작성: ui-ux-designer / 2026-11-26 / 상태: Draft (F8 문구 검수 대기)
+> 입력: 위 1~11장과 "대표 결정", `app/(auth)/layout.tsx`, `components/auth/{AuthForm,PasswordField,ResetPasswordForm,ResendConfirmationForm,SignupFinishForm,SignupLinkStatus}.tsx`, `components/error/styles.ts`, `bara-edu-lms.signup-verify-password.md`의 '## 디자인 스펙'(V-0 공통 클래스).
+> **문구는 쓰지 않는다.** 아래 `[슬롯 이름]`은 ux-writer가 `bara-edu-lms.password-reset-request-copy.md`에서 채운다. 9장 초안은 레이아웃 검증용이며, 줄 수 가정(360px에서 제목 2줄, 안내 3줄 이내)이 깨지면 다시 확인한다.
+> 새 디자인 토큰은 만들지 않는다. `@theme`의 `indigo`, `danger`, `success`, `n-0~9`, `arc-1`, `rounded-md/lg/pill`과 Tailwind 기본 스케일만 쓴다. 코드는 바꾸지 않았다.
+
+### P-0. 핵심 행동과 설계 결정
+
+| 화면 | 단 하나의 핵심 행동 |
+|---|---|
+| `/forgot-password` 입력 | 이메일을 넣고 주 버튼을 누른다 |
+| 보냄 | 메일함을 열러 간다(화면에서 할 일은 없다. 채운 버튼 없음) |
+| `/reset-password` | 새 비밀번호를 정하고 주 버튼을 누른다. 오류 상태에서는 [재설정 메일 다시 받기] |
+
+| # | 결정 | 이유 |
+|---|---|---|
+| 1 | 새 화면은 가입 마무리 화면과 같은 "큰 글씨 계열"(`PasswordField`의 `INPUT_LG`·`FOCUS_RING`, `PRIMARY_BTN`·`SECONDARY_BTN`)로 만든다. `AuthForm`의 13px·`bg-pink` 계열은 쓰지 않는다 | 시니어 기준(본문 16px 이상, 칸 56px). 핑크 위 흰 글씨는 AA 근소 미달(V-0 #1). 16px 미만 입력은 iOS 인앱 브라우저에서 확대된다 |
+| 2 | 채운 버튼은 화면마다 1개(인디고). 나머지는 윤곽선 버튼 또는 텍스트 링크 | 가입 마무리 V-0 #5와 같은 규칙 |
+| 3 | 하단 고정 버튼·모달·토스트를 쓰지 않는다. 모든 안내는 폼 흐름 안에 둔다 | 인앱 브라우저 키보드·JS 지연 대비, 토스트는 시니어가 놓친다 |
+| 4 | 보냄 상태는 같은 URL 안에서 입력 폼을 대체한다(`AuthForm`의 `pendingConfirmation` 방식) | 뒤로 가기로 이메일 입력이 다시 열리면 오히려 헷갈린다. URL에 이메일을 싣지 않는다(질문 6) |
+| 5 | 오류·성공 글자색은 `n-9`/`n-8`. `danger`·`success`는 아이콘과 왼쪽 굵은 선에만 쓴다 | `danger` 약 3.9:1은 본문 글씨로 미달(V-0 #2). 색만으로 구분하지 않는다 |
+
+### P-1. `/forgot-password` 레이아웃
+
+바깥은 `app/(auth)/layout.tsx` 그대로(`AppHeader kind="public"`, `max-w-[440px] px-6 py-10`, `Footer`). 카드 테두리·배경 없이 흰 바탕 한 열(로그인·재설정과 같음). 좌측 정렬, 칸 간격 `gap-5`.
+
+공통 클래스 이름은 가입 마무리 스펙 V-0의 것을 쓴다(`focus-ring`=`FOCUS_RING`, `field-label`, `input-lg`=`INPUT_LG`에서 `pr-[76px]` 뺀 것, `notice-danger`, `notice-info`, `btn-primary`=`PRIMARY_BTN`, `btn-outline`=`SECONDARY_BTN`).
+
+#### P-1.1 입력 (기본)
+
+```
+h1  [제목]                 text-2xl font-bold md:text-[28px] break-keep, tabIndex=-1, scroll-mt-20
+p   [안내]                 mt-3 text-lg leading-[1.7] text-n-7 break-keep   (id=forgot-desc)
+form  action={서버 액션}  noValidate 아님(브라우저 검증은 보조), flex flex-col gap-5 mt-8
+  field  label[칸 라벨]    field-label
+         p  [도움말]       field-hint(text-sm text-n-6)  id=forgot-email-hint
+         input#forgot-email  input-lg  type=email  inputMode=email  autoComplete=email
+               autoCapitalize=none  spellCheck=false  maxLength=254  required
+               aria-describedby="forgot-email-hint [forgot-email-error]"
+         (오류 시) p#forgot-email-error  칸 아래, 아이콘+글(P-1.4)
+  button[submit]  btn-primary  min-h-14  [주 버튼] / 제출 중 [제출 중 버튼]
+a   [로그인 화면으로]  /sign-in  LINK_CLASS(`min-h-11 text-base text-indigo underline underline-offset-4` + focus-ring)  mt-1 
+hr  border-t border-n-3 pt-5
+p   [하단 전화 안내]  text-base leading-[1.7] text-n-7 + PhoneButton 패턴(`tel:`, SECONDARY_BTN `!flex-col !gap-0 !py-2`, 번호 text-xl) + 운영시간 text-sm text-n-6
+```
+
+- 이유: 한 화면 입력 1칸 + 버튼 1개(정의서 7장). 도움말을 칸 위에 둬서 입력 전에 "휴대폰·이름은 안 묻는다"가 읽힌다.
+- 전화 영역은 `SignupLinkStatus`의 `Phone`과 `SignupFinishForm`의 전화 버튼이 같은 마크업을 중복해서 쓰고 있다. 이번에 세 번째 복사를 만들지 말고 `components/auth/`에 `SupportPhone`으로 추출해 재사용할 것을 권장한다(기존 두 곳은 같은 PR에서 교체하거나 후속).
+- 로그인 상태로 열었을 때의 `/my` 안내 한 줄(정의서 2장, 선택)은 하단 전화 영역 위에 `notice-info`로 둔다.
+
+#### P-1.2 제출 중
+
+입력 화면 그대로. 바뀌는 것은 버튼뿐이다: 비활성(`disabled:opacity-60`), `aria-busy=true`, 앞에 `RefreshIcon size-5 animate-spin motion-reduce:animate-none`(`SignupFinishForm` 버튼과 같음) + [제출 중 버튼]. 칸은 읽기 전용으로 만들지 않는다(정의서 2.1). 스크린리더에는 별도 안내를 하지 않는다(응답 결과가 곧 안내).
+
+#### P-1.3 보냄 (200)
+
+같은 컨테이너에서 폼을 대체한다. 이전 화면의 h1이 사라지므로 새 h1로 포커스를 옮긴다(P-5).
+
+```
+section[aria-labelledby=forgot-sent-title]  flex flex-col
+  원형 아이콘 칸  size-14 md:size-16 rounded-pill bg-n-1 text-indigo + CheckIcon (SignupLinkStatus와 같은 틀. 체크가 아니라 메일 아이콘이 있으면 MailIcon, 없으면 CheckIcon)
+  h1#forgot-sent-title  [보냄 제목]  TITLE_CLASS(SignupLinkStatus와 같음) tabIndex=-1
+  div  notice-info(아이콘 없음) 안에 [보냄 본문](이메일은 <span class="break-all font-semibold">)  mt-3
+  p   [링크 유효시간·본인 미요청 안내]  mt-3 text-lg text-n-7
+  ul  [안 올 때] 목록 text-base leading-[1.7] text-n-7 list-disc pl-5 mt-5  (스팸함, 주소 확인, 전화)
+  div.mt-8.flex.flex-col.gap-3
+     form(같은 서버 액션, hidden email)  button  btn-outline(채우지 않는다)  [다시 받기 버튼]
+     p#resend-hint  text-sm text-n-6  [다시 받기 보조문]
+     button[type=button]  LINK_CLASS  [다른 이메일로 다시 입력]   → 입력 화면으로, 칸 비움, 이메일 칸에 포커스
+     a  LINK_CLASS  [로그인 화면으로]
+  SupportPhone(전화 영역)  [안 올 때]의 전화 항목과 중복하면 목록에서는 문구만 두고 번호 버튼은 이 한 곳에만 둔다
+```
+
+- 이 화면에는 채운 인디고 버튼이 없다. 사용자의 다음 행동은 앱 밖(메일함)이라 앱 안에서 누를 주 행동이 없기 때문이다. 대신 [다시 받기]를 윤곽선으로 두어 "아직 더 할 일이 있는 것처럼" 눈길을 빼앗지 않게 한다.
+- [다시 받기 버튼]은 60초 동안 `aria-disabled=true`(스크립트가 클릭을 막음, `disabled`는 쓰지 않아 포커스를 잃지 않음). 버튼 안 글자는 [다시 받기 버튼]만 두고, 남은 시간은 `#resend-hint` 옆에 숫자 텍스트로 눈에만 보이게 갱신한다(`aria-hidden`). 시각적으로는 `opacity-60`과 `cursor-not-allowed`, 테두리 색 유지.
+- 다시 제출에 성공하면 화면을 바꾸지 않고 `#resend-status`(`aria-live=polite`, `notice-info`) 한 줄만 갱신하고 카운트를 다시 시작한다. 포커스는 버튼에 그대로 둔다.
+- JS가 없으면 카운트가 없고 버튼은 활성이다(정의서 7장). 서버 한도가 막는다.
+
+#### P-1.4 오류 상태 (입력 유지, 포커스 규칙은 P-5)
+
+| 상태 | 위치와 모양 | 포커스 | 동작 |
+|---|---|---|---|
+| 칸 비어 있음 / 형식 오류 (클라이언트, 서버 호출 없음) | 칸 바로 아래 `p#forgot-email-error`: `AlertIcon size-5 text-danger` + [칸 오류 문구], `text-base text-n-9`. 칸은 `aria-invalid=true`(`INPUT_LG`가 빨간 테두리 처리) | 이메일 칸 | 제출 시와 blur 시. 입력을 고치기 시작해도 제출 전까지 유지하고, 다음 제출에서 재평가 |
+| 429 (IP 제한) | 칸 위 `notice-danger`(`role="alert"`, `AlertIcon size-6`, 왼쪽 `border-l-4 border-danger`): [429 안내] | 포커스 이동 없음. alert가 읽어 준다 | 입력값 유지. 주 버튼 그대로 다시 누를 수 있다(자동 재시도·카운트다운 없음. IP 제한 대기 시간을 알 수 없다) |
+| 연결 불가 (503·네트워크) | 같은 `notice-danger`: [연결 불가 안내] | 같음 | 입력값 유지. 주 버튼 아래에 `SupportPhone` 노출 |
+| 기타 실패 (400 origin 등) | 같은 `notice-danger`: [기타 실패 안내] | 같음 | 주 버튼 아래 `SupportPhone` |
+
+- 429와 연결 불가는 모양이 같고 문구만 다르다. 시니어에게 상태 종류를 색·아이콘으로 나누면 오히려 혼란스럽다(가입 마무리 `failKind` 알림과 같은 판단).
+- 서버 오류 알림은 폼 위, 칸 오류는 칸 아래로 두 층을 나눈다. 동시에 둘이 뜨는 일은 없다(형식 오류는 서버를 부르지 않으므로).
+- 서버 액션이 돌려준 오류 상태는 JS가 없어도 그려지도록 서버 렌더에서도 같은 마크업으로 나온다.
+
+### P-2. `/reset-password` 변경분 (`ResetPasswordForm.tsx`)
+
+현재 이 폼은 13px 칸·`bg-pink` 버튼·12.5px `text-danger`라 새 요구(시니어·대비)와 어긋난다. 이번에 손대는 화면이므로 **같은 파일에서 large 계열로 맞출 것을 권장한다**(가입 마무리 V-0 #1이 "새로 만들거나 손대는 화면은 큰 글씨"로 한 것과 같은 원칙). 범위를 줄이려면 아래 (a)(b)(c)(d)만 하고 크기 정리는 후속으로 둔다. 이 경우 후속 TBD를 남긴다.
+
+```
+h1  (페이지의 기존 제목 유지, TITLE 클래스 정렬은 page.tsx에서)
+form  flex flex-col gap-5
+  p  [안내 한 줄: 모든 기기 로그아웃]   text-base leading-[1.7] text-n-7 break-keep  id=reset-note   (칸 위, 폼 맨 앞)
+  PasswordField  id=reset-password  name=password  label=[새 비밀번호 라벨]  hint=[8자 이상 힌트]
+                 shown/onToggle(공유)  toggleName=[토글 이름]  controls="reset-password reset-confirm"
+                 autoComplete=new-password  required  maxLength=200  describedBy=reset-note
+  PasswordField  id=reset-confirm   name=confirm   label=[새 비밀번호 확인 라벨]
+                 같은 shown 상태 공유(가입 폼 대표 결정과 같음)  invalid/describedBy 연결
+  div[aria-live=polite]  확인 칸 일치 안내(AuthForm의 ConfirmNote 패턴 재사용: 불일치는 AlertIcon, 일치는 CheckIcon, 입력 도중에는 띄우지 않고 blur·제출 때 비교)
+  (서버 오류) notice-danger role=alert
+  button[submit]  btn-primary
+```
+
+- (a) 보기/숨기기: `PasswordField`를 그대로 재사용한다(새 컴포넌트 없음). 두 칸이 같은 `shown`을 공유한다. 제출 때 `setShown(false)`로 숨김으로 되돌린다(`AuthForm`과 같음).
+- (b) 안내 한 줄: 칸 위에 둔다. 칸 아래에 두면 제출 직전에야 읽기 때문이다. 두 칸의 `aria-describedby`에 연결해 첫 칸에 포커스가 올 때 같이 읽힌다. `text-n-7` 이상(5:1 이하 글자색 금지).
+- (c) `autoComplete="new-password"`는 `PasswordField` props로 들어간다. 사용자 이름 칸(`sr-only` 이메일)은 이 화면이 이메일을 모르므로 두지 않는다.
+- (d) 오류 상태에서도 사용자가 입력한 비밀번호는 지우지 않는다(정의서 3장). 제어 입력으로 값을 유지한다.
+
+#### P-2.1 토큰 없음·형식 오류 (현재 `!token` 분기)
+
+`SignupLinkStatus`의 `expired/invalid` 틀을 따른다: 원형 아이콘 칸(`ClockIcon`) + h1(`tabIndex=-1`) + 본문 [링크 오류 본문] + 아래 버튼 영역.
+- 버튼 영역: `Link href="/forgot-password"` **`PRIMARY_BTN`**: [재설정 메일 다시 받기] (채운 버튼 1개), 그 아래 `LINK_CLASS` [로그인 화면으로].
+- 현재의 빨간 글씨 한 줄은 쓰지 않는다(`danger` 본문색 미달).
+
+#### P-2.2 만료·이미 사용·잘못된 토큰 (제출 뒤 `invalid_token`)
+
+폼은 그대로 두고(입력 유지) 폼 맨 위에 `notice-danger role="alert"`: [만료 오류 본문]. 그 알림 **안쪽 맨 아래**에 `Link href="/forgot-password"`를 `SECONDARY_BTN`으로 둔다: [재설정 메일 다시 받기].
+- 이유: 이 상태에서 사용자가 진짜 할 일은 새 링크를 받는 것인데, 아래의 [비밀번호 변경] 채운 버튼이 같은 힘으로 보이면 만료된 링크로 다시 눌러 같은 오류를 반복한다. 그래서 알림 안의 링크를 윤곽선 버튼으로 크게 두고, 제출 버튼은 유지하되 채운 버튼이 둘이 되지 않게 한다(링크는 윤곽선, 제출은 채움).
+- 이 오류가 뜨면 포커스는 알림으로 옮기지 않는다(`role=alert`가 읽는다). 단, 알림 안 링크가 첫 탭 대상이 되도록 DOM 순서를 알림 → 폼 칸 순으로 둔다.
+- 연결 불가(503)는 `notice-danger`에 [연결 불가 안내]만, 링크 없음. 입력 유지.
+
+### P-3. 진입점 링크 배치
+
+공통 원칙: 비밀번호를 잊은 사람이 눈으로 찾는 자리, 즉 **비밀번호 칸·실패 알림 바로 아래**에 둔다. 텍스트 링크는 모두 `LINK_CLASS`(터치 영역 `min-h-11` = 44px 이상). 문구는 슬롯 이름으로 참조한다.
+
+| 화면 | 위치 | 모양 | 순서·강조 |
+|---|---|---|---|
+| 로그인 (`AuthForm` mode=signin) | 비밀번호 칸 바로 아래, 칸 왼쪽 정렬 한 줄 | `Link href="/forgot-password"` `LINK_CLASS` [로그인 화면의 비밀번호 링크] | 오른쪽 정렬로 두지 않는다(정의서 9.3). 로그인 버튼 위. 로그인 실패 알림(`state.error`)이 있어도 칸·버튼 사이 위치는 그대로 |
+| 로그인 시 인증 대기 (`source=login`) | 안내 단락과 `ResendConfirmationForm` 구분선 사이 | `btn-outline` 크기가 아닌 `LINK_CLASS` 한 줄 + [인증 대기 화면 링크 설명]. 메일 다시 받기 영역 위 | 재설정 링크가 메일 재전송보다 위. 재설정은 가입도 함께 끝나므로 먼저 안내한다(질문 8과 같은 논리) |
+| 가입 직후 안내 (`pendingConfirmation`, source=signup) | 기존 "메일이 오지 않았거나…" 구분선 영역 아래, 보조 `LINK_CLASS` | `href="/forgot-password"` [가입 직후 보조 링크] | 보조. 가입 여부를 암시하는 문구 금지(정의서 9.3) |
+| 가입 마무리 `ready` 의 "비밀번호가 기억나지 않아요" `<details>` (`SignupFinishForm`) | `details` 본문 **맨 위** | `Link href="/forgot-password"` **`PRIMARY_BTN`**(채운 버튼): [비밀번호 새로 정하기]. 그 아래에 기존 [처음부터 다시 가입하기]를 `SECONDARY_BTN`에서 **`LINK_CLASS` 텍스트 링크로 낮춘다**, 그 아래 전화 | 대표 결정 8. 이 상태에서는 `details` 안에 채운 버튼이 새로 생기지만, 폼의 [가입 완료하기]도 채운 버튼이라 한 화면에 2개가 된다. **`<details>`가 닫혀 있을 때는 보이지 않으므로 문제는 열렸을 때뿐이고, 이때 [가입 완료하기]는 계속 주 행동이다.** 혼란을 줄이려면 `details` 안 버튼을 `SECONDARY_BTN`으로 두고 순서만 앞세우는 안도 있다 → P-7 #1 |
+| 가입 마무리 `ready`, 오답 알림 목록의 마지막 항목(남은 2회 이하) | 알림 안 목록 항목 | 문구 슬롯 [오답 힌트의 재설정 안내]. 링크는 `LINK_CLASS`. 이미 열린 `details`를 가리키기만 하는 문구로 두지 말고 직접 링크로 한다 | 기존 "아래에서 다시 가입할 수 있어요" 항목을 대체 |
+| 가입 마무리 `locked` (`SignupLinkStatus`) | 액션 영역 맨 위 | `Link href="/forgot-password"` **`PRIMARY_BTN`** [비밀번호 새로 정하기]. 기존 [처음부터 다시 가입하기]는 `SECONDARY_BTN`으로 내린다. 전화 영역은 그대로 | 이 화면의 핵심 행동이 "다시 가입"에서 "비밀번호 새로 정하기"로 바뀐다(대표 결정 8). 본문 두 번째 단락도 ux-writer가 맞춘다 |
+| 가입 마무리 `expired`·`invalid` | 액션 영역에서 `ResendConfirmationForm size="lg"`(그 화면의 채운 버튼) 아래, [처음부터 다시 가입하기] 위 | `LINK_CLASS` 한 줄 [만료 화면의 재설정 링크] | 대표 결정 8은 `locked`·`expired`·기억나지 않아요를 "먼저"로 하지만, `expired`의 핵심 행동은 메일 다시 받기라 채운 버튼은 유지하고 재설정은 바로 아래 텍스트 링크로 둔다. 이견이 있으면 P-7 #2 |
+| `/reset-password` 오류 | P-2.1, P-2.2 | 위 참조 | — |
+| `already_registered` 메일 | 본문의 URL 한 줄(`{origin}/forgot-password`). 화면 디자인 대상 아님 | — | — |
+
+- `/sign-in?reset=1` 성공 배너(`bg-success/10 border-success`, 13px/12px)에 한 줄을 더할 때: 배너를 키우려면 제목·본문 글자를 `text-base`로 올리고 본문 색을 `n-8`로 한다(현재 `text-success` 글씨는 미달). 범위를 줄이면 문구만 추가하고 크기 정리는 후속.
+
+### P-4. 모바일 360px
+
+- 카드 폭: 360 - 48(`px-6`) = **312px**. 입력·버튼 `w-full` 312px. 데스크톱에서도 `max-w-[440px]`(칸 폭 변화 없음).
+- 칸 높이 56px(`h-14`), 버튼 `min-h-14`(문구가 2줄이 되면 늘어난다). 글씨 칸·버튼 16px 이상(iOS 확대 방지).
+- 터치 영역: 모든 링크 `min-h-11`(44px), 인접 터치 대상 간격 8px 이상(`gap-3`). `PasswordField`의 [보기] 토글은 `h-12 min-w-[60px]`(이미 충족).
+- 제목 `text-2xl`(24px), 줄 수 2줄 이내 가정. `break-keep`로 어절 단위 줄바꿈. 이메일은 `break-all`(보냄 화면 본문, 길면 3줄까지 허용).
+- 전화 버튼 번호 `whitespace-nowrap text-xl`(기존)이 312px에서 넘치지 않는지 확인(가입 마무리와 같은 마크업이라 통과 가정, 360px 스크린샷 확인 필요).
+- 가로 스크롤 없음. 키보드가 올라와도 버튼이 가려지지 않도록 하단 고정 요소 없음. 보냄 화면 전체 길이는 한 화면을 넘길 수 있고(스팸함 목록·전화 영역) 세로 스크롤은 허용. 제목과 [다시 받기]는 첫 스크롤 없이 보여야 한다(안 올 때 목록은 그 아래).
+- 확대(200%)·큰 글씨 설정에서 버튼 문구가 잘리지 않게 `min-h`만 쓰고 `h-`로 고정하지 않는다.
+
+### P-5. 포커스 관리와 스크린리더
+
+| 시점 | 포커스 | 알림 |
+|---|---|---|
+| 페이지 진입 (`/forgot-password`) | 자동 포커스 없음(`autofocus` 금지. 시니어·스크린리더가 안내문을 건너뛰게 된다). 첫 탭이 이메일 칸 | — |
+| 형식·빈 값 오류(제출 시) | 이메일 칸으로 이동 | `aria-invalid`와 `aria-describedby`로 읽힌다. 별도 `role=alert`는 중복이라 쓰지 않는다. 단 Enter로 제출해 이미 칸에 포커스가 있으면 새 오류가 안 읽히는 문제(`SignupFinishForm` 주석, 2026-11-26 QA)가 있으므로 칸 아래 오류 `<p>`는 `role="alert"`를 단다 |
+| 보냄으로 전환 | `#forgot-sent-title`(`tabIndex=-1`)로 이동 | 화면이 새로 그려지므로 제목이 읽힌다. 추가로 `aria-live`를 중복해서 달지 않는다(포커스 이동만으로 처음부터 읽힌다). 다만 JS 없이 서버 렌더로 전환된 경우 새 페이지이므로 브라우저가 처음부터 읽는다 |
+| [다른 이메일로 다시 입력] | 입력 화면의 이메일 칸으로 이동(칸 비움) | — |
+| 다시 받기 성공 | 포커스 유지(버튼) | `#resend-status`(`aria-live=polite`)에 [다시 보냈어요] 한 줄 |
+| 다시 받기 활성화 | 포커스 이동 없음 | `#resend-status`에 [이제 다시 받을 수 있어요]를 한 번만. 카운트 숫자는 `aria-hidden`이며 초마다 읽지 않는다. 시작 때도 [1분 뒤 안내]를 한 번만(보냄 본문에 이미 있으면 중복 읽기가 되므로 보냄 화면 진입 알림에는 넣지 않고 `aria-describedby="resend-hint"`로 버튼에 연결) |
+| 429·연결 불가·기타 실패 | 이동 없음 | 알림 `role="alert"`(즉시). 입력값·포커스는 그대로 |
+| `/reset-password` 확인 칸 불일치 | 제출 시에만 확인 칸으로 이동(`AuthForm`과 같음). blur 때는 이동 없이 `aria-live=polite` 알림만 | `ConfirmNote` 패턴 재사용 |
+| `/reset-password` `invalid_token` | 이동 없음 | 알림 `role="alert"` |
+| `/reset-password` 토큰 없음 | 제목(`tabIndex=-1`) — 서버 렌더 초기 상태이므로 포커스 이동 없이 자연스럽게 위에서부터 읽힌다 | — |
+
+- 모든 버튼·링크 포커스 링은 `FOCUS_RING`(3px 인디고, offset 2). 포커스 링이 가려지지 않게 `overflow-hidden` 부모를 피한다.
+- 아이콘은 모두 `aria-hidden`. 의미는 글로 전한다(체크·경고 아이콘 단독 사용 금지).
+- `prefers-reduced-motion`: 스피너는 `motion-reduce:animate-none`.
+- 오류 문구는 사용자를 탓하지 않는다(F8 문구에서 확인). 화면에서 `~해요`체와 이모지·느낌표 금지는 ux-writer 기준을 따른다.
+
+### P-6. 컴포넌트 매핑 (publisher·frontend-developer용)
+
+| 용도 | 쓸 것 | 신규 여부 |
+|---|---|---|
+| 이메일 칸·라벨 | `INPUT_LG`(`PasswordField.tsx`에서 import, `pr-[76px]`는 `.replace(' pr-[76px]', '')`로 제거. `ResendConfirmationForm size="lg"`와 같은 방식) | 재사용 |
+| 포커스 링 | `FOCUS_RING` | 재사용 |
+| 주·보조 버튼 | `PRIMARY_BTN`, `SECONDARY_BTN`(`components/error/styles.ts`) | 재사용 |
+| 텍스트 링크 | `SignupLinkStatus.tsx`의 `LINK_CLASS` | 현재 파일 안 비공개 상수. 세 곳 이상에서 쓰므로 `components/error/styles.ts`로 올려 export할 것을 권장 |
+| 상단 원형 아이콘·제목 틀 | `SignupLinkStatus`의 마크업(`TITLE_CLASS`, `DESC_CLASS`) | 비공개 상수. 같은 이유로 export 권장(또는 `AuthStatusHeader`로 추출). 최소 범위는 값을 복사하지 않고 export |
+| 비밀번호 칸·[보기] 토글 | `PasswordField` | 재사용(변경 없음) |
+| 아이콘 | `components/error/icons`의 `AlertIcon`, `CheckIcon`, `ClockIcon`, `RefreshIcon`, `PhoneIcon`(메일 아이콘이 없으면 `CheckIcon`을 쓰고 새 아이콘을 만들지 않는다) | 재사용 |
+| 오류·안내 박스 | `SignupFinishForm`의 `NOTICE` 상수(`notice-danger`)와 같은 클래스 | 비공개 상수. 세 번째 사용이므로 `components/auth/`에서 공용으로 export 권장 |
+| 전화 영역 | `SignupLinkStatus`의 `Phone`, `SignupFinishForm`의 전화 버튼 | 중복 마크업. `SupportPhone`으로 추출 권장 |
+| 폼 | `ForgotPasswordForm.tsx`(신규) — `ResendConfirmationForm size="lg"`의 구조(`useActionState`, 성공 시 `doneRef.focus()`)를 기준으로 | 신규(요소는 모두 위 재사용) |
+| 확인 칸 일치 안내 | `AuthForm`의 `ConfirmNote` 로직 | 지금은 `AuthForm` 안에 인라인. 재설정 폼에서 쓰려면 작은 훅(`usePasswordConfirm`)으로 추출 권장 |
+
+디자인 토큰: 새 값 없음. 확정 전 TBD 항목 없음(전부 기존 `@theme` 토큰). 구현자가 임의 px·색을 쓰지 않는다.
+
+### P-7. 확인·결정이 필요한 점과 사용성 위험
+
+1. 가입 마무리 `<details>` 안에서 [비밀번호 새로 정하기]를 채운 버튼으로 둘지(위 P-3). 안 A(권장): `<details>` 안 첫 버튼을 `SECONDARY_BTN`으로 두고 [처음부터 다시 가입하기]를 텍스트 링크로 낮춘다. 폼의 [가입 완료하기]가 유일한 채운 버튼으로 남는다. 안 B: 채운 버튼으로 둔다(대표 결정 8을 가장 강하게 반영하지만 한 화면 채운 버튼 2개). `locked` 화면은 [가입 완료하기]가 없으므로 어느 안이든 채운 버튼으로 둔다.
+2. `expired·invalid`에서 재설정을 채운 버튼으로 올릴지(위 P-3). 권장은 메일 다시 받기를 채운 버튼으로 유지(링크가 만료됐을 뿐 비밀번호를 잊었다는 증거는 없다)하고 재설정은 바로 아래 한 줄로 둔다. 대표 결정 8의 "먼저"를 문자 그대로 적용하려면 순서만 바꾼다.
+3. `/reset-password`를 large 계열로 전면 정리할지, 필요한 4가지(보기·안내·오류 링크·autocomplete)만 할지. 권장은 전면 정리(작은 글씨·핑크 버튼 폼에 큰 글씨 칸이 섞이는 것이 더 어색하다).
+4. 이 화면이 `AuthForm`의 로그인 오류 알림(12.5px `text-danger`, 미달)과 한 흐름으로 이어진다. 로그인 쪽의 대비·크기 정리는 이번 범위 밖(가입 마무리 V-9와 같은 제안). 로그인에 링크만 추가한다.
+5. 보냄 화면에서 "가입된 이메일이 맞다면"의 조건 문구는 불안을 키울 수 있다. 문구 쪽(ux-writer)에서 "메일이 오지 않을 때"를 바로 이어 보이도록 위 레이아웃의 순서(본문 → 유효시간 → 안 올 때 목록)를 유지한다.
+6. 60초 카운트다운은 스크린리더·JS 없는 환경에서 가장 깨지기 쉬운 부분이다. QA에서 TalkBack·VoiceOver로 시작·종료 안내가 각각 한 번인지 확인한다(F8 이후).
+
+### P-8. F1~F8 반영 상태 (이 기능)
+
+| 단계 | 상태 |
+|---|---|
+| F2 토큰 | 기존 `@theme` 사용, 신규 없음(위 P-6) — 완료 |
+| F3~F6 와이어프레임 | 이 절의 텍스트 와이어프레임(P-1~P-3) — Draft. Figma 시안은 별도 |
+| F7 모바일 | P-4 — Draft |
+| F8 카피 | ux-writer 검수 대기(`...password-reset-request-copy.md`) |
+
+### P-7 처리 (2026-11-26, 진행 결정)
+
+- 1·2: 디자이너 추천대로 한다. 대표 결정 8은 "순서를 앞세운다"는 뜻으로 보고, 채운 버튼은 화면마다 하나만 둔다.
+- 3: 같은 변경에서 `ResetPasswordForm`을 큰 스타일로 맞춘다.
+- 4: `LINK_CLASS`·`NOTICE`·전화 안내 블록(`SupportPhone`)은 공용으로 꺼내 재사용한다. 동작 변경 없이 옮기기만 한다.
