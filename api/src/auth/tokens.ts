@@ -43,7 +43,9 @@ export async function consumeEmailTokenIn(tx: Tx, token: string, purpose: TokenP
   return r.rowCount === 0 ? null : r.rows[0].user_id;
 }
 
-// 락 순서 규칙: 이메일 토큰 -> 가입 시도(auth.signup_attempts) -> 사용자(auth.users) -> profiles.
+// 락 순서 규칙: 이메일 토큰 -> 가입 시도(auth.signup_attempts) -> 사용자(auth.users)
+//   -> 2단계 인증(mfa_challenges -> mfa_enroll_tickets -> mfa_enrollments -> mfa-fail advisory lock -> mfa_factors -> mfa_recovery_codes
+//      -> mfa_account_state, auth/mfa.ts lockUserMfaIn) -> profiles.
 // verify-email·reset-password는 토큰을 먼저 갱신한 뒤 사용자를 갱신한다. 사용자 행을 먼저 잠그는 경로(재가입 덮어쓰기, 탈퇴,
 // 비밀번호 변경)는 시작할 때 이 함수로 그 회원의 토큰 행부터 잠가 같은 순서를 지킨다(AB-BA 데드락 방지).
 export async function lockUserTokensIn(tx: Tx, userId: string): Promise<void> {

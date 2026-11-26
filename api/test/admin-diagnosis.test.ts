@@ -23,9 +23,9 @@ beforeAll(async () => {
   await app.ready();
   adminId = (await q("insert into auth.users (email, email_confirmed_at, raw_user_meta_data) values ('adm@example.com', now(), '{\"name\":\"관리자A\"}') returning id"))[0].id;
   await q(`begin; set local session_replication_role = replica; update profiles set role='admin' where id='${adminId}'; commit`);
-  adminToken = (await createSession(ctx.pool, adminId, 30)).token;
+  adminToken = (await createSession(ctx.pool, adminId, 30, { mfaMethod: 'totp' })).token;
   learnerId = (await q("insert into auth.users (email, email_confirmed_at) values ('lrn@example.com', now()) returning id"))[0].id;
-  learnerToken = (await createSession(ctx.pool, learnerId, 30)).token;
+  learnerToken = (await createSession(ctx.pool, learnerId, 30, { mfaMethod: 'totp' })).token;
 });
 afterAll(async () => {
   await app.close();

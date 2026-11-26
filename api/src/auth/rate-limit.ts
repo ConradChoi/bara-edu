@@ -9,7 +9,7 @@ export function normalizeEmail(raw: string): string {
   return raw.trim().toLowerCase();
 }
 
-async function reserveIn(tx: Tx, bucket: string, key: string, limit: number, windowSeconds: number): Promise<string | null> {
+export async function reserveIn(tx: Tx, bucket: string, key: string, limit: number, windowSeconds: number): Promise<string | null> {
   await tx.query(
     `delete from auth.rate_events where id in (
        select id from auth.rate_events where created_at < now() - make_interval(secs => $1::int)

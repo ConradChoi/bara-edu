@@ -23,9 +23,9 @@ beforeAll(async () => {
   await app.ready();
   adminId = (await q("insert into auth.users (email, email_confirmed_at, raw_user_meta_data) values ('adm@example.com', now(), '{\"name\":\"관리자A\"}') returning id"))[0].id;
   await q(`begin; set local session_replication_role = replica; update profiles set role='admin' where id='${adminId}'; commit`);
-  adminToken = (await createSession(ctx.pool, adminId, 30)).token;
+  adminToken = (await createSession(ctx.pool, adminId, 30, { mfaMethod: 'totp' })).token;
   const l = (await q("insert into auth.users (email, email_confirmed_at) values ('lrn@example.com', now()) returning id"))[0].id;
-  learnerToken = (await createSession(ctx.pool, l, 30)).token;
+  learnerToken = (await createSession(ctx.pool, l, 30, { mfaMethod: 'totp' })).token;
 });
 afterAll(async () => {
   await app.close();
@@ -369,7 +369,7 @@ test('이력 조회: 다른 action(조회·수정)은 섞이지 않고, 비관�
   expect((await op('admin.listMemberProfileEdits', { memberId: m.id, limit: 0 })).statusCode).toBe(400);
   const a2 = (await q("insert into auth.users (email, email_confirmed_at) values ('adm2@example.com', now()) returning id"))[0].id;
   await q(`begin; set local session_replication_role = replica; update profiles set role='admin' where id='${a2}'; commit`);
-  const t2 = (await createSession(ctx.pool, a2, 30)).token;
+  const t2 = (await createSession(ctx.pool, a2, 30, { mfaMethod: 'totp' })).token;
   await update(base(m.id), t2);
   await q("update profiles set status = 'withdrawn' where id = $1", [a2]);
   const d = (await op('admin.listMemberProfileEdits', { memberId: m.id })).json().data;

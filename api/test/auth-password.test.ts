@@ -301,7 +301,8 @@ test('reset-password: 관리자 계정이면 접속 기록 한 줄(IP 원문 포
   const token = await resetToken(email);
   const r = await post('/v1/auth/reset-password', { token, newPassword: 'brandnew123' }, { 'x-bara-client-ip': '2001:db8:1:2:3:4:5:6' });
   expect(r.statusCode).toBe(200);
-  expect(await resetLogs(id)).toEqual([{ admin_id: id, target_user_id: id, action: '비밀번호재설정', detail: '재설정 메일 링크', ip_address: '2001:db8:1:2:3:4:5:6' }]);
+  // 다른 관리자·운영 주소가 없으면 ;alert=self_only가 붙는다(관리자 2단계 인증 기획서 2.13)
+  expect(await resetLogs(id)).toEqual([{ admin_id: id, target_user_id: id, action: '비밀번호재설정', detail: expect.stringMatching(/^재설정 메일 링크(;alert=self_only)?$/), ip_address: '2001:db8:1:2:3:4:5:6' }]);
 });
 
 test('reset-password: 관리자 + IP 헤더 없음이면 ip_address는 null', async () => {
