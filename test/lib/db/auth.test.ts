@@ -250,6 +250,8 @@ test('resetPassword(lib): 400 invalid_token·400 field·503·네트워크·그 �
   expect(await auth.resetPassword('t1', 'newpass12')).toEqual({ ok: false, reason: 'unavailable' });
   fetchMock.mockResolvedValueOnce(apiError(500, 'internal', 'x'));
   expect(await auth.resetPassword('t1', 'newpass12')).toEqual({ ok: false, reason: 'failed' });
+  fetchMock.mockResolvedValueOnce(apiError(401, 'unauthorized_service', 'x'));
+  expect(await auth.resetPassword('t1', 'newpass12')).toEqual({ ok: false, reason: 'failed' });
   expect(store.delete).not.toHaveBeenCalled();
 });
 

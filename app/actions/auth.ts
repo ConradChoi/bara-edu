@@ -212,8 +212,9 @@ export async function resetPassword(_prevState: ResetPasswordState, formData: Fo
   const reset = await auth.resetPassword(token, password);
   if (!reset.ok) {
     if (reset.reason === 'validation' && reset.field === 'password') return { error: 'rule' };
-    if (reset.reason === 'unavailable') return { error: 'unavailable' };
-    // invalid_token, 토큰 형식 오류(400 field=token), 그 밖의 실패: 새 링크를 받는 것이 해결 방법이다(기존 동작 유지)
+    // 서버 쪽 실패(503·429, 401 서비스 키, 500)는 링크 문제가 아니다. 새 메일을 받아도 똑같이 실패하므로 '잠시 후 다시'로 안내한다.
+    if (reset.reason === 'unavailable' || reset.reason === 'failed') return { error: 'unavailable' };
+    // invalid_token, 토큰 형식 오류(400 field=token): 새 링크를 받는 것이 해결 방법이다
     return { error: 'expired' };
   }
 

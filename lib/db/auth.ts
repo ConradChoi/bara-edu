@@ -147,7 +147,8 @@ export async function resetPassword(token: string, newPassword: string): Promise
   if (r.status === 400) {
     return r.error.message === 'invalid_token' ? { ok: false, reason: 'invalid_token' } : { ok: false, reason: 'validation', ...fieldOf(r) };
   }
-  // 429(IP 요청 제한)는 링크 문제가 아니므로 '잠시 후 다시'(unavailable)로 안내한다
+  // 429(IP 요청 제한)는 링크 문제가 아니므로 '잠시 후 다시'(unavailable)로 안내한다.
+  // 401(서비스 키)·500은 'failed'로 두고, 화면 액션이 이것도 '잠시 후 다시'로 보여 준다(만료로 오인하지 않게).
   return { ok: false, reason: r.status === 503 || r.status === 429 ? 'unavailable' : 'failed' };
 }
 
