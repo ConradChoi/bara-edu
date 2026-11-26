@@ -302,6 +302,8 @@ export const MFA_COPY_PENDING_REVIEW = {
   // 인증 앱 바꾸기를 복구 코드 없이 끝낸 경우(입구 C, 복구 코드 새로 받기를 고르지 않음)
   'APP-MFA-CHANGE-DONE-TITLE': '인증 앱을 바꿨어요',
   'APP-MFA-CHANGE-DONE-BODY': '이제 새 휴대폰의 인증 앱 번호로 로그인해요. 복구 코드는 예전 것을 그대로 쓸 수 있어요.',
+  // 앱 준비 단계의 스토어 링크(새 창, T-5.1 "[M3a 새 창 안내]" 슬롯이 카피 문서에 없다)
+  'APP-MFA-NEW-WINDOW': '(새 창)',
 } as const;
 
 // MFA-SETUP-STEP-SR은 4단계 기준 문장이다. 입구 A는 3단계라 숫자만 바꾼다(기획서 1.3 D13 "입구별 계산").
