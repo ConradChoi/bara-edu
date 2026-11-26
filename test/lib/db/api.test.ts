@@ -123,3 +123,34 @@ test('서비스 키를 못 읽으면 throw 대신 503 unavailable, API는 부르
   expect(r).toEqual({ ok: false, status: 503, error: { code: 'unavailable', message: '서비스에 일시적으로 연결할 수 없어요.' } });
   expect(fetchMock).not.toHaveBeenCalled();
 });
+
+// ---- 2단계 인증: 오류 본문의 추가 필드, 프리페치 요청의 "사용" 제외(기획서 2.3, 4.11 D-17) ----
+test('오류 본문의 lockScope·retryAfterMinutes·ticketVerified·reason을 그대로 넘긴다(모르는 값은 버림)', async () => {
+  fetchMock.mockResolvedValueOnce(json(429, { error: { code: 'rate_limited', message: 'mfa_locked', lockScope: 'daily', retryAfterMinutes: 30 } }));
+  expect(await apiFetch('/v1/x', {})).toEqual({ ok: false, status: 429, error: { code: 'rate_limited', message: 'mfa_locked', lockScope: 'daily', retryAfterMinutes: 30 } });
+  fetchMock.mockResolvedValueOnce(json(404, { error: { code: 'not_found', message: 'no_enrollment', ticketVerified: false } }));
+  expect(await apiFetch('/v1/x', {})).toMatchObject({ error: { ticketVerified: false } });
+  fetchMock.mockResolvedValueOnce(json(401, { error: { code: 'unauthenticated', message: 'session_expired', reason: 'idle' } }));
+  expect(await apiFetch('/v1/x', {})).toMatchObject({ error: { reason: 'idle' } });
+  fetchMock.mockResolvedValueOnce(json(429, { error: { code: 'rate_limited', message: 'mfa_locked', lockScope: 'forever', ticketVerified: 'yes' } }));
+  expect(await apiFetch('/v1/x', {})).toEqual({ ok: false, status: 429, error: { code: 'rate_limited', message: 'mfa_locked' } });
+});
+
+test('프리페치 렌더 중의 API 호출은 next-router-prefetch를 붙이고 x-bara-activity를 떼어 낸다', async () => {
+  fetchMock.mockResolvedValue(json(200, {}));
+  for (const [k, v] of [['next-router-prefetch', '1'], ['next-router-segment-prefetch', '/_tree'], ['purpose', 'prefetch'], ['sec-purpose', 'prefetch;prerender']]) {
+    for (const key of Object.keys(headerValues)) delete headerValues[key];
+    headerValues[k] = v;
+    await apiFetch('/v1/auth/mfa/status', { session: 'tok', headers: { 'x-bara-activity': 'admin' } });
+    const h = fetchMock.mock.calls.at(-1)![1].headers;
+    expect(h['next-router-prefetch'], k).toBe('1');
+    expect(h['x-bara-activity'], k).toBeUndefined();
+  }
+  for (const key of Object.keys(headerValues)) delete headerValues[key];
+  await apiFetch('/v1/auth/mfa/status', { session: 'tok' });
+  expect(fetchMock.mock.calls.at(-1)![1].headers['next-router-prefetch']).toBeUndefined();
+  // proxy처럼 IP를 직접 넘기면 next/headers를 읽지 않는다(프리페치 판단은 proxy가 한다)
+  headersThrows = true;
+  await apiFetch('/v1/auth/session', { clientIp: '203.0.113.7', headers: { 'x-bara-activity': 'admin' } });
+  expect(fetchMock.mock.calls.at(-1)![1].headers['x-bara-activity']).toBe('admin');
+});

@@ -1,7 +1,7 @@
 import 'server-only';
 import { apiFetch, type ApiResult } from './api';
 import { formField, type FormField } from '@/lib/form-messages';
-import { clearSession, readSession, writeSession } from './session-cookie';
+import { clearSession, readSession, writeMfaChallenge, writeSession } from './session-cookie';
 
 type Issued = { sessionToken: string; expiresAt: string };
 
@@ -20,8 +20,13 @@ export type FailReason = 'rate_limited' | 'validation' | 'unavailable' | 'failed
 // field: API가 400으로 문제 삼은 입력 칸(있을 때만)
 export type SignUpResult = { ok: true; status: 'pending_confirmation' } | { ok: false; reason: FailReason; field?: FormField };
 export type ResendResult = { ok: true } | { ok: false; reason: FailReason; field?: FormField };
+// 관리자는 비밀번호가 맞아도 세션 대신 2단계 대기표를 받는다(기획서 4.1). 대기표는 bara_mfa 쿠키에만 둔다.
+// enrollReason은 화면 문구(첫 등록/다시 등록)를 고르는 값일 뿐 비밀이 아니다.
+// 옛 API(2단계 인증 이전)는 mfa 필드 없이 늘 세션을 주므로 { ok: true }만 나온다(배포 순서: 앱 → API, 7.1).
 export type LoginResult =
-  | { ok: true }
+  | { ok: true; mfa?: undefined }
+  | { ok: true; mfa: 'required' }
+  | { ok: true; mfa: 'enroll_required'; enrollReason: 'first' | 'reset' }
   | { ok: false; reason: 'invalid_credentials' | 'email_not_confirmed' | 'rate_limited' | 'unavailable' | 'validation' | 'failed'; field?: FormField };
 // 비밀번호 찾기(재설정 메일 요청). 200은 계정 유무·이메일 한도와 관계없이 같다(이메일 열거 방지) — 성공에는 아무 값도 싣지 않는다.
 export type RequestResetResult = { ok: true } | { ok: false; reason: FailReason; field?: FormField };
@@ -101,10 +106,20 @@ export async function completeSignup(token: string, password: string): Promise<C
   return { ok: false, reason: r.status === 429 ? 'rate_limited' : r.status === 503 ? 'unavailable' : 'failed' };
 }
 
+type LoginBody = Partial<Issued & { userId: string; mfa: string; challengeToken: string; challengeExpiresAt: string; enrollReason: string }>;
+
 export async function login(email: string, password: string): Promise<LoginResult> {
-  const r = await apiFetch<Issued & { userId: string }>('/v1/auth/login', { method: 'POST', body: { email, password } });
+  const r = await apiFetch<LoginBody>('/v1/auth/login', { method: 'POST', body: { email, password } });
   if (r.ok) {
-    await writeSession(r.data.sessionToken, r.data.expiresAt);
+    const d = r.data ?? {};
+    if (d.mfa === 'required' || d.mfa === 'enroll_required') {
+      if (typeof d.challengeToken !== 'string' || !d.challengeToken) return { ok: false, reason: 'failed' };
+      await writeMfaChallenge(d.challengeToken, typeof d.challengeExpiresAt === 'string' ? d.challengeExpiresAt : '');
+      if (d.mfa === 'required') return { ok: true, mfa: 'required' };
+      return { ok: true, mfa: 'enroll_required', enrollReason: d.enrollReason === 'reset' ? 'reset' : 'first' };
+    }
+    if (typeof d.sessionToken !== 'string' || typeof d.expiresAt !== 'string') return { ok: false, reason: 'failed' };
+    await writeSession(d.sessionToken, d.expiresAt);
     return { ok: true };
   }
   if (r.status === 401 && r.error.code === 'unauthenticated') {
@@ -153,8 +168,20 @@ export async function resetPassword(token: string, newPassword: string): Promise
 }
 
 // token and IP are explicit so proxy.ts can call this without next/headers
-export async function getSession(token: string, clientIp: string | null): Promise<ApiResult<SessionInfo>> {
-  return apiFetch<SessionInfo>('/v1/auth/session', { method: 'GET', session: token, clientIp });
+// adminActivity: 관리자 화면 요청(프리페치 아님)일 때만 x-bara-activity: admin을 붙인다 — API가 1시간 미사용 시계를 갱신한다(기획서 2.3).
+export async function getSession(token: string, clientIp: string | null, opts: { adminActivity?: boolean } = {}): Promise<ApiResult<SessionInfo>> {
+  return apiFetch<SessionInfo>('/v1/auth/session', {
+    method: 'GET',
+    session: token,
+    clientIp,
+    ...(opts.adminActivity ? { headers: { 'x-bara-activity': 'admin' } } : {}),
+  });
+}
+
+// 관리자 세션이 12시간(max)·1시간 미사용(idle)으로 끝났을 때 /v1/auth/session의 401에 실리는 이유(4.9). 그 밖에는 null.
+export function sessionEndedReason(r: ApiResult<unknown>): 'max' | 'idle' | null {
+  if (!isDeadSession(r) || r.ok) return null;
+  return r.error.reason === 'max' || r.error.reason === 'idle' ? r.error.reason : null;
 }
 
 export type WithdrawResult = { ok: true } | { ok: false; reason: 'active_enrollment' | 'unauthenticated' | 'failed' };
