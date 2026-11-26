@@ -7,6 +7,8 @@ export const JOBS = [
   { name: 'purge_old_admin_access_logs', minuteOfDay: 3 * 60 + 10 },
   { name: 'purge_unclaimed_diagnosis_pii', minuteOfDay: 3 * 60 + 20 },
   { name: 'purge_old_diagnosis_leads', minuteOfDay: 3 * 60 + 30 },
+  // 관리자 2단계 인증의 만료된 대기표·등록 대기·등록 코드(기획서 2.11)
+  { name: 'purge_expired_mfa_rows', minuteOfDay: 3 * 60 + 50 },
 ] as const;
 
 // S3 객체를 지우는 작업(storage가 있을 때만 실행). SQL 함수가 아니라서 JOBS와 따로 둔다.
