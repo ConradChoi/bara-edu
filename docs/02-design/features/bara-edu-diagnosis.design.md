@@ -159,6 +159,8 @@ cancelLabel: "새로 시작하기"   ← 신규 prop 필요
 tone: "neutral"
 ```
 
+> **변경(2026-11-26, 민감정보 별도 동의)**: 실제 구현은 `ConfirmDialog`가 아닌 스테퍼 안의 고정 대화상자다. 글자·버튼을 `lg` 기준(제목 18px, 본문 16px, 버튼 48px, 폭 `min(320px, 100vw-32px)`)으로 키우고 본문에 "동의는 첫 화면에서 다시 해 주세요." / "다른 사람이 쓰던 기기라면 [새로 시작하기]를 눌러 주세요."를 더했다(SC-DRAFT-*). [이어서 하기]는 항상 1페이지부터.
+
 #### 3.2.1 1페이지 — 기본정보 (F-DIAG-3)
 
 ```
@@ -184,6 +186,11 @@ tone: "neutral"
 
 (2026-09-14 갱신: 휴대전화·이메일은 "둘 다 필수"에서 "최소 1개 필수"로 완화, 마케팅 동의 체크박스는 Phase 1에 발송 기능이 없어 제거, 대신 연령 확인 체크박스와 동의 전 요약 고지 박스를 추가 — privacy-security-officer 지적 반영)
 
+- **변경(2026-11-26, 민감정보 별도 동의 — 디자인 스펙 D1~D7 in `bara-edu-lms.diagnosis-sensitive-consent.md`)**: 위 와이어프레임의 요약 고지 박스 + 체크 2개는 다음으로 바뀌었다.
+  - 상자 ① 개인정보 수집·이용(SC-PRIV-*) / 상자 ② 민감정보 처리(`sc-v1` 원문, 왼쪽 4px `border-l-indigo` + "필수" 배지) / 행 ③ 만 14세 이상. 상자는 `rounded-lg border-2 border-n-3 bg-n-0 p-4`, 사이 24px. 본문 16px, 보조 14px, 12px 이하 금지.
+  - 고지 4항목(목적·항목·보유 기간·거부권과 불이익)은 요약(굵게)과 자세히를 모두 항상 보인다. `<details>` 접기 없음. 결과 링크 공개 범위 안내(SC-SENS-LINK-NOTICE)도 상자 안에 항상 보인다.
+  - 체크 행: 24px 체크박스(`accent-indigo`), 행 56px, 라벨 전체 클릭, `aria-describedby`가 상자 요약 영역(+오류)을 가리킨다. 상자는 `role="group"` + `aria-labelledby`. 폼은 `noValidate`.
+  - 오류: 체크박스 바로 아래 `text-danger` 14px + 아이콘 글자, `aria-invalid`, `aria-live="polite"`. ①·② 중 하나라도 오류면 가장 아래 오류 아래에 거부 안내 박스(`bg-n-1`, `role="region"`) 1번: 아직 보낸 정보 없음, [강좌 둘러보기], [전화로 상담받기] + 운영시간(전폭 48px 테두리 버튼). 첫 오류 칸으로 스크롤 + 포커스.
 - 필드 오류: 해당 `<input>` 하단에 `text-[12px] text-danger` 인라인 문구 + `border-danger`, `aria-invalid="true"` + `aria-describedby`로 오류 텍스트와 연결(스크린리더 대응, F-DIAG-18).
 - 로그인 상태 프리필: 이름/휴대전화/이메일에 `profiles` 값 채움, 필드는 계속 `disabled` 아님(수정 가능).
 - 컴포넌트: 개별 `Input`/`Textarea`/`Checkbox` 전용 컴포넌트가 실제 코드베이스에 없음(`AuthForm.tsx`처럼 각 화면이 자체 `<input className="h-11 rounded-md border border-n-3 ...">` 마크업을 직접 씀) — **이번 화면도 동일 컨벤션**을 따른다(신규 Input 컴포넌트를 만들지 않음, `AuthForm`/`ExamForm`과 동일한 인라인 스타일 클래스 재사용).
@@ -276,6 +283,16 @@ State A와 동일 레이아웃이되, 잠금 안내 박스 자리를 아래로 �
 ```
 어느 계정인지는 절대 노출하지 않는다(auth.ts 이메일 열거 방지 원칙과 동일 결).
 
+#### 3.2.3 제출 오류 (Error Handling, `/selfcheck/start?error=`)
+
+| 코드 | 원인 | 표시 | 문구 슬롯 |
+|---|---|---|---|
+| `validation` | 필수 항목 누락(만 14세·이름·연락처·학습 경험)·값 형식 | 1페이지 위 `danger` 배너 `role="alert"` | SC-ERR-VALIDATION |
+| `consent-required` (2026-11-26) | ①·② 동의 없이 제출(앱 검사 또는 API 400 `validation`, `field: consent`, `reason: privacy\|sensitive`). `&consent=`로 포커스할 체크박스를 넘긴다 | `danger` 배너 + 해당 체크박스 오류·거부 안내, 그 칸에 포커스 | SC-ERR-CONSENT |
+| `consent-outdated` (2026-11-26) | 화면의 동의 문구 버전이 현재 버전과 다름(앱 검사 또는 API 400 `field: consent_version`) | `warning` 배너 `role="alert"`. 브라우저 초안이 있으면 "입력한 답은 그대로예요." 추가. 동의 미체크 | SC-ERR-OUTDATED |
+| `incomplete` | 30문항 중 미응답 | `danger` 배너 | SC-ERR-INCOMPLETE |
+| `submit-failed` | API 인자 형식 오류, 기존 DB 검사(5분 중복 등), 연결 실패 | `danger` 배너 | SC-ERR-FAILED |
+
 #### 3.3.2 결과 없음 (존재하지 않는 token)
 
 ```
@@ -286,6 +303,8 @@ State A와 동일 레이아웃이되, 잠금 안내 박스 자리를 아래로 �
 │         [새로 진단받기 →]  (/selfcheck)     │
 └──────────────────────────────────────────┘
 ```
+**변경(2026-11-26)**: 설명은 "링크가 정확한지 확인해 주세요. 보관 기간이 지났거나 지운 결과는 열리지 않아요."(SC-RES-NOTFOUND-DESC). 없음·90일 파기·탈퇴·셀프 삭제를 구분하지 않는다. 요약이 보이는 결과 화면에는 요약 카드 아래 `info` 톤 안내 SC-RES-LINK-NOTICE(결과 링크를 아는 사람은 요약을 볼 수 있음, `print-hide`, 닫기 없음).
+
 일반 404 템플릿(`bara-edu-lms.design.md`의 "12 404 페이지")을 그대로 쓰지 않고, 진단 전용 안내(위 문구 고정)로 대체 — flows.md 4절 지시 그대로.
 
 ### 3.4 결과 — State C (로그인 후 상세, F-DIAG-9~13/16/17)
@@ -449,6 +468,7 @@ tone: "neutral"
 - tier 배지: `Badge`(tone 매핑 — level2=`neutral`, level1=`info`, supervision=`info`, instructor_candidate=`warning` 강조) — 신규 톤 추가 없이 기존 4-tone(`neutral/info/warning/danger`) 안에서 매핑.
 - 귀속 여부: `StatusBadge`(tone=`success` "회원" / `neutral` "비회원").
 - 연락처 마스킹: 기존 `lib/supabase/admin-queries.ts` 마스킹 유틸 재사용(신규 규칙 없음).
+- **변경(2026-11-26)**: 이름도 가린다(`홍**`, SC-ADM-MASK-FORMAT). 가림은 API op `admin.listDiagnosisResults`가 하고 앱은 그대로 그린다. 표 위에 SC-ADM-MASK-HINT, [개인정보 보기]한 행은 이름·연락처 원문 + `bg-warning/10`. 하단 안내 12px.
 
 ### 3.8 `/admin/selfcheck/[id]` 상세 (F-ADMDG-2)
 
@@ -458,6 +478,7 @@ tone: "neutral"
 강점 / 보완 (텍스트, 3.4와 동일 톤)
 응답 원본 30건 (AdminTable, 문항코드/점수 2열 × 6영역 그룹)
 ```
+- **변경(2026-11-26)**: 상단 카드에 "동의 기록" 줄 — "민감정보 동의 sc-v1 · YYYY-MM-DD HH:mm(한국 시간) / 처리방침 v10"(SC-ADM-CONSENT-VALUE), 처리방침 버전이 없으면 "처리방침 버전 기록 없음", 동의 기록이 없으면 `warning` 배지 "별도 동의 없음(변경 전 결과)".
 - 열람 시 `admin_access_logs`에 자동 기록(기존 `logAdminAccess()` 헬퍼 재사용) — **화면에는 아무 표시도 하지 않는다**(회원 상세 패널과 동일한 무표시 백그라운드 로깅 패턴, Q15).
 - **변경(2026-11-26)**: 조회와 기록은 API `admin.getDiagnosisResultDetail` 한 트랜잭션이다(앱이 `logAdminAccess`를 따로 부르지 않는다). 기록이 실패하면 원문(이름·연락처·점수·응답)을 그리지 않고 "접속 기록을 남기지 못해 이 결과를 열지 않았어요" 안내만 보여 준다. 강사과정 문의(3.9)의 연락함·종료·메모 수정도 같은 방식으로 `수정` 기록을 남기고, 메모 칸은 이름·연락처 등 개인정보 패턴을 막는다.
 
@@ -591,6 +612,7 @@ CTA 목적지: `/selfcheck`(랜딩 경유 — flows.md 1.1 진입 동선 그대�
 - 3.2.0 복원 다이얼로그 — "새로 시작하기"처럼 취소 자체가 의미 있는 선택지 → `cancelLabel?: string`(기본값 "취소") 추가 권장.
 - 3.9 "연락함으로 표시" — flows.md 2.2절이 명시적으로 "사유 선택(필수 아님)"이라 규정 → `reasonField.required?: boolean`(기본 true, 이 케이스만 false) 추가 권장.
 둘 다 하위 호환 유지되는 optional prop이라 기존 사용처(엔롤먼트 반려 등)에는 영향 없음.
+- **추가(2026-11-26, 자가진단 기록 지우기)**: 선택 prop `extraCheckbox`(설명 아래 체크박스 1개 + 도움말), `initialFocus: 'cancel'`(열릴 때 취소 버튼 포커스), `describe`(대화상자 `aria-labelledby`·`aria-describedby`), `triggerAriaLabel`, `pendingLabel`(제출 중 글자·비활성). 주지 않으면 렌더 결과가 이전과 같다 — `test/components/confirm-dialog.test.ts`가 추가 전 스냅샷으로 고정.
 
 ### 7-2. `ProgressBar`에 label override 필요
 `components/classroom/ProgressBar.tsx`는 "진도 n%" 문구가 고정돼 있다. 스테퍼 진행률 표시(3.2.2)는 "n/30문항"이 필요해 그대로 못 쓴다. `label?: string`, `valueLabel?: string` 정도의 prop을 추가해 재사용하거나, 굳이 강행하지 않고 스테퍼 전용 마크업을 별도로 두는 것도 허용 범위(구현 판단은 developer에게 위임).
