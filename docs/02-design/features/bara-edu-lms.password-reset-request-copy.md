@@ -235,9 +235,10 @@
 
 ## 6. 확인이 필요한 것
 
-- 5.3의 `{origin}`: `already_registered` 메일에서 주소를 어떻게 채울지는 backend-developer가 정한다. 코드에서 이 주소를 만들 수 없다면 `link` 필드 대신 `after` 줄에 완성된 주소를 넘기는 방법이 있다.
-- 5.1의 `{at}` 형식은 `profile_changed` 메일과 같은 형식이어야 한다. 시각 형식이 다르면 두 메일이 어색해진다.
+- 5.3의 `{origin}`: 해소(2026-11-26 backend-developer). 가입 요청의 `origin`(SITE_ORIGINS 허용 목록 통과 값, 가입 인증·로그인 링크와 같은 출처)으로 `{origin}/forgot-password`를 만들어 메일 메시지의 `forgotLink`로 넘긴다. HTML에서는 링크, 텍스트에서는 주소 한 줄이다.
+- 5.1의 `{at}` 형식: 해소. 두 메일이 같은 함수(`api/src/mail/kst.ts` `kstStamp`, 예: 2026년 11월 26일 오후 2시 12분)를 쓴다.
+- 메일 본문 테스트(`api/test/ses.test.ts`)는 5.1~5.3 문구로 갱신했다(2026-11-26).
 - FP-ERR-429·FP-ERR-UNAVAILABLE·RP-ERR-UNAVAILABLE의 "입력한 내용은 그대로예요"는 실제로 입력값을 유지하는 구현에서만 쓴다. 유지하지 않으면 이 문장을 뺀다.
 - EP-FINISH-FORGOT-BODY·EP-LOCKED-GUIDE는 가입 마무리 문서(`signup-verify-password-copy.md`) 4.3·4.4·4.5장의 문구를 대체한다. 두 문서가 어긋나지 않게 다음 문서 동기화 때 그 문서의 4.3~4.5장과 6장(전화 응대, 셀프 경로 안내 우선)을 함께 고친다.
 - `signup-enumeration-copy.md` 3장 `already_registered` 메일의 비밀번호 문의 문구도 5.3과 맞춰 고친다.
-- 메일 문구 변경은 `api/test`의 메일 본문 테스트를 갱신해야 한다(qa-reviewer).
+- 메일 문구 변경은 `api/test`의 메일 본문 테스트를 갱신해야 한다(qa-reviewer). 갱신 완료, 리뷰 대기.

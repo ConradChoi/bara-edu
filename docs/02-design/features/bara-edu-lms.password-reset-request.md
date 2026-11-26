@@ -158,19 +158,44 @@ flowchart TD
 
 가입 방해로 미인증 계정이 선점된 경우 `profiles`의 이름·연락처는 공격자가 먼저 넣은 값일 수 있다(가입 마무리 문서 3.2절 주의, 개인정보 B-1). 셀프 재설정은 이 경로를 일반 회원도 쓰게 만든다. 마이페이지에는 이름·연락처 수정이 없지만, 관리자 회원 상세 이름·연락처 수정 기능이 2026-11-26 배포되어 회원이 전화로 요청하면 바로 정정할 수 있다(처리방침 제6조 제2항, 가입 이메일로 본인 확인).
 
-## 5. API 계약 확인
+## 5. API 계약 (확정, 2026-11-26 backend-developer 구현 반영)
 
-결론: **기존 API만으로 이 화면은 구현된다. API 변경은 필수가 아니다.** 앱의 호출 함수와 서버 액션을 새로 만들어야 한다.
+결론: **앱이 부르는 두 API의 요청·응답·오류 계약은 바뀌지 않았다.** 바뀐 것은 서버 내부 동작(재설정 성공 시 login-fail 해제, 알림 메일)과 메일 본문뿐이다. 앱은 호출 함수와 서버 액션만 새로 만든다(5.3). 구현 커밋: `feat(api): 비밀번호 재설정 완료 알림 메일, login-fail 해제, 메일 문구 보완`.
 
-### 5.1 `POST /v1/auth/request-reset` (기존, 변경 없음)
+공통: 앱 서버 → API 호출. 헤더 `x-bara-service-key`(필수), `x-bara-client-ip`(회원 IP, 있으면 IP 제한 적용). 오류 본문은 `{ "error": { "code", "message", "field"? } }`.
 
-| 항목 | 확인 결과 |
+### 5.1 `POST /v1/auth/request-reset` (계약 변경 없음)
+
+| 항목 | 내용 |
 |---|---|
-| 요청 | `{ "email": "string", "origin": "string" }`. `email`은 가입과 같은 규칙(정규화 후 소문자), `origin`은 허용 목록(`siteOrigins`)에 있어야 한다 |
-| 응답 | 200 `{ "ok": true }` — 계정이 있든 없든, 이메일 제한에 걸렸든 같다(테스트로 보장: `api/test/auth-limits.test.ts`의 "상태·본문이 같고" 테스트) |
-| 오류 | 400 validation(`field=email` 또는 `origin`) / 429 `rate_limited`(IP 제한 `reset-ip` 20회/1시간) — 이메일과 무관하므로 열거 위험 없음. 호출은 서버→API이고 `x-bara-client-ip`로 IP를 구분한다 |
-| 속도 | 아래 5.2절 |
-| 메일 | `recovery` 1통(제한 통과 + 계정 있을 때만). 큐 처리로 응답을 기다리지 않는다. 발송 실패는 응답에 영향이 없다(테스트 있음) |
+| 요청 | `{ "email": string(1~254자, 이메일 형식, 앞뒤 공백 제거 후 소문자), "origin": string(SITE_ORIGINS 허용 목록 중 하나) }` |
+| 200 | `{ "ok": true }` — 계정이 있든 없든, 이메일 제한(`reset-60s` 1회/60초, `reset-1h` 4회/1시간)에 걸렸든 같다(`auth-limits.test.ts` "상태·본문이 같고") |
+| 400 | `{ error: { code: "validation", message: "요청 형식이 올바르지 않습니다.", field: "email" \| "origin" } }`. 허용되지 않은 origin도 `field: "origin"`(앱 설정 오류 → FP-ERR-FAILED) |
+| 429 | `{ error: { code: "rate_limited", ... } }` — IP 제한 `reset-ip` 20회/1시간만. 이메일과 무관(FP-ERR-429) |
+| 401 | `{ error: { code: "unauthorized_service" } }` 서비스 키 없음·틀림(앱 설정 오류 → FP-ERR-FAILED) |
+| 503·연결 불가 | `code: "unavailable"`(DB 연결 불가 등) 또는 네트워크 오류. 앱이 `unavailable`로 매핑(FP-ERR-UNAVAILABLE). 그 밖의 5xx는 `failed` |
+| 메일 | `recovery` 1통(제한 통과 + 계정 있을 때만), 링크 `{origin}/reset-password?token=`(1시간, 1회용). 응답 뒤 큐로 보내고 기다리지 않는다. 발송 실패는 응답에 영향 없음 |
+| **변경** | `recovery` 메일 본문만 카피 문서 5.2(MAIL-RECOVERY-*)로 교체: "한 번만 쓸 수 있어요", 주소 복사 안내, 로그아웃 안내 추가. 제목·링크 형식은 그대로. 관리자 [재설정 메일 발송]도 같은 템플릿 |
+
+### 5.1a `POST /v1/auth/reset-password` (계약 변경 없음, 동작 추가)
+
+| 항목 | 내용 |
+|---|---|
+| 요청 | `{ "token": string(1~200자), "newPassword": string(8~200자) }` |
+| 200 | `{ "ok": true }` → 앱은 `/sign-in?reset=1`로 이동 |
+| 400 규칙 | `{ error: { code: "validation", message: "요청 형식이 올바르지 않습니다.", field: "password" \| "token" } }` (`newPassword` 오류는 `field: "password"`). 토큰은 소모되지 않아 다시 제출할 수 있다 |
+| 400 토큰 | `{ error: { code: "validation", message: "invalid_token" } }` — 없음·만료·이미 사용·다른 용도 토큰을 구분하지 않는다(RP-EXPIRED-ERR) |
+| 성공 시 서버 동작(기존) | 비밀번호 설정, 미인증이면 인증 완료, 그 회원의 모든 세션 삭제, 모든 메일 토큰 무효, 모든 가입 시도 삭제 |
+| **추가 1** (대표 결정 5) | 같은 트랜잭션에서 그 이메일(소문자)의 `login-fail` 제한 기록을 삭제한다. 재설정 직후 새 비밀번호로 바로 로그인된다. 재설정이 롤백되면 기록도 남는다. `login-ip` IP 제한은 그대로다. 실패한 재설정(400)은 기록을 지우지 않는다 |
+| **추가 2** (대표 결정 3) | 커밋 후 `password_changed` 알림 1통을 그 회원의 가입 이메일로 큐에 넣는다(카피 5.1, 링크 없음, `{at}`은 `profile_changed`와 같은 "2026년 11월 26일 오후 2시 12분" KST 형식). 응답은 발송을 기다리지 않고, 발송 실패는 200을 바꾸지 않는다(서버 로그 `auth mail failed`에 오류 이름만). 400이면 보내지 않는다 |
+
+### 5.1b 메일 변경 요약 (API 내부, 앱 영향 없음)
+
+| 메일 | 변경 | 비고 |
+|---|---|---|
+| `password_changed` | **신규** | 제목 "[바라 평생교육원] 비밀번호가 바뀌었어요". 담는 정보: 받는 사람 이메일, 바뀐 시각. 비밀번호·링크·이름·IP·기기 정보 없음. 문의처는 공통 블록(`SUPPORT_PHONE`·`SUPPORT_HOURS`) |
+| `recovery` | 본문 변경 | 카피 5.2 |
+| `already_registered` | 본문 변경 | 카피 5.3. `{origin}/forgot-password` 줄을 추가(HTML에서는 링크). `{origin}`은 가입 요청의 `origin`(SITE_ORIGINS 허용 목록 통과 값, 가입 인증·로그인 링크와 같은 출처)으로 채운다. 도메인을 코드에 적지 않는다. 카피 문서 6장 `{origin}` 항목 해소 |
 
 ### 5.2 이메일 열거 방지 점검
 
@@ -179,7 +204,7 @@ flowchart TD
 | 응답 본문·상태 | 같다(위 테스트 보장) |
 | 제한이 계정 존재 여부에 따라 달라지나 | 아니다. `reset-60s`, `reset-1h`, `reset-ip` 모두 계정 조회 전에 센다. 있는 이메일이든 없는 이메일이든 같은 횟수에서 같은 방식으로 걸린다. 429는 IP 기준이라 이메일에 의존하지 않는다 |
 | DB 작업량 | 거의 같게 맞춰 두었다: 없는 계정은 조회 1회 + `reset-miss` 기록 1회, 있는 계정은 조회 1회 + 토큰 발급 1회. 테스트로 건수를 고정(`auth-limits.test.ts` "같은 DB 작업량") |
-| 응답 시간 | 코드상 두 분기 모두 트랜잭션 1건이고 메일은 응답 뒤에 처리되므로 큰 차이는 없을 것으로 본다. **실제로 재 보지는 않았다.** 한 이메일은 60초에 한 번만 이 분기를 타고 IP는 시간당 20회로 막혀 있어, 시간 차이로 대량 열거하기는 어렵다. QA가 운영과 비슷한 환경에서 두 분기의 응답 시간 분포를 한 번 재 본다(5.4절) |
+| 응답 시간 | 코드상 두 분기 모두 트랜잭션 1건(없는 계정: `reset-miss` insert, 있는 계정: 토큰 insert)이고, 메일은 `setImmediate`로 응답 뒤에 보내 기다리지 않는다. 이 비대기는 테스트로 보장한다(`auth-limits.test.ts` "메일 발송은 응답을 기다리지 않는다": 메일러를 막아 둔 채로 두 요청이 모두 응답함). 비밀번호 해시 같은 무거운 연산은 어느 분기에도 없다. **실제 응답 시간 분포는 재 보지 않았다**(2026-11-26 확인: 측정 테스트는 CI 환경 편차가 커서 넣지 않음). 한 이메일은 60초에 한 번만 이 분기를 타고 IP는 시간당 20회로 막혀 있어 시간 차이로 대량 열거하기는 어렵다. QA가 운영과 비슷한 환경에서 한 번 재 본다(5.4 E) |
 | 화면 쪽 분기 | 서버 액션은 `200`이면 무조건 같은 "보냄" 상태를 돌려준다. 입력한 이메일을 그대로 되돌려 보여 주는 것 외에 서버 값을 쓰지 않는다 |
 | 메일 도착 여부 | 가입된 주소의 주인만 알 수 있다. 이것은 막을 수 없는 정상 채널이다 |
 | 기존 화면과의 차이 | 로그인 화면은 비밀번호가 맞은 사람에게만 "인증 전"을 보여 주고(열거 방지 문서 4장 방법 A), 이 화면은 비밀번호 없이 열리므로 어떤 계정 정보도 화면에 싣지 않는다 |
@@ -190,7 +215,9 @@ flowchart TD
 - `app/actions/auth.ts`에 서버 액션 `requestPasswordReset`을 추가한다. `resendConfirmation`과 같은 구조(`isApiEmail` 검사 → 호출 → 상태 매핑). 성공이면 `{ requested: true, email }`.
 - `AuthFormState`와 별개의 상태 타입이 필요하면 `{ error } | { requested: true, email } | undefined`로 둔다.
 
-### 5.4 선택적 API 보강 (필수 아님, 10장 질문과 연결)
+### 5.4 선택적 API 보강 (대표 결정 반영 상태, 2026-11-26)
+
+A·C·D는 구현 완료(5.1·5.1a·5.1b), B는 보류(대표 결정 4), E는 미구현(5.2 응답 시간 행).
 
 | # | 보강 | 이유 | 위치 |
 |---|---|---|---|
@@ -237,7 +264,7 @@ flowchart TD
 | 새 비밀번호가 8자 미만·두 칸 불일치 | 서버 호출 전 안내 | 칸 위 오류 |
 | 제출 중 연결 오류 | 입력 유지 | 연결 불가 안내(권장) |
 | 더블 탭 | 버튼 비활성. 두 번째 요청은 400이 될 수 있다 | 첫 요청이 redirect하므로 보통 보이지 않는다 |
-| 성공 후 로그인 제한에 걸림 | 비밀번호를 여러 번 틀린 뒤라면 15분 제한이 남아 있다 | "요청이 많아요". 보강 A(5.4) 또는 안내 문구 필요(질문 5) |
+| 성공 후 로그인 제한에 걸림 | 재설정 성공 시 그 이메일의 `login-fail` 기록을 지운다(대표 결정 5, 5.1a) | 새 비밀번호로 바로 로그인. 같은 IP의 `login-ip`(50회/15분)는 남는다 |
 
 ### 6.3 가입 방해 시나리오와의 관계
 
@@ -372,11 +399,11 @@ flowchart TD
 | 앱 | `proxy.ts` | `/forgot-password`를 공개 경로로(로그인 상태 리다이렉트 목록 점검) | 확인 필요 |
 | 앱 | 푸터·사이트맵·robots | `/forgot-password`는 색인 제외 | 권장 |
 | API | `api/src/auth/service.ts`·`routes.ts` | `request-reset` 계약은 변경 없음 | 없음 |
-| API | `api/src/auth/service.ts` `resetPassword` | 성공 시 `login-fail` 기록 삭제(질문 5) | 선택 |
-| API | `api/src/mail/ses.ts` | `already_registered` 메일에 `/forgot-password` 링크(`link` 필드 활용 또는 본문), `recovery`에 "한 번만 쓸 수 있어요"·"링크가 안 열리면 복사" 한 줄 | 권장 |
-| API | 새 템플릿·`mailer.ts` | 재설정 완료 알림 메일(질문 3) | 선택 |
-| 테스트 | `api/test/auth-limits.test.ts` 등 | 응답 시간 측정(5.2) | 권장 |
-| 테스트 | `api/test/auth-signup.test.ts` 513행 | 테스트 이름의 "앱 화면에는 이 요청 경로가 없다" 수정 | 필수(문구) |
+| API | `api/src/auth/service.ts` `resetPassword` | 성공 시 `login-fail` 기록 삭제(질문 5) | 완료(2026-11-26, 5.1a) |
+| API | `api/src/mail/ses.ts` | `already_registered` 메일에 `/forgot-password` 링크(`link` 필드 활용 또는 본문), `recovery`에 "한 번만 쓸 수 있어요"·"링크가 안 열리면 복사" 한 줄 | 완료(2026-11-26, 5.1b. `forgotLink` 필드로 본문 줄) |
+| API | 새 템플릿·`mailer.ts` | 재설정 완료 알림 메일(질문 3) | 완료(2026-11-26, `password_changed`, 5.1a·5.1b) |
+| 테스트 | `api/test/auth-limits.test.ts` 등 | 응답 시간 측정(5.2) | 미구현(비대기만 테스트로 보장, QA 측정) |
+| 테스트 | `api/test/auth-signup.test.ts` 513행 | 테스트 이름의 "앱 화면에는 이 요청 경로가 없다" 수정 | 완료(2026-11-26) |
 | 테스트 | `test/lib/db/auth.test.ts`, `test/app/*` | `requestReset` 반환 확장, 서버 액션·화면 테스트, `/reset-password` 헤더 | 필수 |
 
 ## 12. 구현 후 함께 갱신할 문서 (문서 동기화 원칙)
