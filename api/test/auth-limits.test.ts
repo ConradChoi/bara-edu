@@ -117,3 +117,21 @@ test('IP 키는 64자로 잘린다', async () => {
   const r = await ctx.adminPool.query("select key from auth.rate_events where bucket = 'reset-ip'");
   expect(r.rows[0].key).toHaveLength(64);
 });
+
+test('같은 /64의 다른 IPv6 주소로 계속 요청해도 한도(login 50회/15분)에서 막히고, 다른 /64는 영향 없다', async () => {
+  const login = (i: number, ip: string) => post('/v1/auth/login', { email: `v6${i}@bara-edu.kr`, password: 'password1' }, ip);
+  for (let i = 0; i < 50; i++) expect((await login(i, `2001:db8:aa:bb:${i + 1}::${i + 1}`)).statusCode).toBe(401);
+  const blocked = await login(50, '2001:DB8:AA:BB:ffff:ffff:ffff:ffff');
+  expect(blocked.statusCode).toBe(429);
+  expect(blocked.json().error.code).toBe('rate_limited');
+  expect((await login(51, '2001:db8:aa:bc::1')).statusCode).toBe(401);
+  const keys = await ctx.adminPool.query("select distinct key from auth.rate_events where bucket = 'login-ip' order by key");
+  expect(keys.rows.map((r) => r.key)).toEqual(['2001:db8:aa:bb::/64', '2001:db8:aa:bc::/64']);
+});
+
+test('IPv4-mapped IPv6와 IPv4는 같은 키를 쓴다', async () => {
+  await reset('m1@bara-edu.kr', '::ffff:198.51.100.9');
+  await reset('m2@bara-edu.kr', '198.51.100.9');
+  const r = await ctx.adminPool.query("select key, count(*)::int n from auth.rate_events where bucket = 'reset-ip' group by key");
+  expect(r.rows).toEqual([{ key: '198.51.100.9', n: 2 }]);
+});

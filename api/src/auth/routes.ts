@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { withService, withUser } from '../db/context.js';
 import { z } from 'zod';
 import { sendError } from '../http/errors.js';
-import { hit, normalizeEmail } from './rate-limit.js';
+import { hit, normalizeEmail, rateKeyForIp } from './rate-limit.js';
 import { revokeAllSessions, revokeSession } from './sessions.js';
 import type { MailMessage } from '../mail/mailer.js';
 import { WITHDRAWAL_REASON_KEYS } from './withdraw-reasons.js';
@@ -65,10 +65,10 @@ export function registerAuthRoutes(app: FastifyInstance): void {
     });
   };
   const tooMany = (reply: FastifyReply) => sendError(reply, 'rate_limited', '요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.');
-  // true when this request's IP is over the limit; requests without a client IP are not IP-limited
+  // true when this request's IP is over the limit (IPv6 is keyed by /64, see rateKeyForIp); requests without a client IP are not IP-limited
   const ipLimited = async (req: FastifyRequest, bucket: string, limit: number, windowSeconds: number) => {
     const ip = clientIp(req);
-    return ip !== null && !(await hit(app.deps.pool, bucket, ip, limit, windowSeconds));
+    return ip !== null && !(await hit(app.deps.pool, bucket, rateKeyForIp(ip), limit, windowSeconds));
   };
   const originAllowed = (origin: string) => app.deps.config.siteOrigins.includes(origin);
 

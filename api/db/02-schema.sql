@@ -1689,11 +1689,11 @@ $$;
 
 -- ===================== module: 미인증 계정 자동 파기 + 관리자 접속기록 (2026-09-10) =====================
 -- 관리자 결정(2026-09-10): (1) 이메일 미인증 가입은 가입일로부터 7일 경과 시 행 자체를
--- 완전 삭제(사전 안내 없음), (2) 개인정보처리시스템 접속기록(제8조 5항)은 최대 1년 보관.
+-- 완전 삭제(사전 안내 없음), (2) 개인정보처리시스템 접속기록(제8조 5항)은 최대 2년 보관(대표 결정 2026-11-26, 당초 1년).
 -- 둘 다 앱 서버 없이도 항상 실행되도록 pg_cron으로 DB 안에서 직접 스케줄링한다(Amplify는
 -- 상시 구동 서버가 아니라 앱 코드의 setInterval 등으로는 스케줄을 보장할 수 없다).
 -- 개인정보처리시스템 접속기록. 위변조 방지를 위해 update/delete 정책을 두지 않는다 —
--- 유일한 삭제 경로는 아래 purge_old_admin_access_logs()(1년 경과분만, SECURITY DEFINER)뿐이다.
+-- 유일한 삭제 경로는 아래 purge_old_admin_access_logs()(2년 경과분만, SECURITY DEFINER)뿐이다.
 create table if not exists admin_access_logs (
   id uuid primary key default gen_random_uuid(),
   admin_id uuid not null references profiles(id),
@@ -1746,7 +1746,7 @@ begin
 end;
 $$;
 
--- ===================== RPC: 관리자 접속기록 보관기간(1년) 초과분 파기 =====================
+-- ===================== RPC: 관리자 접속기록 보관기간(2년) 초과분 파기 =====================
 create or replace function public.purge_old_admin_access_logs()
 returns integer
 language plpgsql
@@ -1756,7 +1756,7 @@ as $$
 declare
   v_deleted_count integer;
 begin
-  delete from admin_access_logs where created_at < now() - interval '1 year';
+  delete from admin_access_logs where created_at < now() - interval '2 years';
   get diagnostics v_deleted_count = row_count;
   return v_deleted_count;
 end;

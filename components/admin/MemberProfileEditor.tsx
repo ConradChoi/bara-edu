@@ -549,7 +549,7 @@ export default function MemberProfileEditor({
           />
           <div className="flex items-start justify-between gap-3">
             <p id="pe-memo-help" className={HELP}>
-              이름이나 전화번호는 적지 말아 주세요. 접속 기록에 1년 동안 남아요.
+              이름이나 전화번호는 적지 말아 주세요. 접속 기록에 2년 동안 남아요.
             </p>
             <span className="shrink-0 text-[14px] tabular-nums text-n-6">{memoLen}/100</span>
           </div>
