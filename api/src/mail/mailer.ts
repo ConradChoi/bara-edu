@@ -7,7 +7,16 @@ export type MailMessage =
   | { to: string; template: 'confirm' | 'recovery'; link: string }
   | { to: string; template: 'already_registered'; link: string; forgotLink: string }
   | { to: string; template: 'profile_changed'; fields: ('name' | 'phone')[]; at: string; link?: undefined }
-  | { to: string; template: 'password_changed'; at: string; link?: undefined };
+  // adminLine: 관리자 계정이면 "2단계 인증은 그대로예요" 한 줄을 더한다(MFA-MAIL-CHANGED-ADMIN-LINE)
+  | { to: string; template: 'password_changed'; at: string; adminLine?: boolean; link?: undefined }
+  // 관리자 2단계 인증 보안 알림(docs/02-design/features/bara-edu-lms.admin-totp-copy.md 7장). 모두 링크·주소·IP·비밀 값 없음.
+  | { to: string; template: 'mfa_enrolled'; at: string; link?: undefined }
+  | { to: string; template: 'mfa_reset'; at: string; by: 'admin' | 'db'; link?: undefined }
+  | { to: string; template: 'mfa_recovery_used'; at: string; left: number; link?: undefined }
+  | { to: string; template: 'mfa_locked'; at: string; scope: 'account' | 'daily'; minutes: number; link?: undefined }
+  | { to: string; template: 'admin_security_alert'; at: string; ownerName: string; event: SecurityAlertEvent; left?: number; link?: undefined };
+
+export type SecurityAlertEvent = 'enrolled' | 'reset' | 'recovery_used' | 'locked' | 'locked_daily' | 'password_reset';
 
 export interface Mailer {
   send(msg: MailMessage): Promise<void>;
