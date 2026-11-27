@@ -65,6 +65,10 @@
 | 11-27 13:11 | `bara_edu` | 변경 | 패치 `2026-11-27-mfa-enroll-session.sql` 적용(lock_timeout 5s). `auth.mfa_enrollments.session_hash` 추가 확인(pg_attribute: text·null 허용, FK → auth.sessions, on delete cascade). 데이터 변경 없음 |
 | 11-27 13:12 | 서버 `ylia-was` | 배포 | API `ec8066c`(2단계 인증 후속: 입구 C 세션 묶기, CLI 보안 알림, 운영 ALERT_TO 필수). 이전 릴리스 `45bb82a` 보관. 재시작 후 active, healthz 200, 홈 200. 배포 전 ADMIN_SECURITY_ALERT_TO 설정됨(1개) 확인 |
 | 11-27 13:12 | `bara_edu` | 변경 | 시험 알림: 대표 관리자 계정에 CLI `mfa-unlock --reason owner_locked` 1회(실패 기록 0건 삭제). 접속기록 `2단계인증잠금해제 by=db;…;reason=owner_locked`, `alert=self_only` 없음 → 보안 알림 주소로 발송 계획됨. 수신은 대표가 메일에서 확인함(11-27) |
+| 11-27 13:53 | 서버 `ylia-was` | 배포 | API `8f2f93c`(입구 C 시작 도중 세션 삭제 시 401, 교착 경로 제거). 이전 릴리스 `ec8066c` 보관. 재시작 후 active, healthz 200, 홈 200 |
+| 11-27 13:53 | `bara_edu` | 변경 | 패치 `2026-11-27-mfa-enroll-c-session-required.sql` 적용(`begin; set local role bara_edu_service;` … commit). 적용 전 null C 대기 0건·전체 대기 0건, 제약 0 → 적용 후 `mfa_enrollments_entry_c_session_check` 1. 삭제 0건. 옛 API(45bb82a 이하)로 되돌릴 때는 제약을 먼저 뺀다 |
+| 11-27 13:55 | GitHub·Amplify 앱 | 배포 실패 | main `8f2f93c` Amplify #83 BUILD FAILED(앱 테스트가 API 코드를 불러와 형식 검사에서 `pg` 없음). 운영 사이트는 이전 버전 그대로(홈 200) |
+| 11-27 13:59 | GitHub·Amplify 앱 | 배포 | main `72df55f`(공용 표로 수정) Amplify #84 SUCCEED. 홈 200, 비로그인 `/admin`·`/admin/selfcheck/leads` 307. 배포 후 API 5xx 0건 |
 
 ## 같은 날 함께 정리한 것
 
