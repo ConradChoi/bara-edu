@@ -1934,11 +1934,11 @@ alter table diagnosis_course_links enable row level security;
 drop policy if exists "diagnosis_results_admin_select" on diagnosis_results;
 drop policy if exists "diagnosis_answers_admin_select" on diagnosis_answers;
 
--- diagnosis_leads: 쓰기는 submit_diagnosis_lead() RPC로만, select는 관리자만.
+-- diagnosis_leads: 쓰기는 submit_diagnosis_lead() RPC로만. 정책을 하나도 두지 않는다(RLS 켜짐 = 일반 /v1/query로 읽기·쓰기 불가).
+-- 관리자 select 정책도 없다(2026-11-27 제거, QA minor 2): 목록은 API op admin.listDiagnosisLeads(이름·연락처 가림 + 열람 접속 기록)로만 읽는다.
 -- update 정책은 없다(2026-11-26 제거): 상태 전환·메모 수정은 API op admin.updateDiagnosisLead가 접속 기록과 한 트랜잭션으로
 -- 처리하므로, 기록 없이 직접 update하는 우회 경로를 열어 두지 않는다.
 drop policy if exists "diagnosis_leads_admin_select" on diagnosis_leads;
-create policy "diagnosis_leads_admin_select" on diagnosis_leads for select using (is_admin());
 drop policy if exists "diagnosis_leads_admin_update" on diagnosis_leads;
 
 -- diagnosis_course_links: 결과 화면 CTA 계산에 필요해 전체 공개 read, 관리자만 write.

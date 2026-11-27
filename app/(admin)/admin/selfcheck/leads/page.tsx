@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { redirect } from 'next/navigation';
 import { closeLead, hideDiagnosisLeadContact, markLeadContacted, revealDiagnosisLeadContact, updateLeadNote } from '@/app/actions/admin-diagnosis';
 import LeadNoteTextarea from '@/components/admin/LeadNoteTextarea';
 import AdminTable from '@/components/admin/AdminTable';
@@ -33,11 +34,14 @@ export default async function AdminDiagnosisLeadsPage({
   searchParams: Promise<{ revealPii?: string; revealToken?: string; revealExp?: string; success?: string; error?: string }>;
 }) {
   const { revealPii, revealToken, revealExp, success, error } = await searchParams;
-  const leads = await getAdminDiagnosisLeads(undefined, {
+  // 이름·연락처는 API가 가려서 준다. [개인정보 보기]로 검증된 한 행만 원문 + 접속 기록(admin.listDiagnosisLeads).
+  const page = await getAdminDiagnosisLeads(undefined, {
     id: revealPii,
     token: revealToken,
     exp: revealExp ? Number(revealExp) : undefined,
   });
+  if (!page.ok && page.reason === 'unauthenticated') redirect('/sign-in');
+  const leads = page.ok ? page.rows : [];
 
   return (
     <div className="flex flex-col gap-4">
@@ -51,6 +55,17 @@ export default async function AdminDiagnosisLeadsPage({
       {error && ERROR_MESSAGE[error] && (
         <div className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger">
           {ERROR_MESSAGE[error]}
+        </div>
+      )}
+
+      {page.ok && page.revealFailed && (
+        <div role="alert" className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger">
+          접속 기록을 남기지 못해 개인정보를 보여 드리지 않았어요. 잠시 후 다시 시도해 주세요.
+        </div>
+      )}
+      {!page.ok && (
+        <div role="alert" className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger">
+          {page.reason === 'forbidden' ? '문의 목록을 볼 권한이 없어요.' : '문의 목록을 불러오지 못했어요. 잠시 후 다시 시도해 주세요.'}
         </div>
       )}
 
@@ -70,7 +85,7 @@ export default async function AdminDiagnosisLeadsPage({
           {leads.length === 0 ? (
             <tr>
               <td colSpan={7} className="py-10 text-center text-n-6">
-                접수된 문의가 없어요.
+                {page.ok ? '접수된 문의가 없어요.' : '-'}
               </td>
             </tr>
           ) : (

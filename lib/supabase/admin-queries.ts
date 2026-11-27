@@ -11,7 +11,7 @@ import { requireAdminClient } from '@/lib/supabase/require-admin';
 import { clientIpFrom } from '@/lib/db/client-ip';
 import { createClient } from '@/lib/db/server';
 import { listEmailConfirmations } from '@/lib/db/auth';
-import { DIAGNOSIS_LIST_TIERS, listDiagnosisResultsApi, type AdminDiagnosisResultRow, type DiagnosisListMemberFilter } from '@/lib/db/admin-diagnosis';
+import { DIAGNOSIS_LEAD_STATUSES, DIAGNOSIS_LIST_TIERS, listDiagnosisLeadsApi, listDiagnosisResultsApi, type AdminDiagnosisLeadRow, type AdminDiagnosisResultRow, type DiagnosisListMemberFilter } from '@/lib/db/admin-diagnosis';
 import { memberPhotoSignedUrl } from '@/lib/db/storage';
 import { groupBy, queryInChunks, selectIn } from '@/lib/db/embed';
 import {
@@ -1435,21 +1435,7 @@ export async function getAdminAssignmentSubmissions(filters?: {
 
 // ===================== 도형심리 역량진단 관리 (/admin/selfcheck, 2026-09-14) =====================
 // F-ADMDG-*. 결과 목록·상세는 API op(lib/db/admin-diagnosis.ts)가 가림·접속 기록을 맡는다(2026-11-26).
-// 강사과정 문의(diagnosis_leads)는 RLS가 admin-only select라 여기서 직접 select한다. 목록은 연락처를
-// 기본 마스킹하고, 관리자가 "개인정보 보기"를 눌러 특정 행의 revealedId를 넘기면 그 행만 원문을
-// 보여준다 — 이 열람은 반드시 admin_access_logs에 남는다(관리자 요청, 2026-09-14).
-
-// maskEmail과 동일한 이유로 앞 3자리+가운데 마스킹+뒤 4자리만 남긴다("010-****-5093").
-// 휴대전화가 아닌 형식(하이픈 없는 숫자만 등)이 들어와도 뒤 4자리 기준으로 동작하도록
-// 자리수만 확인한다.
-function maskPhone(phone: string | null | undefined): string {
-  if (!phone) return '-';
-  const digits = phone.replace(/[^0-9]/g, '');
-  if (digits.length < 7) return '***';
-  const prefix = digits.slice(0, 3);
-  const suffix = digits.slice(-4);
-  return `${prefix}-****-${suffix}`;
-}
+// 강사과정 문의(diagnosis_leads)도 2026-11-27부터 API op(admin.listDiagnosisLeads)가 가림·접속 기록을 맡는다.
 
 export type { AdminDiagnosisResultRow } from '@/lib/db/admin-diagnosis';
 
@@ -1496,95 +1482,43 @@ export async function getAdminDiagnosisResults(
 // 진단 결과 상세는 여기 없다: 조회와 접속 기록('조회')을 API 한 트랜잭션으로 묶은 lib/db/admin-diagnosis.ts의
 // getDiagnosisResultDetailApi()가 맡는다(기록이 실패하면 원문을 내려 주지 않는다, 2026-11-26).
 
-export type AdminDiagnosisLeadRow = {
-  id: string;
-  createdAt: string;
-  resultId: string | null;
-  name: string;
-  contact: string; // 마스킹된 값 또는(revealedId 일치 시) 원문
-  isRevealed: boolean;
-  message: string | null;
-  status: string;
-  adminNote: string | null;
-  handledAt: string | null;
-  userId: string | null;
-};
+export type { AdminDiagnosisLeadRow } from '@/lib/db/admin-diagnosis';
 
+export type AdminDiagnosisLeadsPage =
+  | { ok: true; rows: AdminDiagnosisLeadRow[]; revealFailed: boolean }
+  | { ok: false; reason: 'forbidden' | 'unauthenticated' | 'failed' };
+
+// 목록은 API op admin.listDiagnosisLeads가 이름·연락처를 가려서 내려 준다(2026-11-27 — diagnosis_leads 직접 select와
+// 관리자 select 정책을 없앴다). 여기서는 reveal 토큰(HMAC)만 검증하고, 성공한 경우에만 revealId를 넘긴다.
+// 원문 해제와 접속 기록('조회')은 API가 한 트랜잭션으로 한다. 기록이 실패(503 log_failed)하면 가린 목록을 다시 받아 revealFailed로 알린다.
 export async function getAdminDiagnosisLeads(
   filters?: { status?: string },
   reveal?: { id?: string; token?: string; exp?: number }
-): Promise<AdminDiagnosisLeadRow[]> {
-  const supabase = await createClient();
-  let query = supabase
-    .from('diagnosis_leads')
-    .select('id, created_at, result_id, name, contact, message, status, admin_note, handled_at, user_id')
-    .order('created_at', { ascending: false });
-  if (filters?.status && filters.status !== 'all') query = query.eq('status', filters.status);
+): Promise<AdminDiagnosisLeadsPage> {
+  const status = DIAGNOSIS_LEAD_STATUSES.find((s) => s === filters?.status) ?? 'all';
 
-  const { data, error } = await query;
-  if (error) throw new Error(error.message);
-
-  const rows = data as {
-    id: string;
-    created_at: string;
-    result_id: string | null;
-    name: string;
-    contact: string;
-    message: string | null;
-    status: string;
-    admin_note: string | null;
-    handled_at: string | null;
-    user_id: string | null;
-  }[];
-
-  // getAdminDiagnosisResults와 동일한 이유로 fail-safe 처리(위 주석 참고).
-  let verifiedReveal = false;
+  // getAdminDiagnosisResults와 같은 이유로 토큰 검증 오류는 "해제 안 함"으로 처리한다.
+  let revealId: string | undefined;
   if (reveal?.id && reveal.token && reveal.exp) {
     try {
+      const supabase = await createClient();
       const {
         data: { user },
       } = await supabase.auth.getUser();
-      if (user && await verifyRevealToken('diagnosis_lead', reveal.id, user.id, reveal.token, reveal.exp)) {
-        const target = rows.find((r) => r.id === reveal.id);
-        verifiedReveal = await logAdminAccess(supabase, target?.user_id ?? null, '조회', `강사과정 문의 이름·연락처 열람(${reveal.id})`);
-      }
+      if (user && await verifyRevealToken('diagnosis_lead', reveal.id, user.id, reveal.token, reveal.exp)) revealId = reveal.id;
     } catch (err) {
       console.error('[getAdminDiagnosisLeads] reveal token verification failed:', err);
     }
   }
 
-  return rows.map((row) => {
-    const isRevealed = verifiedReveal && row.id === reveal?.id;
-    return {
-      id: row.id,
-      createdAt: row.created_at,
-      resultId: row.result_id,
-      name: isRevealed ? row.name : maskName(row.name),
-      contact: isRevealed ? row.contact : maskContact(row.contact),
-      isRevealed,
-      message: row.message,
-      status: row.status,
-      adminNote: row.admin_note,
-      handledAt: row.handled_at,
-      userId: row.user_id,
-    };
-  });
-}
-
-// 이름: 첫 글자 + '**'(글자 수와 무관). api/src/ops/admin-diagnosis.ts의 maskName(진단 결과 목록)과 같은 규칙이다.
-// 첫 글자는 코드 포인트 기준(확장 한자 등이 반쪽으로 잘리지 않게).
-export function maskName(name: string | null | undefined): string {
-  const t = (name ?? '').trim();
-  if (!t) return '-';
-  return `${Array.from(t)[0]}**`;
-}
-
-// 리드의 연락처는 "휴대전화 또는 이메일" 자유 입력 단일 필드라 두 형식을 다 마스킹해야
-// 한다 — @ 포함 여부로 형식을 판별해 적절한 마스킹 함수로 위임한다.
-function maskContact(contact: string | null | undefined): string {
-  if (!contact) return '-';
-  if (contact.includes('@')) return maskEmail(contact);
-  return maskPhone(contact);
+  let r = await listDiagnosisLeadsApi({ status, revealId });
+  let revealFailed = false;
+  if (!r.ok && r.reason === 'log_failed' && revealId) {
+    revealFailed = true;
+    r = await listDiagnosisLeadsApi({ status });
+  }
+  if (!r.ok) return { ok: false, reason: r.reason === 'log_failed' ? 'failed' : r.reason };
+  return { ok: true, rows: r.rows, revealFailed };
 }
 
 // ---- 최근 7일 보안 이벤트(관리자 2단계 인증 M7, 기획서 3.8) ----

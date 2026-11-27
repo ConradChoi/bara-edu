@@ -126,3 +126,52 @@ export async function listDiagnosisResultsApi(params: { tier?: DiagnosisListTier
     return { ok: false, reason: 'failed' };
   }
 }
+
+// ---------------- 강사과정 문의 목록(2026-11-27) ----------------
+// diagnosis_leads 직접 select(관리자 select 정책)를 없애고 이 op로 읽는다. 규칙은 진단 결과 목록과 같다:
+// 이름·연락처는 API가 가려서 내려 주고, revealId 한 행만 원문 + API가 같은 트랜잭션에서 접속 기록.
+
+export const DIAGNOSIS_LEAD_STATUSES = ['all', 'new', 'contacted', 'closed'] as const;
+export type DiagnosisLeadStatusFilter = (typeof DIAGNOSIS_LEAD_STATUSES)[number];
+
+export type AdminDiagnosisLeadRow = {
+  id: string;
+  createdAt: string;
+  resultId: string | null;
+  name: string; // 가린 값(홍**) 또는 revealId 행이면 원문
+  contact: string;
+  isRevealed: boolean;
+  message: string | null;
+  status: string;
+  adminNote: string | null;
+  handledAt: string | null;
+  userId: string | null;
+};
+
+export type ListDiagnosisLeadsResult =
+  | { ok: true; rows: AdminDiagnosisLeadRow[] }
+  | { ok: false; reason: 'forbidden' | 'unauthenticated' | 'log_failed' | 'failed' };
+
+export async function listDiagnosisLeadsApi(params: { status?: DiagnosisLeadStatusFilter; revealId?: string }): Promise<ListDiagnosisLeadsResult> {
+  try {
+    const body: Record<string, string> = {};
+    if (params.status) body.status = params.status;
+    if (params.revealId) body.revealId = params.revealId;
+    const r = await apiFetch<{ data: { result: string; rows?: AdminDiagnosisLeadRow[] } }>('/v1/op/admin.listDiagnosisLeads', {
+      method: 'POST',
+      session: await readSession(),
+      body: { params: body },
+    });
+    if (!r.ok) {
+      if (r.status === 401 && r.error.code === 'unauthenticated') return { ok: false, reason: 'unauthenticated' };
+      if (r.status === 503 && r.error.message === 'log_failed') return { ok: false, reason: 'log_failed' };
+      return { ok: false, reason: 'failed' };
+    }
+    const d = r.data.data;
+    if (d.result === 'ok' && Array.isArray(d.rows)) return { ok: true, rows: d.rows };
+    if (d.result === 'forbidden') return { ok: false, reason: 'forbidden' };
+    return { ok: false, reason: 'failed' };
+  } catch {
+    return { ok: false, reason: 'failed' };
+  }
+}

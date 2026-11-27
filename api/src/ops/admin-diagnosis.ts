@@ -228,3 +228,71 @@ export const adminListDiagnosisResults = defineOp({
     };
   },
 });
+
+// ---------------- 강사과정 문의 목록(이름·연락처 가림, 2026-11-27) ----------------
+// 앱이 diagnosis_leads를 직접 select하던 방식을 이 op로 바꿨다(관리자 select 정책 제거, QA minor 2).
+// 목록은 이름·연락처를 가려서 내려 주고, 앱이 reveal 토큰(HMAC)을 검증한 revealId 한 행만 원문 + 접속 기록('조회')을
+// 한 트랜잭션으로 남긴다. 기록이 실패하면 OpError(503 log_failed)로 끝나 원문이 응답에 실리지 않는다.
+
+// 연락처는 "휴대전화 또는 이메일" 자유 입력 한 칸이라 @ 포함 여부로 규칙을 고른다(앱의 maskContact와 같다).
+export function maskContact(contact: string | null | undefined): string {
+  if (!contact) return '-';
+  return contact.includes('@') ? maskEmail(contact) : maskPhone(contact);
+}
+
+type LeadListRow = {
+  id: string; created_at: Date; result_id: string | null; name: string; contact: string; message: string | null;
+  status: string; admin_note: string | null; handled_at: Date | null; user_id: string | null;
+};
+
+export const adminListDiagnosisLeads = defineOp({
+  name: 'admin.listDiagnosisLeads',
+  access: 'service',
+  params: z
+    .object({
+      status: z.enum(['all', 'new', 'contacted', 'closed']).optional(),
+      revealId: z.string().uuid().optional(),
+    })
+    .strict(),
+  async run({ tx, userId, ip, warn }, p) {
+    if (!userId || !(await isAdmin(tx, userId))) {
+      warn('admin.listDiagnosisLeads forbidden');
+      return { result: 'forbidden' };
+    }
+    const values: unknown[] = [];
+    let where = '';
+    if (p.status && p.status !== 'all') {
+      values.push(p.status);
+      where = 'where status = $1::diagnosis_lead_status';
+    }
+    const r = await tx.query<LeadListRow>(
+      `select id, created_at, result_id, name, contact, message, status, admin_note, handled_at, user_id
+         from diagnosis_leads ${where}
+        order by created_at desc, id`,
+      values,
+    );
+
+    const target = p.revealId ? r.rows.find((x) => x.id === p.revealId) : undefined;
+    if (target) await writeLog(tx, userId, target.user_id, REVEAL_LOG_ACTION, `강사과정 문의 이름·연락처 열람(${target.id})`, ip);
+
+    return {
+      result: 'ok',
+      rows: r.rows.map((row) => {
+        const isRevealed = row === target;
+        return {
+          id: row.id,
+          createdAt: row.created_at.toISOString(),
+          resultId: row.result_id,
+          name: isRevealed ? row.name : maskName(row.name),
+          contact: isRevealed ? row.contact : maskContact(row.contact),
+          isRevealed,
+          message: row.message,
+          status: row.status,
+          adminNote: row.admin_note,
+          handledAt: row.handled_at ? row.handled_at.toISOString() : null,
+          userId: row.user_id,
+        };
+      }),
+    };
+  },
+});

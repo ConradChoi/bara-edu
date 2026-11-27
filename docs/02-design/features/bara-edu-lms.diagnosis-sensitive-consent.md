@@ -841,6 +841,16 @@ revoke execute on function public.delete_my_diagnosis_result(uuid, boolean) from
 
 응답 `data`에 3개 추가(그 밖은 그대로): `sensitiveConsentVersion: string | null`, `sensitiveConsentedAt: string(ISO) | null`, `privacyDocVersion: number | null`. 화면은 SC-ADM-CONSENT-VALUE로 그리고, `sensitiveConsentVersion`이 null이면 SC-ADM-CONSENT-NONE(정리 스크립트 전 짧은 구간에만 가능), `privacyDocVersion`이 null이면 SC-ADM-CONSENT-NODOC.
 
+### C4-1. 관리자 강사과정 문의 목록 `POST /v1/op/admin.listDiagnosisLeads` (신규 op, 관리자, 2026-11-27 후속)
+
+QA minor 2 후속: 앱이 `diagnosis_leads`를 직접 select하던 것을 이 op로 바꾸고 `diagnosis_leads_admin_select` 정책을 지운다(패치 `2026-11-27-diagnosis-leads-admin-select.sql`). 규칙은 C4와 같다.
+
+- 요청 `params`(strict): `status?: 'all' | 'new' | 'contacted' | 'closed'`, `revealId?: uuid`(앱이 reveal 토큰을 검증한 뒤에만 넘김)
+- 응답 `data`: `{ result: 'ok', rows: [{ id, createdAt, resultId, name, contact, isRevealed, message, status, adminNote, handledAt, userId }] }` — 접수 최신순. `name`은 첫 글자 + `**`, `contact`는 `@`가 있으면 이메일 규칙(`ab***@d.kr`), 없으면 휴대전화 규칙(`010-****-5678`). revealId 행만 원문
+- revealId 행이 목록 안에 있으면 같은 트랜잭션에서 접속 기록 1건(`조회`, detail `강사과정 문의 이름·연락처 열람(<id>)`, 값 없음). 필터 밖·없는 id면 열지 않고 기록 없음
+- 오류: 관리자 아님 `{ result: 'forbidden' }`, 세션 없음 401, 형식 오류 400 `validation`, 접속 기록 실패 503 `log_failed`(원문 없음 — 앱은 가린 목록을 다시 받아 안내)
+- 배포 순서: API → 앱 → 패치(앱보다 먼저 패치하면 옛 앱 목록이 빈 목록으로 보인다)
+
 ### C6. 동작만 바뀌는 곳(계약 변화 없음)
 
 | 대상 | 바뀐 동작 |

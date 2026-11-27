@@ -199,11 +199,9 @@ test('패치 뒤 권한: 제출은 비회원·회원, 목록·삭제는 회원�
   }
   const cat = await loadRpcCatalog(ctx.pool);
   expect([...cat.keys()].sort()).toEqual([...RPC_ALLOW].sort());
-  // 관리자 직접 select 정책은 없다(R-1). 리드 select 정책만 남는다
+  // 관리자 직접 select 정책은 없다(R-1). 리드 select 정책도 2026-11-27 패치로 지웠다(현행 스키마 기준)
   const pol = await q("select tablename, policyname, cmd from pg_policies where tablename in ('diagnosis_results','diagnosis_answers','diagnosis_leads') order by 1, 2");
-  expect(pol).toEqual([
-    { tablename: 'diagnosis_leads', policyname: 'diagnosis_leads_admin_select', cmd: 'SELECT' },
-  ]);
+  expect(pol).toEqual([]);
 });
 
 test('패치 뒤 정리 전: 새 제출은 동의 기록과 함께 저장되고, 동의 없는 새 행은 제약(23514)에 막힌다. 변경 전 결과 연결(claim)도 막힌다', async () => {

@@ -300,3 +300,84 @@ test('목록: 관리자만(학습자 forbidden, 세션 없음 401)', async () =>
   expect((await list({}, learnerToken)).json().data).toEqual({ result: 'forbidden' });
   expect((await list({}, '')).statusCode).toBe(401);
 });
+
+// ---------------- 강사과정 문의 목록(admin.listDiagnosisLeads, 2026-11-27) ----------------
+
+const leadAt = async (name: string, contact: string, userId: string | null, status: string, createdAt: string) =>
+  (await q(
+    `insert into diagnosis_leads (user_id, name, contact, message, consent_contact, status, created_at) values ($1,$2,$3,'문의 내용',true,$4::diagnosis_lead_status,$5) returning id`,
+    [userId, name, contact, status, createdAt],
+  ))[0].id as string;
+const leads = (params: object, token?: string, ip?: string) => op('admin.listDiagnosisLeads', params, token, ip);
+
+test('문의 목록: 이름·연락처(휴대전화·이메일)가 가려져 오고 원문은 응답에 없다. 목록만 열면 기록 없음', async () => {
+  await q('delete from diagnosis_leads');
+  const a = await leadAt('김민지', '010-2222-3333', learnerId, 'new', '2026-12-02T00:00:00Z');
+  const b = await leadAt('Nguyen', 'nv.test@example.com', null, 'contacted', '2026-12-03T00:00:00Z');
+  const n0 = (await logs('조회')).length;
+  const r = await leads({});
+  expect(r.statusCode, r.body).toBe(200);
+  expect(r.json().data).toEqual({
+    result: 'ok',
+    rows: [
+      { id: b, createdAt: '2026-12-03T00:00:00.000Z', resultId: null, name: 'N**', contact: 'nv***@example.com', isRevealed: false, message: '문의 내용', status: 'contacted', adminNote: null, handledAt: null, userId: null },
+      { id: a, createdAt: '2026-12-02T00:00:00.000Z', resultId: null, name: '김**', contact: '010-****-3333', isRevealed: false, message: '문의 내용', status: 'new', adminNote: null, handledAt: null, userId: learnerId },
+    ],
+  });
+  for (const v of ['김민지', 'Nguyen', '2222', 'nv.test']) expect(r.body).not.toContain(v);
+  expect((await logs('조회')).length).toBe(n0);
+});
+
+test('문의 목록 필터: 상태, 잘못된 값은 400', async () => {
+  await q('delete from diagnosis_leads');
+  const a = await leadAt('가', '01011112222', null, 'new', '2026-12-02T00:00:00Z');
+  const b = await leadAt('나', '01011113333', null, 'closed', '2026-12-03T00:00:00Z');
+  const ids = async (p: object) => (await leads(p)).json().data.rows.map((x: { id: string }) => x.id);
+  expect(await ids({ status: 'new' })).toEqual([a]);
+  expect(await ids({ status: 'closed' })).toEqual([b]);
+  expect(await ids({ status: 'all' })).toEqual([b, a]);
+  expect((await leads({ status: 'bogus' })).statusCode).toBe(400);
+  expect((await leads({ revealId: 'x' })).statusCode).toBe(400);
+  expect((await leads({ extra: 1 })).statusCode).toBe(400);
+});
+
+test('문의 개인정보 보기: revealId 행만 원문, 같은 호출에서 조회 기록 1건(값 없음)', async () => {
+  await q('delete from diagnosis_leads');
+  const a = await leadAt('김민지', '010-2222-3333', learnerId, 'new', '2026-12-02T00:00:00Z');
+  const b = await leadAt('박서준', 'park@example.com', null, 'new', '2026-12-03T00:00:00Z');
+  const r = await leads({ revealId: a }, adminToken, '203.0.113.9');
+  const rows = r.json().data.rows as Record<string, unknown>[];
+  expect(rows.find((x) => x.id === a)).toMatchObject({ name: '김민지', contact: '010-2222-3333', isRevealed: true });
+  expect(rows.find((x) => x.id === b)).toMatchObject({ name: '박**', contact: 'pa***@example.com', isRevealed: false });
+  const lg = (await logs('조회')).filter((x) => x.detail === `강사과정 문의 이름·연락처 열람(${a})`);
+  expect(lg).toHaveLength(1);
+  expect(lg[0]).toMatchObject({ admin_id: adminId, target_user_id: learnerId, ip_address: '203.0.113.9' });
+});
+
+test('문의 개인정보 보기: 필터 밖·없는 행이면 열지 않고 기록 없음', async () => {
+  await q('delete from diagnosis_leads');
+  const a = await leadAt('김민지', '010-2222-3333', null, 'new', '2026-12-02T00:00:00Z');
+  const n0 = (await logs('조회')).length;
+  for (const p of [{ revealId: a, status: 'closed' }, { revealId: '11111111-1111-4111-8111-111111111111' }]) {
+    const r = await leads(p);
+    expect(r.json().data.rows.every((x: { isRevealed: boolean }) => !x.isRevealed)).toBe(true);
+    expect(r.body).not.toContain('김민지');
+  }
+  expect((await logs('조회')).length).toBe(n0);
+});
+
+test('문의 개인정보 보기: 접속 기록이 실패하면 503 log_failed이고 원문이 없다', async () => {
+  await q('delete from diagnosis_leads');
+  const a = await leadAt('김민지', '010-2222-3333', null, 'new', '2026-12-02T00:00:00Z');
+  await withFailingLog(async () => {
+    const r = await leads({ revealId: a });
+    expect(r.statusCode).toBe(503);
+    expect(r.json().error).toMatchObject({ code: 'unavailable', message: 'log_failed' });
+    for (const v of ['김민지', '2222']) expect(r.body).not.toContain(v);
+  });
+});
+
+test('문의 목록: 관리자만(학습자 forbidden, 세션 없음 401)', async () => {
+  expect((await leads({}, learnerToken)).json().data).toEqual({ result: 'forbidden' });
+  expect((await leads({}, '')).statusCode).toBe(401);
+});
