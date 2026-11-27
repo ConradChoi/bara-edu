@@ -82,6 +82,7 @@
 | 11-27 17:09 | Amplify 앱 환경 변수 (bara-edu 앱) | 변경(파기) | 사전신청 전송 주소 `NEXT_PUBLIC_APPS_SCRIPT_URL` 삭제(대표 결정: 안내 없이 파기). 남은 키 3개(IS_OPEN·OPEN_DATE·SITE_NAME). 코드에서 쓰지 않으므로 #91 이후 별도 재빌드 없음. Apps Script 배포 해제·시트 삭제는 대표가 Google 계정에서 한다 |
 | 11-27 17:12 | Amazon SES | 발송 | 정식 오픈 안내 메일(`2026-11-27-launch-notice-mail.cjs`, 대표 문구 승인) 1회: 시험 실행 수신자 5 → `--send --expect=5` → sent 5, failed 0. 주소는 기록하지 않음. 다시 보내지 않는다 |
 | 11-27 17:3x | Google 계정(대표) | 변경(파기) | 사전신청 자료 정리(대표 결정: 안내 없이 파기): 대표가 Apps Script 웹 앱 배포 해제, 시트 0건 확인 후 스프레드시트 삭제와 Drive 휴지통 비우기 |
+| 11-27 23:35 | `bara_edu` | 변경 | 대표 요청. 패치 `2026-11-27-legal-prelaunch-archive-lock.sql` 적용(QA Go): `archive.legal_documents_prelaunch` 읽기 전용(소유 역할 insert·update·delete·truncate 회수, 문장 단위 차단 트리거). 적용 전후·재적용 후 모두 12행, 원문 다이제스트 `b717fd6e…4f90`(id 순 `id:sha256(content)` 줄의 sha256)가 저장소 내보내기 파일과 같음. 권한 select만, 트리거 1개 활성, 쓰기 시험(0행 update) 42501로 막힘. 데이터 변경 없음 |
 
 ## 같은 날 함께 정리한 것
 
