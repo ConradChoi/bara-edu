@@ -69,6 +69,8 @@
 | 11-27 13:53 | `bara_edu` | 변경 | 패치 `2026-11-27-mfa-enroll-c-session-required.sql` 적용(`begin; set local role bara_edu_service;` … commit). 적용 전 null C 대기 0건·전체 대기 0건, 제약 0 → 적용 후 `mfa_enrollments_entry_c_session_check` 1. 삭제 0건. 옛 API(45bb82a 이하)로 되돌릴 때는 제약을 먼저 뺀다 |
 | 11-27 13:55 | GitHub·Amplify 앱 | 배포 실패 | main `8f2f93c` Amplify #83 BUILD FAILED(앱 테스트가 API 코드를 불러와 형식 검사에서 `pg` 없음). 운영 사이트는 이전 버전 그대로(홈 200) |
 | 11-27 13:59 | GitHub·Amplify 앱 | 배포 | main `72df55f`(공용 표로 수정) Amplify #84 SUCCEED. 홈 200, 비로그인 `/admin`·`/admin/selfcheck/leads` 307. 배포 후 API 5xx 0건 |
+| 11-27 15:46 | 서버 `ylia-was` | 배포 | API `2ad1fd7`(fix/minor-cleanup: 한글 등 아이디 이메일 통째 가림, CLI `mfa-unlock` 활성 관리자만(N-5), `admin-sessions-revoke` 접속 기록). DB 변경 없음. 이전 릴리스 `8f2f93c` 보관. 재시작 후 active, healthz 200, 홈 200 |
+| 11-27 15:49 | GitHub·Amplify 앱 | 배포 | main `2ad1fd7` Amplify #85 SUCCEED(대시보드 이메일 가림 같은 규칙). 개인정보 점검 조건부 Go(조건 반영)·QA Go |
 
 ## 같은 날 함께 정리한 것
 
