@@ -103,7 +103,7 @@ export const WITHDRAW_NOTE = '탈퇴 시 개인정보는 즉시 익명화되고 
 export const ADMIN_DIAGNOSIS_COPY = {
   maskHint: '이름은 가려서 보여 드려요. 원래 이름은 [개인정보 보기]나 상세 화면에서 볼 수 있고, 볼 때마다 접속 기록이 남아요.', // SC-ADM-MASK-HINT
   consentLabel: '동의 기록', // SC-ADM-CONSENT-LABEL
-  consentValue: '민감정보 동의 {version} · {datetime} / 처리방침 v{n}', // SC-ADM-CONSENT-VALUE
+  consentValue: '민감정보 동의 {version} · {datetime} / 처리방침 {doc}', // SC-ADM-CONSENT-VALUE ({doc}: v1.0 형식, 오픈 전 기록은 "오픈 전 v10")
   consentNoDoc: '처리방침 버전 기록 없음', // SC-ADM-CONSENT-NODOC
   consentNone: '별도 동의 없음(변경 전 결과)', // SC-ADM-CONSENT-NONE
 } as const;

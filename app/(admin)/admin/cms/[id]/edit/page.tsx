@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 import { createNewVersion, publishVersion, unpublishVersion } from '@/app/actions/admin-cms';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import { getLegalDocumentById } from '@/lib/supabase/admin-queries';
+import { formatDocVersion } from '@/lib/legal-version';
 
 export const metadata: Metadata = { title: '문서 편집 | 관리자' };
 
@@ -37,7 +38,7 @@ export default async function EditLegalDocumentPage({
     <div className="flex max-w-[720px] flex-col gap-4">
       <div className="flex items-center justify-between">
         <h1 className="text-[20px] font-semibold text-n-9">
-          {doc.title} · v{doc.version}
+          {doc.title} · {formatDocVersion(doc.version)}
         </h1>
         {doc.isPublished ? (
           <ConfirmDialog
@@ -85,7 +86,7 @@ export default async function EditLegalDocumentPage({
 
       <div className="rounded-lg border border-n-3 bg-n-0 p-5">
         <p className="text-[12.5px] font-medium text-n-7">
-          내용을 수정하려면 새 버전을 만드세요 (기존 v{doc.version}은 이력으로 보존돼요)
+          내용을 수정하려면 새 버전을 만드세요 (기존 {formatDocVersion(doc.version)}은 이력으로 보존돼요)
         </p>
         <form action={createNewVersion.bind(null, doc.slug, doc.id)} className="mt-3 flex flex-col gap-3">
           <label className="flex flex-col gap-1 text-[12.5px] text-n-7">
@@ -102,7 +103,7 @@ export default async function EditLegalDocumentPage({
             />
           </label>
           <button type="submit" className="h-11 self-start rounded-pill bg-pink px-5 text-[13px] font-semibold text-white">
-            새 버전(v{doc.version + 1}) 만들기
+            새 버전({formatDocVersion(doc.version + 1)}) 만들기
           </button>
         </form>
       </div>

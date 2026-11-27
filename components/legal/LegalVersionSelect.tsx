@@ -1,6 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
+import { formatDocVersion } from '@/lib/legal-version';
 
 // 약관/정책 문서의 버전 선택 드롭다운. 순수 네비게이션이라 서버 상태를 갖지 않지만,
 // <select onChange>는 실제 브라우저 이벤트 리스너가 필요해 이 프로젝트의 다른 예외
@@ -28,7 +29,7 @@ export default function LegalVersionSelect({
     >
       {versions.map((v) => (
         <option key={v.version} value={v.version}>
-          v{v.version}
+          {formatDocVersion(v.version)}
           {v.isCurrent ? ' (현재)' : ' (이전 버전)'}
         </option>
       ))}
