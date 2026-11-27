@@ -443,6 +443,19 @@ test('CLI mfa-unlock: 두 bucket(실패·풀린 실패)을 지우고 기록, 등
   expect(await q('select 1 from auth.mfa_factors where user_id = $1', [a.id])).toHaveLength(1);
 });
 
+test('N-5 CLI mfa-unlock: 탈퇴(withdrawn) 관리자는 거절하고 실패 기록·접속 기록·메일을 남기지 않는다', async () => {
+  const a = await enrolledAdmin();
+  await q("insert into auth.rate_events (bucket, key) values ('mfa-fail', $1)", [a.id]);
+  await q(`begin; set local session_replication_role = replica; update profiles set status = 'withdrawn' where id = '${a.id}'; commit`);
+  const before = (await logsOf(ctx, a.id)).length;
+  const r = await cli(['mfa-unlock', '--email', a.email, '--operator', '개발', '--reason', 'owner_locked']);
+  expect(r.code).toBe(1);
+  expect(r.err.join('\n')).toContain('활성 관리자가 아닙니다');
+  expect(await q("select 1 from auth.rate_events where key = $1 and bucket = 'mfa-fail'", [a.id])).toHaveLength(1);
+  expect(await logsOf(ctx, a.id)).toHaveLength(before);
+  expect(r.mailer.sent).toHaveLength(0);
+});
+
 test('I-8 CLI mfa-report: 관리자마다 등록 일시·IP·경로·복구 코드·최근 로그인 IP, 비밀 값 없음', async () => {
   const a = await enrolledAdmin('점검관리자');
   await q("update auth.mfa_factors set enrolled_ip = '198.51.100.7', enrolled_via = 'ticket' where user_id = $1", [a.id]);

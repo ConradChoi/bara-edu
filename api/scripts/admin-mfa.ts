@@ -205,7 +205,8 @@ async function mfaUnlock(deps: CliDeps, email: string, operator: string, reason:
   if (!reason || !(UNLOCK_REASONS as readonly string[]).includes(reason)) throw new CliError(`--reason은 ${UNLOCK_REASONS.join(', ')} 중 하나여야 합니다`);
   const n = await withService(deps.pool, async (tx) => {
     const t = await findTarget(tx, email);
-    if (t.role !== 'admin') throw new CliError('대상이 관리자가 아닙니다');
+    // 탈퇴한 관리자 계정은 풀지 않는다(보안 점검 N-5). mfa-reset·mfa-ticket과 같은 검사.
+    if (t.role !== 'admin' || t.status !== 'active') throw new CliError('대상이 활성 관리자가 아닙니다');
     const d = await tx.query('delete from auth.rate_events where key = $1 and bucket = any($2)', [t.id, [FAIL_BUCKET, FAIL_RELEASED_BUCKET]]);
     // 다른 관리자·운영 주소에 알린다(보안 점검 m-3). 본인 메일은 보내지 않는다(잠금을 부른 사람이 메일함을 가진 공격자일 수 있다).
     const plan = await planAlertsIn(tx, t.id, deps.alertTo, { own: null, alert: 'unlocked', at: kstStamp(new Date()) });
