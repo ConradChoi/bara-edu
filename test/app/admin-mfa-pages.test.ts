@@ -33,7 +33,7 @@ import AdminMfaCard from '@/components/admin/AdminMfaCard';
 import MfaBanner from '@/components/admin/MfaBanner';
 import SecurityEventsCard from '@/components/admin/SecurityEventsCard';
 import { MFA_COPY as C, MFA_COPY_PENDING_REVIEW as P } from '@/lib/mfa-copy';
-import { adminMfaChrome } from '@/lib/mfa-format';
+import { adminMfaChrome, adminSessionEndsInMs } from '@/lib/mfa-format';
 import { getAdminSecurityEvents } from '@/lib/supabase/admin-queries';
 
 const fetchMock = vi.fn();
@@ -253,4 +253,22 @@ test('운영자 목록: "2단계 인증" 열은 overview가 될 때만(옛 API 4
   h = await render();
   expect(h).toContain('<th>2단계 인증</th>');
   expect(h).toContain('>초기화됨<');
+});
+
+test('MFA-SESSION-SOON: 남은 시간이 10분 이하면 상단 알림, 그보다 많거나 없으면 없음', () => {
+  const now = Date.parse('2026-11-27T05:00:00.000Z');
+  const st = (iso: string | null) => ({ ok: true as const, status: { ...STATUS, sessionExpiresAt: iso } as never });
+  expect(adminSessionEndsInMs(st('2026-11-27T05:09:00.000Z'), now)).toBe(9 * 60_000);
+  expect(adminSessionEndsInMs(st('2026-11-27T04:59:00.000Z'), now)).toBeNull();
+  expect(adminSessionEndsInMs(st(null), now)).toBeNull();
+  expect(adminSessionEndsInMs(st('nope'), now)).toBeNull();
+  expect(adminSessionEndsInMs({ ok: false, reason: 'unsupported' }, now)).toBeNull();
+  const chrome = adminMfaChrome({ ok: false, reason: 'unsupported' });
+  const render = (ms: number | null) => renderToStaticMarkup(createElement(AdminShell, { ...shellProps(chrome), sessionEndsInMs: ms } as never, 'x'));
+  const soon = render(9 * 60_000);
+  expect(soon).toContain(C['MFA-SESSION-SOON']);
+  expect(soon).toContain('role="status"');
+  expect(render(10 * 60_000)).toContain(C['MFA-SESSION-SOON']);
+  expect(render(11 * 60_000)).not.toContain(C['MFA-SESSION-SOON']);
+  expect(render(null)).not.toContain(C['MFA-SESSION-SOON']);
 });
