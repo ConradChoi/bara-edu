@@ -250,4 +250,6 @@
 
 뜻 정리(N-1): CLI `mfa-ticket`·`mfa-unlock` 기록의 `alert=self_only`는 "본인 메일도 보내지 않으므로 아무에게도 알리지 못함"이다(R-1 뒤로 운영에서는 생기지 않는다). 다른 사건의 `alert=self_only`는 "본인에게만 보냄"이다.
 
+배포 확인(2026-11-27): DB 패치 13:11 → API `ec8066c` 13:12 순서로 배포. 13:12 대표 계정에 CLI `mfa-unlock --reason owner_locked`로 시험 알림 1회, 기록에 `alert=self_only` 없음, 운영 알림 주소 수신을 대표가 메일에서 확인함. 조건부 Go의 조건(패치 먼저·ALERT_TO 설정·시험 알림 수신) 모두 충족.
+
 남은 것: R-3(입구 C의 `session_hash` not null 검사 제약, 옛 API가 다 내려간 뒤), N-4(같은 세션 토큰 탈취는 구조적 잔여 위험), N-5(`mfa-unlock`이 status=active를 보지 않음, 영향 낮음), QA Minor 1(세션이 지워지는 순간의 FK 오류 500 매핑).
