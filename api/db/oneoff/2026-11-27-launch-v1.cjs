@@ -12,6 +12,7 @@
 // 실행(WAS, api 폴더 안): node 2026-11-27-launch-v1.cjs <v1.0 본문 폴더>            → 확인만 하고 되돌림(기본)
 //                        node 2026-11-27-launch-v1.cjs <v1.0 본문 폴더> --execute  → 반영
 // 출력에는 건수와 행 id만 나온다(개인정보 없음).
+// 11-27 17:08 운영 실행 완료. 보관 테이블 잠금 패치(2026-11-27-legal-prelaunch-archive-lock.sql) 뒤에는 보관 insert가 막혀 다시 실행할 수 없다.
 const fs = require('node:fs');
 const path = require('node:path');
 const { Client } = require('pg');
