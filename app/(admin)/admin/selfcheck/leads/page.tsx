@@ -183,7 +183,7 @@ export default async function AdminDiagnosisLeadsPage({
       </AdminTable>
 
       <p className="text-[11.5px] text-n-5">
-        &quot;개인정보 보기&quot;를 누르면 연락처 원문이 표시되고, 이 열람은 접속기록(admin_access_logs)에 남습니다.
+        &quot;개인정보 보기&quot;를 누르면 그 문의의 이름·연락처·문의 내용 전문이 표시되고, 이 열람은 접속기록(admin_access_logs)에 남습니다.
       </p>
     </div>
   );

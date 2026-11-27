@@ -255,15 +255,28 @@ export function maskContact(contact: string | null | undefined): string {
 export const MESSAGE_PREVIEW_LEN = 40;
 const PREVIEW_EMAIL_RE = /\S+\s*@\s*\S+|\S+\s*[(\[]\s*at\s*[)\]]\s*\S+/gi;
 const PREVIEW_INTL_RE = /\+\s*\d(?:[\d\s\-.()]*\d)?/g;
-const PREVIEW_DIGITS_RE = /\d[\d\s\-.()/:]*\d/g;
-export function maskMessagePreview(message: string | null | undefined): { text: string | null; masked: boolean } {
+// 숫자 사이 구분 기호는 글자·숫자가 아닌 문자 1~3개(_ , ~ * — 등)와 한글 'ㅡ'까지 넓게 본다(개인정보 점검 R-7).
+const PREVIEW_SEP = String.raw`(?:[^\p{L}\p{N}]|[\u3161\u1173])`; // 'ㅡ'는 NFKC 뒤 U+1173이 된다
+const PREVIEW_DIGITS_RE = new RegExp(String.raw`\d(?:${PREVIEW_SEP}{0,3}\d)*`, 'gu');
+const PREVIEW_SEP_ALL_RE = new RegExp(PREVIEW_SEP, 'gu');
+const escapeRe = (v: string) => v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+export function maskMessagePreview(
+  message: string | null | undefined,
+  own?: { name?: string | null; contact?: string | null },
+): { text: string | null; masked: boolean } {
   if (message == null) return { text: null, masked: false };
   const full = message.normalize('NFKC').replace(/\s+/g, ' ').trim();
-  let t = full
+  let t = full;
+  // 같은 행의 이름·연락처 원문이 그대로 들어 있으면 먼저 지운다(R-8). 이름은 maskName, 연락처는 ***.
+  const contact = own?.contact?.normalize('NFKC').trim();
+  if (contact && contact.length >= 4) t = t.split(contact).join('***');
+  const name = own?.name?.normalize('NFKC').trim();
+  if (name && Array.from(name).length >= 2) t = t.replace(new RegExp(escapeRe(name), 'g'), maskName(name));
+  t = t
     .replace(PREVIEW_EMAIL_RE, '***')
     .replace(PREVIEW_INTL_RE, '***')
-    // 숫자가 7개 이상 이어진 덩어리(전화·계좌·주민번호)는 가린다. 날짜·시각(2026-11-26, 14:12) 한 개뿐이면 둔다.
-    .replace(PREVIEW_DIGITS_RE, (m) => ((m.match(/\d/g)?.length ?? 0) >= 7 && m.replace(MEMO_DATETIME_RE, '').replace(/[\s\-.()/:]/g, '') !== '' ? '***' : m));
+    // 숫자가 7개 이상인 덩어리(전화·계좌·주민번호)는 가린다. 날짜·시각(2026-11-26, 14:12)만으로 된 덩어리는 둔다.
+    .replace(PREVIEW_DIGITS_RE, (m) => ((m.match(/\d/g)?.length ?? 0) >= 7 && m.replace(MEMO_DATETIME_RE, '').replace(PREVIEW_SEP_ALL_RE, '') !== '' ? '***' : m));
   const chars = Array.from(t);
   if (chars.length > MESSAGE_PREVIEW_LEN) t = `${chars.slice(0, MESSAGE_PREVIEW_LEN).join('')}…`;
   // 위 규칙을 빠져나간 모양이 남아 있으면 미리보기 전체를 가린다(안전 쪽).
@@ -310,7 +323,7 @@ export const adminListDiagnosisLeads = defineOp({
       result: 'ok',
       rows: r.rows.map((row) => {
         const isRevealed = row === target;
-        const preview = isRevealed ? { text: row.message, masked: false } : maskMessagePreview(row.message);
+        const preview = isRevealed ? { text: row.message, masked: false } : maskMessagePreview(row.message, { name: row.name, contact: row.contact });
         return {
           id: row.id,
           createdAt: row.created_at.toISOString(),

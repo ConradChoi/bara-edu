@@ -424,6 +424,15 @@ test('문의 내용 미리보기(R-3 B안): 이메일·전화·주민번호 모�
   const long = '가'.repeat(50);
   expect(maskMessagePreview(long)).toEqual({ text: `${'가'.repeat(40)}…`, masked: true });
   expect(maskMessagePreview('줄\n바꿈').text).toBe('줄 바꿈');
+  // R-7: 넓은 구분 기호
+  for (const v of ['010ㅡ1234ㅡ5678', '010_1234_5678', '010,1234,5678', '010~1234~5678', '010*1234*5678', '010—1234—5678']) {
+    expect(maskMessagePreview(`번호 ${v} 입니다`).text, v).toBe('번호 *** 입니다');
+  }
+  expect(maskMessagePreview('900101ㅡ1234567').text).toBe('***');
+  expect(maskMessagePreview('2026-11-26 14:12:30 방문').text).toBe('*** 방문'); // 초 단위 시각은 가림(안전 쪽, QA Minor 4 허용)
+  // R-8: 같은 행의 이름·연락처 원문
+  expect(maskMessagePreview('저는 홍길동입니다. 홍길동에게 연락', { name: '홍길동', contact: '010-1111-2222' }).text).toBe('저는 홍**입니다. 홍**에게 연락');
+  expect(maskMessagePreview('연락은 kakao_hong2 으로', { name: '홍길동', contact: 'kakao_hong2' }).text).toBe('연락은 *** 으로');
 });
 
 test('문의 목록: message는 미리보기, [개인정보 보기] 행만 전문(접속 기록 fields에 message)', async () => {
