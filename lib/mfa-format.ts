@@ -108,3 +108,15 @@ export function adminMfaChrome(r: { ok: true; status: MfaStatus } | { ok: false;
   if (!r.ok) return { banner: null, showSecurityMenu: r.reason !== 'unsupported' };
   return { banner: pickMfaBanner(r.status, now), showSecurityMenu: true };
 }
+
+// 로그아웃 10분 전 안내(MFA-SESSION-SOON, 카피 6장). 기준은 12시간 최대 시간(mfa/status의 sessionExpiresAt = 로그인 + 12시간).
+// 서버 시계로 남은 시간을 재서 넘기고, 화면은 받은 순간부터 그 시간만큼 센다(관리자 PC 시계가 틀려도 맞게).
+export const SESSION_SOON_MS = 10 * 60 * 1000;
+
+export function adminSessionEndsInMs(r: { ok: true; status: MfaStatus } | { ok: false; reason: string }, now: number = Date.now()): number | null {
+  if (!r.ok || !r.status.sessionExpiresAt) return null;
+  const t = new Date(r.status.sessionExpiresAt).getTime();
+  if (Number.isNaN(t)) return null;
+  const left = t - now;
+  return left > 0 ? left : null;
+}
