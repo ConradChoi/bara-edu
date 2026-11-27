@@ -71,6 +71,9 @@
 | 11-27 13:59 | GitHub·Amplify 앱 | 배포 | main `72df55f`(공용 표로 수정) Amplify #84 SUCCEED. 홈 200, 비로그인 `/admin`·`/admin/selfcheck/leads` 307. 배포 후 API 5xx 0건 |
 | 11-27 15:46 | 서버 `ylia-was` | 배포 | API `2ad1fd7`(fix/minor-cleanup: 한글 등 아이디 이메일 통째 가림, CLI `mfa-unlock` 활성 관리자만(N-5), `admin-sessions-revoke` 접속 기록). DB 변경 없음. 이전 릴리스 `8f2f93c` 보관. 재시작 후 active, healthz 200, 홈 200 |
 | 11-27 15:49 | GitHub·Amplify 앱 | 배포 | main `2ad1fd7` Amplify #85 SUCCEED(대시보드 이메일 가림 같은 규칙). 개인정보 점검 조건부 Go(조건 반영)·QA Go |
+| 11-27 16:0x | 서버 `ylia-was` | 배포 | API `5967391`(관리자 전용 연락처: 관리자 메일만 문의처를 관리자 문의 한 줄로). 이전 릴리스 `2ad1fd7` 보관. 재시작 후 active, healthz 200, 홈 200 |
+| 11-27 16:0x | WAS `/app/bara-edu/shared/api.env` | 변경 | 백업 `api.env.bak-20261127-contact`(600 root) 후 `ADMIN_CONTACT_PHONE` 1줄 추가(대표 결정, 공개 문의처와 같은 번호, 값은 기록하지 않음). 재시작 후 API healthz 200, CLI `mfa-report` 정상(exit 0). 되돌리기: 백업으로 복원 후 재시작 |
+| 11-27 16:06 | GitHub·Amplify 앱 | 배포 | main `5967391` Amplify #87 SUCCEED(앱 변경 없음, 문서). 개인정보 점검 Go·QA 조건부 Go(조건 반영) |
 
 ## 같은 날 함께 정리한 것
 
