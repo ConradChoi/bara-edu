@@ -223,6 +223,13 @@ test('가림 규칙: 이름은 첫 글자 + ** (길이 무관), 연락처는 기
   expect(maskEmail('hong@naver.com 010-1234-5678')).toBe('***');
   expect(maskEmail('hong@naver.com,01012345678')).toBe('***');
   expect(maskEmail('a@b@c.kr')).toBe('***');
+  expect(maskEmail('hong@naver.com-010-1234-5678')).toBe('***');
+  expect(maskEmail('hong@naver.com.01012345678')).toBe('***');
+  expect(maskEmail('hong@naver')).toBe('***');
+  expect(maskEmail('kim@mail.co.kr')).toBe('ki***@mail.co.kr');
+  expect(maskPhone('900101-1234567')).toBe('***');
+  expect(maskPhone('9001011234567')).toBe('***');
+  expect(maskPhone('010-9025-5093')).toBe('010-****-5093');
 });
 
 async function listResult(name: string | null, phone: string | null, email: string | null, userId: string | null, tier: string, createdAt: string) {

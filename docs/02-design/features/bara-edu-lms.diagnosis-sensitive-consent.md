@@ -824,8 +824,8 @@ revoke execute on function public.delete_my_diagnosis_result(uuid, boolean) from
 | 필드 | 가린 값(기본) | 원문(`revealId` 행) |
 |---|---|---|
 | `respondentName` | 첫 글자 + `**` (`홍**`, `N**`, 글자 수와 무관, SC-ADM-MASK-FORMAT). 값 없음은 `-` | 원문(없으면 `-`) |
-| `phone` | `010-****-5678`(숫자 7자리 미만 `***`, 없음 `-`) — 기존 앱 규칙 | 원문(없으면 `-`) |
-| `email` | `ab***@domain`(앞부분 2자 이하 `***@domain`, 없음 `-`) — 기존 앱 규칙 | 원문(없으면 `-`) |
+| `phone` | 숫자 11자리 이상 `010-****-5678`, 9~10자리 `02-****-67`, 그보다 짧거나 숫자·구분기호 외 글자·주민등록번호 모양이면 `***`, 없음 `-` (2026-11-27 강화, 개인정보 점검 R-2·R-6) | 원문(없으면 `-`) |
+| `email` | `ab***@domain`(앞부분 2자 이하 `***@domain`, 없음 `-`). 공백·@ 여러 개·도메인이 영문 TLD로 끝나는 모양이 아니거나 도메인 숫자 7개 이상이면 `***` (2026-11-27 강화, R-1·R-5) | 원문(없으면 `-`) |
 
 | 상황 | 응답 |
 |---|---|
@@ -846,7 +846,7 @@ revoke execute on function public.delete_my_diagnosis_result(uuid, boolean) from
 QA minor 2 후속: 앱이 `diagnosis_leads`를 직접 select하던 것을 이 op로 바꾸고 `diagnosis_leads_admin_select` 정책을 지운다(패치 `2026-11-27-diagnosis-leads-admin-select.sql`). 규칙은 C4와 같다.
 
 - 요청 `params`(strict): `status?: 'all' | 'new' | 'contacted' | 'closed'`, `revealId?: uuid`(앱이 reveal 토큰을 검증한 뒤에만 넘김)
-- 응답 `data`: `{ result: 'ok', rows: [{ id, createdAt, resultId, name, contact, isRevealed, message, status, adminNote, handledAt, userId }] }` — 접수 최신순. `name`은 첫 글자 + `**`, `contact`는 `@`가 있으면 이메일 규칙(`ab***@d.kr`), 없으면 휴대전화 규칙(숫자 11자리 이상 `010-****-5678`, 9~10자리 `02-****-67`, 그보다 짧거나 숫자·구분기호 외 글자가 섞이면 `***`). 이메일도 공백·@ 여러 개·도메인에 다른 글자가 섞이면 `***`(휴대전화를 함께 적은 값이 원문으로 새지 않게, 개인정보 점검 R-1·R-2 — 진단 결과 목록의 휴대전화·이메일 가림에도 같이 적용). revealId 행만 원문
+- 응답 `data`: `{ result: 'ok', rows: [{ id, createdAt, resultId, name, contact, isRevealed, message, status, adminNote, handledAt, userId }] }` — 접수 최신순. `name`은 첫 글자 + `**`, `contact`는 `@`가 있으면 이메일 규칙(`ab***@d.kr`), 없으면 휴대전화 규칙(숫자 11자리 이상 `010-****-5678`, 9~10자리 `02-****-67`, 그보다 짧거나 숫자·구분기호 외 글자·주민등록번호 모양이면 `***`). 이메일도 공백·@ 여러 개·도메인 모양이 아니거나 도메인 숫자 7개 이상이면 `***`(휴대전화를 함께 적은 값이 원문으로 새지 않게, 개인정보 점검 R-1·R-2 — 진단 결과 목록의 휴대전화·이메일 가림에도 같이 적용). revealId 행만 원문
 - revealId 행이 목록 안에 있으면 같은 트랜잭션에서 접속 기록 1건(`조회`, detail `강사과정 문의 이름·연락처 열람(<id>) fields=name,contact`, 값 없음 — 진단 결과 쪽과 같은 형식). 필터 밖·없는 id면 열지 않고 기록 없음
 - 오류: 관리자 아님 `{ result: 'forbidden' }`, 세션 없음 401, 형식 오류 400 `validation`, 접속 기록 실패 503 `log_failed`(원문 없음 — 앱은 가린 목록을 다시 받아 안내)
 - 배포 순서: API → 앱 → 패치(앱보다 먼저 패치하면 옛 앱 목록이 빈 목록으로 보인다)

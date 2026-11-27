@@ -153,13 +153,15 @@ export function maskName(name: string | null | undefined): string {
 export function maskPhone(phone: string | null | undefined): string {
   if (!phone) return '-';
   if (/[^0-9\s\-+().]/.test(phone)) return '***';
+  // 주민등록번호 모양(생년월일 6 + 성별 1~8로 시작하는 7)이면 통째로 가린다(R-6). 휴대전화는 0으로 시작해 겹치지 않는다.
+  if (/^\s*\d{6}[-\s]?[1-8]\d{6}\s*$/.test(phone)) return '***';
   const digits = phone.replace(/[^0-9]/g, '');
   if (digits.length >= 11) return `${digits.slice(0, 3)}-****-${digits.slice(-4)}`;
   if (digits.length >= 9) return `${digits.slice(0, 2)}-****-${digits.slice(-2)}`;
   return '***';
 }
 
-// 이메일: 공백이 있거나 @가 하나가 아니거나 도메인이 도메인 글자(영문·숫자·.·-)만이 아니면(휴대전화를 함께 적은 값 등) 통째로 '***'.
+// 이메일: 공백이 있거나 @가 하나가 아니거나 도메인이 도메인 모양이 아니면(휴대전화를 함께 적은 값 등) 통째로 '***'.
 export function maskEmail(email: string | null | undefined): string {
   if (!email) return '-';
   const t = email.trim();
@@ -167,7 +169,8 @@ export function maskEmail(email: string | null | undefined): string {
   if (at <= 0 || /\s/.test(t) || t.indexOf('@', at + 1) !== -1) return '***';
   const local = t.slice(0, at);
   const domain = t.slice(at + 1);
-  if (!/^[A-Za-z0-9.-]+$/.test(domain)) return '***';
+  // 도메인은 영문 TLD로 끝나는 라벨 모양이어야 하고, 숫자가 7개 이상이면 번호를 이어 붙인 값으로 보고 가린다(R-5).
+  if (!/^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}$/.test(domain) || (domain.match(/[0-9]/g)?.length ?? 0) >= 7) return '***';
   if (local.length <= 2) return `***@${domain}`;
   return `${local.slice(0, 2)}***@${domain}`;
 }
@@ -241,7 +244,7 @@ export const adminListDiagnosisResults = defineOp({
 // 목록은 이름·연락처를 가려서 내려 주고, 앱이 reveal 토큰(HMAC)을 검증한 revealId 한 행만 원문 + 접속 기록('조회')을
 // 한 트랜잭션으로 남긴다. 기록이 실패하면 OpError(503 log_failed)로 끝나 원문이 응답에 실리지 않는다.
 
-// 연락처는 "휴대전화 또는 이메일" 자유 입력 한 칸이라 @ 포함 여부로 규칙을 고른다(앱의 maskContact와 같다).
+// 연락처는 "휴대전화 또는 이메일" 자유 입력 한 칸이라 @ 포함 여부로 규칙을 고른다(2026-11-27 전 앱의 maskContact를 옮기면서 규칙을 강화했다).
 export function maskContact(contact: string | null | undefined): string {
   if (!contact) return '-';
   return contact.includes('@') ? maskEmail(contact) : maskPhone(contact);
