@@ -491,6 +491,13 @@ test('CLI admin-sessions-revoke: 관리자 세션만 전부 삭제', async () =>
   expect(r.out[0]).toMatch(/^관리자 세션 \d+개를 지웠습니다\.$/);
   expect(await q('select 1 from auth.sessions s join profiles p on p.id = s.user_id where p.role = $1', ['admin'])).toHaveLength(0);
   expect((await call('GET', '/v1/auth/session', undefined, S(ls))).statusCode).toBe(200);
+  // 개인정보 점검 권고 3: 세션이 지워진 관리자마다 접속 기록 1건(작업자·건수), 학습자는 기록 없음
+  expect((await logsOf(ctx, a.id)).at(-1)).toMatchObject({ action: '관리자세션일괄종료', detail: expect.stringMatching(/^by=db;operator=개발;sessions=[1-9]\d*$/) });
+  expect(await q("select 1 from admin_access_logs where action = '관리자세션일괄종료' and admin_id = $1", [l.id])).toHaveLength(0);
+  // 지울 세션이 없으면 기록도 없다
+  const before = (await q("select count(*)::int as n from admin_access_logs where action = '관리자세션일괄종료'"))[0].n;
+  expect((await cli(['admin-sessions-revoke', '--operator', '개발'])).out[0]).toBe('관리자 세션 0개를 지웠습니다.');
+  expect((await q("select count(*)::int as n from admin_access_logs where action = '관리자세션일괄종료'"))[0].n).toBe(before);
 });
 
 test('운영 명령의 키가 API의 키(auth.mfa_key_check)와 다르면 rekey·reset·ticket 모두 쓰기 전에 멈춘다', async () => {

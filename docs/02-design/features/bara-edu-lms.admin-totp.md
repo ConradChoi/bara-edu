@@ -322,10 +322,10 @@ CLI 명령 전체(`api/src/db/cli.ts`). 모든 명령은 `--operator`(작업자 
 | `mfa-reset --email --operator --reason` | 위 3 | 관리자·활성 아님, `--reason` 키 아님 | `2단계인증초기화` `by=db;operator=…;reason=…` |
 | `mfa-ticket --email --operator` | 등록 코드만 발급(첫 관리자, 승격, 강제 이후 새 관리자). 기존 등록 코드는 지우고 새로 발급, `ticket_required_at` 설정 | 관리자·활성 아님, **이미 등록된 계정**(그 경우 `mfa-reset`을 쓴다, 보안 점검 M-5 반영) | `2단계인증등록코드발급` `by=db;operator=…` |
 | `mfa-clear --email --operator` | 강등 절차용. 등록·등록 대기·복구 코드·대기표·등록 코드 삭제. `mfa_account_state`는 남기고 `ticket_required_at`을 채운다 | 대상이 아직 `role='admin'`이면 거절(먼저 강등) | `2단계인증초기화` `by=db;operator=…;reason=demoted` (`admin_id`=대상) |
-| `mfa-unlock --email --operator --reason` | 계정 잠금 해제: 그 사용자의 `rate_events`(`mfa-fail`) 삭제(보안 점검 I-7 반영). 등록 정보는 건드리지 않는다. 비밀번호가 샜을 수 있으므로 운영 문서에 "잠금 해제 전 비밀번호 재설정"을 권장으로 적는다. `--reason`: `owner_locked`, `attack_suspected` | 관리자 아님 | `2단계인증잠금해제` `by=db;operator=…;reason=…` |
+| `mfa-unlock --email --operator --reason` | 계정 잠금 해제: 그 사용자의 `rate_events`(`mfa-fail`) 삭제(보안 점검 I-7 반영). 등록 정보는 건드리지 않는다. 비밀번호가 샜을 수 있으므로 운영 문서에 "잠금 해제 전 비밀번호 재설정"을 권장으로 적는다. `--reason`: `owner_locked`, `attack_suspected` | 활성 관리자 아님(탈퇴 포함, 2026-11-27 N-5) | `2단계인증잠금해제` `by=db;operator=…;reason=…` |
 | `mfa-report` | 강제 전 점검표(보안 점검 I-8 반영). 활성 관리자마다 한 줄: 이름, 이메일, 등록 여부, 등록 일시, **등록 경로(`via`)·등록 IP**, 남은 복구 코드 수, 복구 코드 보관 확인 여부, 6자리로 로그인한 횟수와 **최근 로그인 일시·IP**(접속 기록 `로그인` 최근 3건), `ticket_required_at`, 현재 모드. 비밀 값 없음 | — | 남기지 않음(읽기) |
 | `mfa-rekey --operator` | 2.6 키 교체 3단계 | 현재 키 버전이 1개뿐 | 남기지 않음(서버 로그에 버전·행 수만) |
-| `admin-sessions-revoke --operator` | `role='admin'` 사용자의 세션 전부 삭제(수동 비상용. 모드 전환 때는 자동, 2.14) | — | 남기지 않음(서버 로그에 삭제 수) |
+| `admin-sessions-revoke --operator` | `role='admin'` 사용자의 세션 전부 삭제(수동 비상용. 모드 전환 때는 자동, 2.14) | — | `관리자세션일괄종료` `by=db;operator=…;sessions=N`(세션이 지워진 관리자마다 1건, 지운 세션이 없으면 없음. 2026-11-27 개인정보 점검 권고 3, 이전에는 남기지 않음) |
 
 #### 2.7.4 강등·탈퇴
 
@@ -378,6 +378,7 @@ CLI 명령 전체(`api/src/db/cli.ts`). 모든 명령은 `--operator`(작업자 
 | `2단계인증등록코드발급` | 본인(DB 작업) | 대상 | `by=db;operator=...` | 신규 관리자·승격·강제 시작 때 |
 | `2단계인증잠김` | 본인 | 본인 | `limit=account` / `limit=daily` | 계정당 한도에 걸린 순간(한도마다 1회, 보안 점검 I-7 반영) |
 | `2단계인증잠금해제` | 본인(DB 작업) | 대상 | `by=db;operator=…;reason=owner_locked` | CLI `mfa-unlock`(보안 점검 I-7 반영) |
+| `관리자세션일괄종료` | 본인(DB 작업) | 본인 | `by=db;operator=…;sessions=N` | CLI `admin-sessions-revoke`(2026-11-27). 대시보드 보안 사건 목록에는 넣지 않음 |
 
 - 로그인 기록: **남긴다**(보안 점검 6장 결정). 제8조 접속기록(접속 일시·접속지)을 채운다. 개별 실패(잠김 전)는 접속 기록이 아니라 서버 구조화 로그 `{ event: 'mfa_fail', userId, kind: 'wrong_code' | 'reused' | 'challenge_invalid' | 'ticket_invalid', ipKey }`로만 남긴다(입력값 없음). 로그아웃·세션 만료는 남기지 않는다.
 - 보안 알림(2.13)을 받을 다른 사람이 없어 본인에게만 보낸 경우, 그 사건의 기록 `detail` 끝에 `;alert=self_only`를 붙인다(보안 점검 I-6 반영). 대상 사건: `2단계인증등록`, `2단계인증초기화`, `2단계인증잠김`, `로그인`(복구 코드), `비밀번호재설정`(관리자).

@@ -72,6 +72,38 @@
   [
    "hong.gd+1@gmail.com",
    "ho***@gmail.com"
+  ],
+  [
+   "kim@naver.com",
+   "ki***@naver.com"
+  ],
+  [
+   "hong@123456.kr",
+   "ho***@123456.kr"
+  ],
+  [
+   "hong@1234567.kr",
+   "***"
+  ],
+  [
+   "hong @naver.com",
+   "***"
+  ],
+  [
+   "hong　gd@naver.com",
+   "***"
+  ],
+  [
+   "ho​ng@naver.com",
+   "***@naver.com"
+  ],
+  [
+   "hong@naver.​com",
+   "***"
+  ],
+  [
+   "Hong@Naver.COM",
+   "Ho***@Naver.COM"
   ]
  ]
 }

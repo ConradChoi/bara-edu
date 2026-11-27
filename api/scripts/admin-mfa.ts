@@ -54,6 +54,8 @@ export class CliError extends Error {}
 
 // 작업자 이름은 접속 기록 detail(키=값;…)에 들어가므로 구분자·제어 문자를 받지 않는다
 const OPERATOR_RE = /^[^;=\p{Cc}]{1,50}$/u;
+// admin-sessions-revoke 접속 기록 action(개인정보 점검 권고 3, 2026-11-27). 보안 사건 목록(대시보드)에는 넣지 않는다.
+const ADMIN_SESSIONS_REVOKED = '관리자세션일괄종료';
 
 type Target = { id: string; email: string; role: string | null; status: string | null; enrolled: boolean };
 
@@ -130,7 +132,7 @@ export async function runCli(argv: string[], deps: CliDeps): Promise<number> {
       case 'mfa-rekey':
         return await mfaRekey(deps);
       default:
-        return await revokeAdminSessions(deps);
+        return await revokeAdminSessions(deps, operator);
     }
   } catch (err) {
     if (err instanceof CliError) deps.err(err.message);
@@ -296,10 +298,15 @@ async function mfaRekey(deps: CliDeps): Promise<number> {
   return 0;
 }
 
-async function revokeAdminSessions(deps: CliDeps): Promise<number> {
+async function revokeAdminSessions(deps: CliDeps, operator: string): Promise<number> {
   const n = await withService(deps.pool, async (tx) => {
-    const d = await tx.query(`delete from auth.sessions s where exists (select 1 from public.profiles p where p.id = s.user_id and p.role = 'admin')`);
-    return d.rowCount;
+    const d = await tx.query<{ user_id: string; n: number }>(
+      `with d as (delete from auth.sessions s where exists (select 1 from public.profiles p where p.id = s.user_id and p.role = 'admin') returning s.user_id)
+       select user_id, count(*)::int as n from d group by user_id`,
+    );
+    // 세션이 지워진 관리자마다 기록 1건(개인정보 점검 권고 3). 지운 세션이 없으면 바뀐 것이 없으므로 기록하지 않는다.
+    for (const r of d.rows) await logIn(tx, r.user_id, r.user_id, ADMIN_SESSIONS_REVOKED, `by=db;operator=${operator};sessions=${r.n}`, null);
+    return d.rows.reduce((sum, r) => sum + r.n, 0);
   });
   deps.out(`관리자 세션 ${n}개를 지웠습니다.`);
   return 0;
