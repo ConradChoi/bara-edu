@@ -407,6 +407,11 @@ test('CLI mfa-ticket: 등록된 계정은 거절, 첫 관리자·승격 계정�
   expect(r.out[0]).toBe(TICKET_WARNING);
   expect((await q('select ticket_required_at is not null as t from auth.mfa_account_state where user_id = $1', [a.id]))[0].t).toBe(true);
   expect((await logsOf(ctx, a.id)).at(-1)).toMatchObject({ action: '2단계인증등록코드발급', detail: 'by=db;operator=개발' });
+  // m-3: 다른 관리자·운영 주소에 알림, 본인 메일 없음, 메일에 등록 코드 없음
+  expect(r.mailer.sent.filter((m) => m.to === ALERT_TO)).toEqual([expect.objectContaining({ template: 'admin_security_alert', event: 'ticket_issued' })]);
+  expect(r.mailer.sent.some((m) => m.to === a.email)).toBe(false);
+  const code = r.out.find((l) => l.startsWith('등록 코드:'))!.replace(/\D/g, '').slice(0, 8);
+  expect(JSON.stringify(r.mailer.sent)).not.toContain(code);
   // optional에서도 입구 A는 닫히고 입구 B로만
   expect((await challenge(a.email, apps.optional)).mfa).toBe('enroll_required');
 });
@@ -432,6 +437,9 @@ test('CLI mfa-unlock: 두 bucket(실패·풀린 실패)을 지우고 기록, 등
   expect(r.out[0]).toContain('3건');
   expect(await q("select bucket from auth.rate_events where key = $1", [a.id])).toEqual([{ bucket: 'mfa-lock-mail-account' }]);
   expect((await logsOf(ctx, a.id)).at(-1)).toMatchObject({ action: '2단계인증잠금해제', detail: 'by=db;operator=개발;reason=owner_locked' });
+  // m-3: 다른 관리자·운영 주소에 알림, 본인 메일 없음
+  expect(r.mailer.sent.filter((m) => m.to === ALERT_TO)).toEqual([expect.objectContaining({ template: 'admin_security_alert', event: 'unlocked' })]);
+  expect(r.mailer.sent.some((m) => m.to === a.email)).toBe(false);
   expect(await q('select 1 from auth.mfa_factors where user_id = $1', [a.id])).toHaveLength(1);
 });
 
@@ -654,5 +662,25 @@ test('서버 로그 스트림에 6자리·복구 코드·등록 코드·대기�
     expect(all).toContain('"event":"mfa_fail"');
   } finally {
     await la.app.close();
+  }
+});
+
+test('m-3 알림 받을 곳이 없으면 CLI mfa-ticket·mfa-unlock은 메일 없이 기록에 alert=self_only', async () => {
+  const a = await addUser(ctx, { admin: true });
+  const others = await q("select id from public.profiles where role = 'admin' and id <> $1", [a.id]);
+  const setRoles = (role: string) =>
+    q(`begin; set local session_replication_role = replica; update public.profiles set role = '${role}' where id = any('{${others.map((o) => o.id).join(',')}}'::uuid[]); commit`);
+  await setRoles('learner');
+  try {
+    const t = await cli(['mfa-ticket', '--email', a.email, '--operator', '개발'], { alertTo: [] });
+    expect(t.code).toBe(0);
+    expect(t.mailer.sent).toHaveLength(0);
+    expect((await logsOf(ctx, a.id)).at(-1)?.detail).toBe('by=db;operator=개발;alert=self_only');
+    const u = await cli(['mfa-unlock', '--email', a.email, '--operator', '개발', '--reason', 'owner_locked'], { alertTo: [] });
+    expect(u.code).toBe(0);
+    expect(u.mailer.sent).toHaveLength(0);
+    expect((await logsOf(ctx, a.id)).at(-1)?.detail).toBe('by=db;operator=개발;reason=owner_locked;alert=self_only');
+  } finally {
+    await setRoles('admin');
   }
 });

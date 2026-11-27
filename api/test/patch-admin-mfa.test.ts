@@ -42,6 +42,8 @@ async function applyPatch() {
     await c.query('begin');
     await c.query('set local role bara_edu_service');
     await c.query(patch);
+    // 그 뒤 후속 패치(2026-11-27 입구 C 세션 묶기)까지 적용해야 현행 01-auth.sql과 같은 모양이 된다.
+    await c.query(await readFile(path.join(dbDir, 'patches', '2026-11-27-mfa-enroll-session.sql'), 'utf8'));
     await c.query('commit');
   } catch (e) {
     await c.query('rollback');

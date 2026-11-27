@@ -96,6 +96,9 @@ export const ALERT_EVENT_TEXT = {
   locked: '인증 앱 번호가 여러 번 틀려 15분 동안 막혔어요.',
   locked_daily: '인증 앱 번호가 너무 많이 틀려 24시간 동안 막혔어요.',
   password_reset: '비밀번호 재설정 메일로 비밀번호를 바꿨어요.',
+  // 운영 서버 명령(CLI)으로 한 일(보안 점검 m-3, 2026-11-27)
+  ticket_issued: '개발 담당이 서버에서 2단계 인증 등록 코드를 발급했어요.',
+  unlocked: '개발 담당이 서버에서 인증 앱 번호 입력 잠금을 풀었어요.',
 } as const;
 
 const oneLine = (s: string) => s.replace(/[\r\n]+/g, ' ');

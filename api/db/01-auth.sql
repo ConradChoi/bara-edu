@@ -179,6 +179,11 @@ create table if not exists auth.mfa_runtime (
 );
 -- ===== 관리자 2단계 인증 끝 =====
 
+-- 관리자 2단계 인증 후속(2026-11-27, 패치 2026-11-27-mfa-enroll-session.sql과 같은 줄)
+-- 입구 C는 시작한 세션에 묶는다(2026-11-27, 보안 점검 m-1): 같은 사용자의 다른 세션은 등록 대기(새 비밀 키)를 다시 읽거나 확정할 수 없다.
+-- 세션이 지워지면(로그아웃·만료 정리) 대기도 함께 지워진다.
+alter table auth.mfa_enrollments add column if not exists session_hash text references auth.sessions (token_hash) on delete cascade;
+
 create or replace function auth.uid() returns uuid
   language sql stable
   as $$ select nullif(current_setting('request.user_id', true), '')::uuid $$;

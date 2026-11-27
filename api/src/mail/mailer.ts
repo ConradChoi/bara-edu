@@ -16,7 +16,7 @@ export type MailMessage =
   | { to: string; template: 'mfa_locked'; at: string; scope: 'account' | 'daily'; minutes: number; link?: undefined }
   | { to: string; template: 'admin_security_alert'; at: string; ownerName: string; event: SecurityAlertEvent; left?: number; link?: undefined };
 
-export type SecurityAlertEvent = 'enrolled' | 'reset' | 'recovery_used' | 'locked' | 'locked_daily' | 'password_reset';
+export type SecurityAlertEvent = 'enrolled' | 'reset' | 'recovery_used' | 'locked' | 'locked_daily' | 'password_reset' | 'ticket_issued' | 'unlocked';
 
 export interface Mailer {
   send(msg: MailMessage): Promise<void>;
