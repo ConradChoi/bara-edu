@@ -5,7 +5,7 @@ import { MemoryMailer } from '../src/mail/mailer.js';
 import { MemoryStorage } from '../src/storage/storage.js';
 import { loadConfig } from '../src/config.js';
 import { createSession } from '../src/auth/sessions.js';
-import { maskEmail, maskName, maskPhone } from '../src/ops/admin-diagnosis.js';
+import { maskContact, maskEmail, maskName, maskPhone } from '../src/ops/admin-diagnosis.js';
 import { setupTestDb } from './helpers/db.js';
 
 const KEY = 'k'.repeat(32);
@@ -380,4 +380,15 @@ test('문의 개인정보 보기: 접속 기록이 실패하면 503 log_failed�
 test('문의 목록: 관리자만(학습자 forbidden, 세션 없음 401)', async () => {
   expect((await leads({}, learnerToken)).json().data).toEqual({ result: 'forbidden' });
   expect((await leads({}, '')).statusCode).toBe(401);
+});
+
+test('문의 연락처 가림 규칙: @ 있으면 이메일 규칙, 없으면 휴대전화 규칙, 빈 값·짧은 값', () => {
+  expect(maskContact(null)).toBe('-');
+  expect(maskContact('')).toBe('-');
+  expect(maskContact('abc')).toBe('***');
+  expect(maskContact('12345')).toBe('***');
+  expect(maskContact('+82 10-1234-5678')).toBe('821-****-5678');
+  expect(maskContact('a@b.kr')).toBe('***@b.kr');
+  expect(maskContact('@b.kr')).toBe('***');
+  expect(maskContact('hong.gil@example.com')).toBe('ho***@example.com');
 });

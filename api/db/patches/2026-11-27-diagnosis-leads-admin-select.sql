@@ -9,6 +9,7 @@
 -- 적용: begin; set local role bara_edu_service; <이 파일>; commit;
 -- 배포 순서: API(admin.listDiagnosisLeads 포함) -> 앱(문의 목록이 op를 쓰는 버전) -> 이 패치.
 --       앱보다 먼저 적용하면 옛 앱의 문의 목록 직접 조회가 0행(빈 목록)으로 보인다.
--- 롤백: create policy "diagnosis_leads_admin_select" on diagnosis_leads for select using (is_admin());
+-- 롤백: 패치 뒤 앱을 옛 버전으로 되돌릴 때는 정책부터 되살린다(옛 앱은 직접 select라 정책이 없으면 목록이 조용히 0행):
+--       create policy "diagnosis_leads_admin_select" on diagnosis_leads for select using (is_admin());
 set local lock_timeout = '5s';
 drop policy if exists "diagnosis_leads_admin_select" on diagnosis_leads;
