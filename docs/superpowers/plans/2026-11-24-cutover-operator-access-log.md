@@ -62,6 +62,9 @@
 | 11-27 12:27 | WAS `bara-edu-api` | 변경 | API 릴리스 `45bb82a` 설치·재시작(직전 `d5528af` 보존): 신규 op `admin.listDiagnosisLeads`, 연락처 가림 강화, 문의 내용 미리보기(대표 결정 R-3 B안). healthz 200 |
 | 11-27 12:30 | GitHub·Amplify 앱 | 배포 | main `45bb82a` 푸시, Amplify #81 SUCCEED. 비로그인 `/admin/selfcheck/leads` 307 → /sign-in |
 | 11-27 12:30 | `bara_edu` | 변경 | 패치 `2026-11-27-diagnosis-leads-admin-select.sql` 적용(`begin; set local role bara_edu_service;` … commit). 적용 전 정책 `diagnosis_leads_admin_select` 1개 → 적용 후 `pg_policies` 0행, RLS 켜짐 확인(개인정보 점검 R-4 조건). 데이터 변경 없음. 배포 후 API 5xx 0건. 롤백(정책 재생성)은 임시로만 쓴다 |
+| 11-27 13:11 | `bara_edu` | 변경 | 패치 `2026-11-27-mfa-enroll-session.sql` 적용(lock_timeout 5s). `auth.mfa_enrollments.session_hash` 추가 확인(pg_attribute: text·null 허용, FK → auth.sessions, on delete cascade). 데이터 변경 없음 |
+| 11-27 13:12 | 서버 `ylia-was` | 배포 | API `ec8066c`(2단계 인증 후속: 입구 C 세션 묶기, CLI 보안 알림, 운영 ALERT_TO 필수). 이전 릴리스 `45bb82a` 보관. 재시작 후 active, healthz 200, 홈 200. 배포 전 ADMIN_SECURITY_ALERT_TO 설정됨(1개) 확인 |
+| 11-27 13:12 | `bara_edu` | 변경 | 시험 알림: 대표 관리자 계정에 CLI `mfa-unlock --reason owner_locked` 1회(실패 기록 0건 삭제). 접속기록 `2단계인증잠금해제 by=db;…;reason=owner_locked`, `alert=self_only` 없음 → 보안 알림 주소로 발송 계획됨. 수신 확인은 대표님 확인 대기 |
 
 ## 같은 날 함께 정리한 것
 
