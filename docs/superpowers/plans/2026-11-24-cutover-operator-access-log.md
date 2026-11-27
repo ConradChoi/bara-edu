@@ -59,6 +59,9 @@
 | 11-26 22:57 | GitHub·Amplify 앱 | 배포 | main `56aadb4`(푸터 하단 고정) Amplify #80 SUCCEED. 11-27 대표 화면·인쇄 미리보기 확인 |
 | 11-27 11:1x | CloudWatch·WAS·WEB | 조회 | 로그 보관 점검(개인정보 점검 R-8): bara-edu Amplify 로그 그룹 90일, WEB nginx logrotate 14개(약 14일), 두 서버 journald는 용량 200MB만 제한(기간 제한 없음) |
 | 11-27 11:17 | WAS·WEB journald (공용) | 변경 | 대표 승인. `/etc/systemd/journald.conf.d/size.conf`에 `MaxRetentionSec=3month` 추가(원본 `size.conf.bak-20261127` 보관), `systemd-journald` 재시작 → active. 적용 직후 WAS 저널 167.7M→113.8M(3개월 넘은 옛 저널 정리). api healthz 200, 홈 200. 같은 서버의 다른 서비스 시스템 로그에도 적용됨 |
+| 11-27 12:27 | WAS `bara-edu-api` | 변경 | API 릴리스 `45bb82a` 설치·재시작(직전 `d5528af` 보존): 신규 op `admin.listDiagnosisLeads`, 연락처 가림 강화, 문의 내용 미리보기(대표 결정 R-3 B안). healthz 200 |
+| 11-27 12:30 | GitHub·Amplify 앱 | 배포 | main `45bb82a` 푸시, Amplify #81 SUCCEED. 비로그인 `/admin/selfcheck/leads` 307 → /sign-in |
+| 11-27 12:30 | `bara_edu` | 변경 | 패치 `2026-11-27-diagnosis-leads-admin-select.sql` 적용(`begin; set local role bara_edu_service;` … commit). 적용 전 정책 `diagnosis_leads_admin_select` 1개 → 적용 후 `pg_policies` 0행, RLS 켜짐 확인(개인정보 점검 R-4 조건). 데이터 변경 없음. 배포 후 API 5xx 0건. 롤백(정책 재생성)은 임시로만 쓴다 |
 
 ## 같은 날 함께 정리한 것
 
