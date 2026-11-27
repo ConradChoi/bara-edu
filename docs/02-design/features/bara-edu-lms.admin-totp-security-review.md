@@ -253,3 +253,8 @@
 배포 확인(2026-11-27): DB 패치 13:11 → API `ec8066c` 13:12 순서로 배포. 13:12 대표 계정에 CLI `mfa-unlock --reason owner_locked`로 시험 알림 1회, 기록에 `alert=self_only` 없음, 운영 알림 주소 수신을 대표가 메일에서 확인함. 조건부 Go의 조건(패치 먼저·ALERT_TO 설정·시험 알림 수신) 모두 충족.
 
 남은 것: R-3(입구 C의 `session_hash` not null 검사 제약, 옛 API가 다 내려간 뒤), N-4(같은 세션 토큰 탈취는 구조적 잔여 위험), N-5(`mfa-unlock`이 status=active를 보지 않음, 영향 낮음), QA Minor 1(세션이 지워지는 순간의 FK 오류 500 매핑).
+
+후속 반영(2026-11-27 오후, fix/sys-followups):
+- R-3: 검사 제약 `mfa_enrollments_entry_c_session_check (entry <> 'C' or session_hash is not null)`(패치 `2026-11-27-mfa-enroll-c-session-required.sql`, 01-auth.sql 같은 블록). 패치는 먼저 `session_hash`가 null인 입구 C 대기(옛 API가 만든 죽은 행)를 지운다. API `ec8066c` 이상에서만 적용(옛 API로 되돌리면 제약을 먼저 뺀다).
+- QA Minor 1: 입구 C 시작은 맨 앞에서 그 세션 행을 `for key share`로 잡는다. 이미 지워졌으면 401 `session_ended`(FK 오류 500 없음), 잡은 뒤에는 커밋까지 로그아웃 삭제가 기다린다. 잠금 순서 sessions -> mfa_enrollments와도 맞아 N-2의 교착 여지도 없앴다.
+- 남은 것: N-4, N-5.

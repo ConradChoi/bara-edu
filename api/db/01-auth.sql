@@ -181,10 +181,19 @@ create table if not exists auth.mfa_runtime (
 
 -- 관리자 2단계 인증 후속(2026-11-27, 패치 2026-11-27-mfa-enroll-session.sql과 같은 줄)
 -- 잠금 순서 보충: auth.sessions 삭제(로그아웃·세션 정리)는 이 FK로 mfa_enrollments 삭제까지 잠근다(sessions -> mfa_enrollments).
--- 같은 세션에서 입구 C 시작과 로그아웃이 동시에 일어나면 교착이 날 수 있으나 Postgres가 한쪽을 실패시킨다(보안 영향 없음).
+-- 입구 C 시작은 맨 앞에서 그 세션 행을 for key share로 잡는다(sessions -> mfa_enrollments 순서를 지키고, 시작 도중 로그아웃되면 FK 오류 대신 401, QA Minor 1).
 -- 입구 C는 시작한 세션에 묶는다(2026-11-27, 보안 점검 m-1): 같은 사용자의 다른 세션은 등록 대기(새 비밀 키)를 다시 읽거나 확정할 수 없다.
 -- 세션이 지워지면(로그아웃·만료 정리) 대기도 함께 지워진다.
 alter table auth.mfa_enrollments add column if not exists session_hash text references auth.sessions (token_hash) on delete cascade;
+-- 입구 C 대기에는 시작한 세션이 반드시 있다(2026-11-27, 보안 점검 R-3, 패치 2026-11-27-mfa-enroll-c-session-required.sql과 같은 블록).
+-- R-3 시작
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conrelid = 'auth.mfa_enrollments'::regclass and conname = 'mfa_enrollments_entry_c_session_check') then
+    alter table auth.mfa_enrollments add constraint mfa_enrollments_entry_c_session_check check (entry <> 'C' or session_hash is not null);
+  end if;
+end $$;
+-- R-3 끝
 
 create or replace function auth.uid() returns uuid
   language sql stable

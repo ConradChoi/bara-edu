@@ -571,11 +571,17 @@ export async function startEnrollment(deps: MfaDeps, input: StartInput): Promise
     }
 
     const userId = input.userId;
-    // 락 순서: 등록 대기 -> (mfa-fail) -> 등록
+    const replace = input.currentCode !== undefined || input.recoveryCode !== undefined;
+    if (replace) {
+      // 입구 C는 이 세션에 묶이므로(session_hash FK) 세션 행을 먼저 for key share로 잡는다(01-auth.sql 잠금 순서 sessions -> mfa_enrollments).
+      // 그 사이 로그아웃·정리로 세션이 지워졌으면 FK 오류(500) 대신 401(QA Minor 1). 잡은 뒤에는 커밋 때까지 지워지지 않는다.
+      const s = await tx.query('select 1 from auth.sessions where token_hash = $1 for key share', [sha256(input.sessionToken)]);
+      if (s.rowCount === 0) return fail('unauthenticated', 'session_ended');
+    }
+    // 락 순서: (세션) -> 등록 대기 -> (mfa-fail) -> 등록
     const ex = await tx.query<EnrollmentRow>(`select ${ENROLLMENT_COLS} from auth.mfa_enrollments where user_id = $1 for update`, [userId]);
     const a = await accountIn(tx, userId);
     if (!a || a.role !== 'admin') return fail('forbidden', 'not_admin');
-    const replace = input.currentCode !== undefined || input.recoveryCode !== undefined;
     if (!replace) {
       // 입구 A: 한 번도 등록한 적 없고 등록 코드도 요구되지 않는 계정만(모든 모드, 보안 점검 I-1)
       if (a.enrolled) return fail('conflict', 'already_enrolled');
