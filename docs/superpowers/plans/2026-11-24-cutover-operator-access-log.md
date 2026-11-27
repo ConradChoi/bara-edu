@@ -76,6 +76,11 @@
 | 11-27 16:06 | GitHub·Amplify 앱 | 배포 | main `5967391` Amplify #87 SUCCEED(앱 변경 없음, 문서). 개인정보 점검 Go·QA 조건부 Go(조건 반영) |
 | 11-27 16:2x | WEB `/etc/logrotate.d/nginx` | 변경 | L11 대표 결정(3개월은 최소 보관): 백업 `/root/logrotate-nginx.bak-20261127` 후 `rotate 14` → `rotate 92`(매일, 약 92일). logrotate -d 오류 없음 |
 | 11-27 16:2x | WEB·WAS `/etc/systemd/journald.conf.d/size.conf` | 변경 | 백업 `/root/journald-size.conf.bak-20261127b` 후 `SystemMaxUse=200M` → `600M`(WEB은 200M에 닿아 약 2개월치만 남던 상태), `MaxRetentionSec=3month` 그대로. journald 재시작 active |
+| 11-27 17:07 | `bara_edu` | 변경 | 정식 오픈(대표 결정 11-27). 패치 `2026-11-27-legal-prelaunch-archive.sql` 적용(`begin; set local role bara_edu_service;` … commit): `archive` 스키마(소유 bara_edu_service, ACL `bara_edu_service=UC`만)와 `archive.legal_documents_prelaunch` 생성. 앱 접속 역할 bara_edu_app도 이 스키마를 읽지 못함 확인. 데이터 변경 없음 |
+| 11-27 17:08 | `bara_edu` | 변경(파기) | 1회용 스크립트 `2026-11-27-launch-v1.cjs` 시험 실행(롤백) 결과가 기대와 같음을 확인한 뒤 `--execute` → COMMITTED. 법정 문서 원문 12행 보관, 수료증 1건·강사과정 문의 1건 삭제(접속 기록 `오픈전정리삭제` 2건, 행 id만), privacy v1~v10 삭제 후 v1.0을 version 1로 게시, terms·refund-policy 본문·시행일 11-27. 동의 기록 v10 2건 유지. 본문 sha256 앞 12자리 로컬·서버 일치. 자동 백업(7일)에서는 12-04 17시경 사라짐(수동 스냅샷 없음). 파기 관리대장 기록 대상 |
+| 11-27 17:08 | GitHub·Amplify 앱 | 배포 | main `0086bc9`(feat/launch-v1 합침: v{n}.0 표시, 오픈 전 v10 표시, 사전신청 폼 제거) Amplify #91 SUCCEED(17:11). /legal/privacy·terms·refund-policy에 v1.0과 2026년 11월 27일 표시, 옛 v10·ylia.io 주소 없음, 홈 200 |
+| 11-27 17:09 | Amplify 앱 환경 변수 (bara-edu 앱) | 변경(파기) | 사전신청 전송 주소 `NEXT_PUBLIC_APPS_SCRIPT_URL` 삭제(대표 결정: 안내 없이 파기). 남은 키 3개(IS_OPEN·OPEN_DATE·SITE_NAME). 코드에서 쓰지 않으므로 #91 이후 별도 재빌드 없음. Apps Script 배포 해제·시트 삭제는 대표가 Google 계정에서 한다 |
+| 11-27 17:12 | Amazon SES | 발송 | 정식 오픈 안내 메일(`2026-11-27-launch-notice-mail.cjs`, 대표 문구 승인) 1회: 시험 실행 수신자 5 → `--send --expect=5` → sent 5, failed 0. 주소는 기록하지 않음. 다시 보내지 않는다 |
 
 ## 같은 날 함께 정리한 것
 
