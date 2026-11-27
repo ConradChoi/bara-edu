@@ -208,17 +208,38 @@ const escapeHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;')
 
 export type SupportInfo = { phone: string; hours: string };
 
+// 관리자에게 가는 메일(2단계 인증 알림 5종 + 관리자 계정의 비밀번호 변경). 회원 메일은 공통 문의처 그대로.
+function isAdminMail(msg: MailMessage): boolean {
+  switch (msg.template) {
+    case 'mfa_enrolled':
+    case 'mfa_reset':
+    case 'mfa_recovery_used':
+    case 'mfa_locked':
+    case 'admin_security_alert':
+      return true;
+    case 'password_changed':
+      return msg.adminLine === true;
+    default:
+      return false;
+  }
+}
+
 export class SesMailer implements Mailer {
   constructor(
     private readonly client: Pick<SESv2Client, 'send'>,
     private readonly from: string,
     private readonly support: SupportInfo = { phone: SUPPORT_PHONE, hours: SUPPORT_HOURS },
+    // 관리자 전용 연락처(ADMIN_CONTACT_PHONE, 카피 7.0 MFA-MAIL-ADMIN-CONTACT). null이면 관리자 메일도 공통 블록
+    private readonly adminPhone: string | null = null,
   ) {}
 
   async send(msg: MailMessage): Promise<void> {
     const tpl = templateFor(msg);
     const t = { ...tpl, subject: fill(tpl.subject, msg), intro: tpl.intro.map((l) => fill(l, msg)), after: tpl.after.map((l) => fill(l, msg)), closing: tpl.closing.map((l) => fill(l, msg)) };
-    const contact = [`전화: ${this.support.phone}`, ...(this.support.hours ? [`운영시간: ${this.support.hours}`] : [])];
+    const contact =
+      this.adminPhone !== null && isAdminMail(msg)
+        ? [`관리자 문의(개발 담당) 전화: ${this.adminPhone}`]
+        : [`전화: ${this.support.phone}`, ...(this.support.hours ? [`운영시간: ${this.support.hours}`] : [])];
     const link = msg.link === undefined ? null : escapeHtml(msg.link);
     const anchor = (href: string) => `<a href="${escapeHtml(href)}">${escapeHtml(href)}</a>`;
     const p = (lines: string[]) => lines.map((l) => `<p>${escapeHtml(l)}</p>`).join('');

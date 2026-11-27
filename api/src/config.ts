@@ -20,6 +20,8 @@ export type Config = {
   // production without TLS, explicitly allowed by BARA_ALLOW_PLAINTEXT=1: the server logs PLAINTEXT_WARNING
   plaintextAllowed: boolean;
   mfa: MfaConfig;
+  // 관리자 메일 문의처(ADMIN_CONTACT_PHONE). 없으면 공통 문의처 블록(카피 7.0)
+  adminContactPhone: string | null;
 };
 
 const LOG_LEVELS = ['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'];
@@ -29,6 +31,8 @@ export const SERVICE_KEY_ERROR = 'BARA_SERVICE_KEY (or the BARA_SERVICE_KEY_PARA
 export const MFA_MODE_ERROR = 'ADMIN_MFA_MODE must be one of off, optional, enforce (required in production)';
 export const MFA_KEY_REQUIRED_ERROR = 'NODE_ENV=production requires BARA_MFA_KEY_PARAMS and BARA_MFA_KEY_CURRENT (SSM)';
 export const MFA_PLAINTEXT_KEY_ERROR = 'BARA_MFA_KEYS (plaintext key) must not be set in production; use BARA_MFA_KEY_PARAMS';
+export const ADMIN_CONTACT_PHONE_ERROR = 'ADMIN_CONTACT_PHONE must be a hyphenated domestic number (0NN-NNNN-NNNN)';
+const ADMIN_CONTACT_PHONE_RE = /^0\d{1,2}-\d{3,4}-\d{4}$/;
 export const PLAINTEXT_WARNING = 'TLS is off in production (BARA_ALLOW_PLAINTEXT=1): WEB to WAS traffic is not encrypted';
 
 function positiveInt(name: string, raw: string | undefined, fallback: number, max: number): number {
@@ -86,6 +90,14 @@ function loadMfa(env: NodeJS.ProcessEnv, prod: boolean, keyring: MfaKeyring | un
 
 // `opts.serviceKey` is the SSM value when BARA_SERVICE_KEY_PARAM is set (secrets.ts); otherwise BARA_SERVICE_KEY is used.
 // `opts.mfaKeyring` is the SSM key ring when BARA_MFA_KEY_PARAMS is set (secrets.ts resolveMfaKeyring).
+// 관리자 메일에 그대로 나가므로 형식이 틀리면 시작을 거절한다(오타 방지). 값은 오류 문구에 넣지 않는다.
+function adminContactPhone(raw: string | undefined): string | null {
+  const v = (raw ?? '').trim();
+  if (!v) return null;
+  if (!ADMIN_CONTACT_PHONE_RE.test(v)) throw new Error(ADMIN_CONTACT_PHONE_ERROR);
+  return v;
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv, opts: { serviceKey?: string; mfaKeyring?: MfaKeyring } = {}): Config {
   const databaseUrl = env.DATABASE_URL;
   if (!databaseUrl) throw new Error('DATABASE_URL is required');
@@ -128,5 +140,6 @@ export function loadConfig(env: NodeJS.ProcessEnv, opts: { serviceKey?: string; 
     tls,
     plaintextAllowed,
     mfa: loadMfa(env, env.NODE_ENV === 'production', opts.mfaKeyring),
+    adminContactPhone: adminContactPhone(env.ADMIN_CONTACT_PHONE),
   };
 }

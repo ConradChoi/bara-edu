@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { loadConfig, PLAINTEXT_WARNING, SERVICE_KEY_ERROR } from '../src/config.js';
+import { ADMIN_CONTACT_PHONE_ERROR, loadConfig, PLAINTEXT_WARNING, SERVICE_KEY_ERROR } from '../src/config.js';
 import { makeKeyring } from '../src/auth/mfa-crypto.js';
 
 test('서비스 키가 32자 미만이면 거절', () => {
@@ -94,4 +94,22 @@ test('운영: TLS 없으면 거절, BARA_ALLOW_PLAINTEXT=1일 때만 허용(경�
 
 test('운영이 아니면 MAIL_FROM 등 없이도 시작(로컬)', () => {
   expect(() => loadConfig({ DATABASE_URL: 'postgresql://x', BARA_SERVICE_KEY: 'k'.repeat(32), NODE_ENV: 'development' })).not.toThrow();
+});
+
+test('ADMIN_CONTACT_PHONE: 없으면 null, 하이픈 국내 번호만 받고 형식이 틀리면 시작 거절(값은 문구에 없음)', () => {
+  const base = { DATABASE_URL: 'postgresql://x', BARA_SERVICE_KEY: 'k'.repeat(32) };
+  expect(loadConfig(base).adminContactPhone).toBeNull();
+  expect(loadConfig({ ...base, ADMIN_CONTACT_PHONE: '' }).adminContactPhone).toBeNull();
+  expect(loadConfig({ ...base, ADMIN_CONTACT_PHONE: ' 010-1234-5678 ' }).adminContactPhone).toBe('010-1234-5678');
+  expect(loadConfig({ ...base, ADMIN_CONTACT_PHONE: '02-123-4567' }).adminContactPhone).toBe('02-123-4567');
+  for (const bad of ['01012345678', '010-1234-567', '+82-10-1234-5678', '010-1234-5678 내선', '1588-1234']) {
+    try {
+      loadConfig({ ...base, ADMIN_CONTACT_PHONE: bad });
+      expect.unreachable(bad);
+    } catch (err) {
+      expect((err as Error).message).toBe(ADMIN_CONTACT_PHONE_ERROR);
+      expect((err as Error).message).not.toContain(bad);
+    }
+  }
+  expect(prod({ ...PROD, ADMIN_CONTACT_PHONE: '010-1234-5678' }).adminContactPhone).toBe('010-1234-5678');
 });

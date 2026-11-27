@@ -318,7 +318,7 @@ export async function main(argv: string[]): Promise<number> {
     const env = process.env;
     const config = loadConfig(env, { serviceKey: await resolveServiceKey(env), mfaKeyring: await resolveMfaKeyring(env) });
     pool = createPool(config.databaseUrl);
-    const mailer = env.MAIL_FROM ? new SesMailer(new SESv2Client({ region: config.awsRegion }), env.MAIL_FROM) : null;
+    const mailer = env.MAIL_FROM ? new SesMailer(new SESv2Client({ region: config.awsRegion }), env.MAIL_FROM, undefined, config.adminContactPhone) : null;
     return await runCli(argv, {
       pool,
       keyring: config.mfa.keyring,

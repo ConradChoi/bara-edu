@@ -178,3 +178,47 @@ test('admin_security_alert: 개발 담당이 서버에서 한 일(ticket_issued�
   }
   expect(text(2)).toContain('본인이 한 일이 아니라면 관리자 화면에서 대표님의 2단계 인증을 초기화하고');
 });
+
+test('관리자 전용 연락처(ADMIN_CONTACT_PHONE): 관리자 메일만 문의처를 "관리자 문의(개발 담당) 전화" 한 줄로, 회원 메일은 공통 블록', async () => {
+  const ADMIN = '010-3333-4444';
+  const at = '2026년 11월 27일 오후 4시 0분';
+  const adminMails = [
+    { to: 'a@x.kr', template: 'mfa_enrolled', at },
+    { to: 'a@x.kr', template: 'mfa_reset', at, by: 'admin' },
+    { to: 'a@x.kr', template: 'mfa_recovery_used', at, left: 3 },
+    { to: 'a@x.kr', template: 'mfa_locked', at, scope: 'account', minutes: 15 },
+    { to: 'a@x.kr', template: 'mfa_locked', at, scope: 'daily', minutes: 1440 },
+    { to: 'a@x.kr', template: 'admin_security_alert', at, ownerName: '홍길동', event: 'reset' },
+    { to: 'a@x.kr', template: 'admin_security_alert', at, ownerName: '홍길동', event: 'unlocked' },
+    { to: 'a@x.kr', template: 'password_changed', at, adminLine: true },
+  ] as const;
+  for (const msg of adminMails) {
+    const { sent, client } = fakeClient();
+    await new SesMailer(client, FROM, undefined, ADMIN).send(msg);
+    const body = sent[0].Content!.Simple!.Body!;
+    const text = body.Text?.Data ?? '';
+    expect(text, msg.template).toContain(`관리자 문의(개발 담당) 전화: ${ADMIN}`);
+    expect(text, msg.template).not.toContain('010-9025-5093');
+    expect(text, msg.template).not.toContain('운영시간');
+    expect(body.Html?.Data ?? '', msg.template).toContain(`<p>관리자 문의(개발 담당) 전화: ${ADMIN}</p>`);
+  }
+  const memberMails = [
+    { to: 'm@x.kr', template: 'password_changed', at },
+    { to: 'm@x.kr', template: 'confirm', link: 'https://bara-edu.kr/auth/confirm?token=t' },
+    { to: 'm@x.kr', template: 'profile_changed', fields: ['phone'], at },
+  ] as const;
+  for (const msg of memberMails) {
+    const { sent, client } = fakeClient();
+    await new SesMailer(client, FROM, undefined, ADMIN).send(msg);
+    const text = sent[0].Content!.Simple!.Body!.Text?.Data ?? '';
+    expect(text, msg.template).toContain('전화: 010-9025-5093');
+    expect(text, msg.template).not.toContain(ADMIN);
+  }
+  // 설정이 없으면 관리자 메일도 공통 블록 그대로(지금과 같음)
+  const { sent, client } = fakeClient();
+  await new SesMailer(client, FROM).send(adminMails[0]);
+  const text = sent[0].Content!.Simple!.Body!.Text?.Data ?? '';
+  expect(text).toContain('전화: 010-9025-5093');
+  expect(text).toContain('운영시간: ');
+  expect(text).not.toContain('관리자 문의');
+});
