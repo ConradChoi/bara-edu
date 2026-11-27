@@ -63,6 +63,11 @@ export default async function AdminDiagnosisLeadsPage({
           접속 기록을 남기지 못해 개인정보를 보여 드리지 않았어요. 잠시 후 다시 시도해 주세요.
         </div>
       )}
+      {page.ok && page.revealMissed && (
+        <div role="status" className="rounded-md border border-warning bg-warning/10 px-3.5 py-3 text-[13px] font-medium text-n-9">
+          보려던 문의의 개인정보를 열지 못했어요. 보기 시간(5분)이 지났거나 문의가 삭제됐을 수 있어요. 목록에서 [개인정보 보기]를 다시 눌러 주세요.
+        </div>
+      )}
       {!page.ok && (
         <div role="alert" className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger">
           {page.reason === 'forbidden' ? '문의 목록을 볼 권한이 없어요.' : '문의 목록을 불러오지 못했어요. 잠시 후 다시 시도해 주세요.'}

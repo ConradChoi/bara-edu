@@ -109,3 +109,21 @@ test('문의 내용: 가린 미리보기면 안내 문구, 원문 행이면 전�
   expect(html2).toContain('010-9999-8888로 연락 주세요');
   expect(html2).not.toContain('전문은 [개인정보 보기]로 확인');
 });
+
+const MISSED = '보려던 문의의 개인정보를 열지 못했어요';
+
+test('개인정보 보기로 왔는데 원문 행이 없으면(토큰 만료·삭제·목록 밖) 안내, 보기를 안 눌렀거나 원문을 받았으면 없음', async () => {
+  tokenValid = false;
+  responses = [okRows([masked(L1, '홍**')])];
+  expect(await render({ revealPii: L1, revealToken: 'old', revealExp: '1' })).toContain(MISSED);
+  tokenValid = true;
+  responses = [okRows([masked(L2, 'N**')])];
+  expect(await render({ revealPii: L1, revealToken: 'sig', revealExp: '9999999999' })).toContain(MISSED);
+  responses = [okRows([{ ...masked(L1, '홍길동', '010-1234-5678'), isRevealed: true }])];
+  expect(await render({ revealPii: L1, revealToken: 'sig', revealExp: '9999999999' })).not.toContain(MISSED);
+  responses = [okRows([masked(L1, '홍**')])];
+  expect(await render()).not.toContain(MISSED);
+  // 기록 실패는 그 안내만(겹쳐 보이지 않게)
+  responses = [{ status: 503, body: { error: { code: 'unavailable', message: 'log_failed' } } }, okRows([masked(L1, '홍**')])];
+  expect(await render({ revealPii: L1, revealToken: 'sig', revealExp: '9999999999' })).not.toContain(MISSED);
+});

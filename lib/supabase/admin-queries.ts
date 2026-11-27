@@ -5,6 +5,7 @@
 // admin 라우트(app/(admin)/*, proxy.ts가 role='admin'만 통과시킴)에서만 호출된다는 전제.
 
 import { headers } from 'next/headers';
+import { maskEmail } from '@/lib/mask-email';
 import { getKstStartOfDaysAgoIso, getKstStartOfTodayIso, getKstStartOfWeekIso, formatKstWeekRangeLabel, toKstDateKey } from '@/lib/kst';
 import { verifyRevealToken } from '@/lib/supabase/admin-pii-reveal';
 import { requireAdminClient } from '@/lib/supabase/require-admin';
@@ -150,19 +151,7 @@ async function getAuthConfirmationMap(): Promise<Map<string, string | null>> {
   return map;
 }
 
-// 이메일 로컬파트 앞 2자만 노출("ab***@gmail.com"). 대시보드는 관리자가 상시 띄워두는
-// 첫 화면이라 회원관리 목록(전체 노출)보다 어깨너머 노출 위험이 커 마스킹한다.
-// 로컬파트가 2자 이하면 slice(0,2)가 전체를 그대로 반환해 마스킹이 무의미해지는
-// 버그가 있었다 — 이 경우 통째로 가린다(privacy-security-officer 지적, 2026-09-09).
-function maskEmail(email: string | null | undefined): string {
-  if (!email) return '-';
-  const atIndex = email.indexOf('@');
-  if (atIndex <= 0) return '***';
-  const local = email.slice(0, atIndex);
-  const domain = email.slice(atIndex + 1);
-  if (local.length <= 2) return `***@${domain}`;
-  return `${local.slice(0, 2)}***@${domain}`;
-}
+// 대시보드 최근 가입자 이메일은 앞 2자만 보이게 가린다(어깨너머 노출 위험, 2026-09-09). 규칙은 lib/mask-email.ts(API 문의 목록과 같은 규칙, 2026-11-27 통일).
 
 export type SignupSummary = {
   todayCount: number;
@@ -1485,7 +1474,8 @@ export async function getAdminDiagnosisResults(
 export type { AdminDiagnosisLeadRow } from '@/lib/db/admin-diagnosis';
 
 export type AdminDiagnosisLeadsPage =
-  | { ok: true; rows: AdminDiagnosisLeadRow[]; revealFailed: boolean }
+  // revealMissed: [개인정보 보기]로 왔는데 그 행을 원문으로 받지 못함(보기 시간 5분 지남·토큰 불일치·삭제·목록에 없음). 기록 실패(revealFailed)와는 따로 알린다.
+  | { ok: true; rows: AdminDiagnosisLeadRow[]; revealFailed: boolean; revealMissed: boolean }
   | { ok: false; reason: 'forbidden' | 'unauthenticated' | 'failed' };
 
 // 목록은 API op admin.listDiagnosisLeads가 이름·연락처를 가려서 내려 준다(2026-11-27 — diagnosis_leads 직접 select와
@@ -1518,7 +1508,8 @@ export async function getAdminDiagnosisLeads(
     r = await listDiagnosisLeadsApi({ status });
   }
   if (!r.ok) return { ok: false, reason: r.reason === 'log_failed' ? 'failed' : r.reason };
-  return { ok: true, rows: r.rows, revealFailed };
+  const revealMissed = !!reveal?.id && !revealFailed && !r.rows.some((row) => row.id === reveal.id && row.isRevealed);
+  return { ok: true, rows: r.rows, revealFailed, revealMissed };
 }
 
 // ---- 최근 7일 보안 이벤트(관리자 2단계 인증 M7, 기획서 3.8) ----
