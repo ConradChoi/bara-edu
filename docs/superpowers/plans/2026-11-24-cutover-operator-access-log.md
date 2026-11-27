@@ -55,6 +55,10 @@
 | 11-26 22:24 | CMS(대표) | 변경 | 대표가 개인정보처리방침 v10 게시. DB에서 v10 게시·v9 비게시, 본문의 B-1·백업 문장 포함을 읽기 전용으로 확인 |
 | 11-26 22:24 | GitHub·Amplify 앱 | 배포 | main `6157e56`(민감정보 동의 화면, 오늘 문서 커밋 포함) 푸시, Amplify #78 SUCCEED(22:28). /selfcheck·/selfcheck/start에 동의 안내, /legal/privacy에 v10 확인 |
 | 11-26 22:28 | `bara_edu` | 변경(파기) | 정리 스크립트 `2026-11-26-diagnosis-consent-cleanup.sql` 실행(대표 승인 21:5x): NOTICE `results_deleted=4 (member=2, nonmember=2), answers_deleted=120, leads_unlinked=0`. 제약 validate·not null 확인, diagnosis_results 0건. 파기 관리대장 기록 대상. 자동 백업에서는 최대 7일 뒤(12-03경) 사라짐. 배포 후 API 5xx 0건 |
+| 11-26 22:43 | GitHub·Amplify 앱 | 배포 | main `e43ecf9`(자가진단 결과 쿠키 경로 `/`) Amplify #79 SUCCEED |
+| 11-26 22:57 | GitHub·Amplify 앱 | 배포 | main `56aadb4`(푸터 하단 고정) Amplify #80 SUCCEED. 11-27 대표 화면·인쇄 미리보기 확인 |
+| 11-27 11:1x | CloudWatch·WAS·WEB | 조회 | 로그 보관 점검(개인정보 점검 R-8): bara-edu Amplify 로그 그룹 90일, WEB nginx logrotate 14개(약 14일), 두 서버 journald는 용량 200MB만 제한(기간 제한 없음) |
+| 11-27 11:17 | WAS·WEB journald (공용) | 변경 | 대표 승인. `/etc/systemd/journald.conf.d/size.conf`에 `MaxRetentionSec=3month` 추가(원본 `size.conf.bak-20261127` 보관), `systemd-journald` 재시작 → active. 적용 직후 WAS 저널 167.7M→113.8M(3개월 넘은 옛 저널 정리). api healthz 200, 홈 200. 같은 서버의 다른 서비스 시스템 로그에도 적용됨 |
 
 ## 같은 날 함께 정리한 것
 
