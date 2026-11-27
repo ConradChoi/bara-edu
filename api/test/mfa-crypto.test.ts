@@ -69,6 +69,7 @@ const PROD = {
   TLS_CERT_FILE: '/c',
   TLS_KEY_FILE: '/k',
   ADMIN_MFA_MODE: 'enforce',
+  ADMIN_SECURITY_ALERT_TO: 'dev@example.com',
 };
 const RING1 = makeKeyring(new Map([[1, K1]]), 1);
 
@@ -157,4 +158,12 @@ test('SSM: 현재 버전 없음·목록 밖, 값 없음, 32바이트 아님, 호
   const boom = Object.assign(new Error('AccessDenied secret=abc'), { name: 'AccessDeniedException' });
   const e2 = (await resolveMfaKeyring({ BARA_MFA_KEY_PARAMS: '1=/p1', BARA_MFA_KEY_CURRENT: '1' }, fakeSsm({ '/p1': boom }).make).catch((x: Error) => x)) as Error;
   expect(e2.message).toBe('could not read MFA key v1 from SSM (AccessDeniedException)');
+});
+
+test('R-1 운영에서 ADMIN_SECURITY_ALERT_TO가 비면 시작 거절(비운영은 허용)', () => {
+  const { ADMIN_SECURITY_ALERT_TO: _drop, ...noAlert } = PROD;
+  expect(() => loadConfig(noAlert, { mfaKeyring: RING1 })).toThrow(/ADMIN_SECURITY_ALERT_TO is required in production/);
+  expect(() => loadConfig({ ...noAlert, ADMIN_SECURITY_ALERT_TO: ' , ' }, { mfaKeyring: RING1 })).toThrow(/required in production/);
+  expect(loadConfig({ ...PROD }, { mfaKeyring: RING1 }).mfa.alertTo).toEqual(['dev@example.com']);
+  expect(loadConfig({ ...BASE }).mfa.alertTo).toEqual([]);
 });

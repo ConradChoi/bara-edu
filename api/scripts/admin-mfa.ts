@@ -174,11 +174,15 @@ async function mfaTicket(deps: CliDeps, email: string, operator: string): Promis
     if (enrolled.rowCount !== 0) throw new CliError('이미 등록된 계정입니다. 초기화가 필요하면 mfa-reset을 쓰세요');
     const out = await issueEnrollTicketIn(tx, ring, t.id, null);
     await touchStateIn(tx, t.id, 'ticket_required_at = coalesce(ticket_required_at, now())');
-    await logIn(tx, t.id, t.id, MFA_ACTIONS.ticketIssued, `by=db;operator=${operator}`, null);
-    return out;
+    // 다른 관리자·운영 주소에 알린다(보안 점검 m-3). 본인 메일은 보내지 않는다(등록 코드는 전화로 전달, 메일에 비밀 값 없음).
+    const plan = await planAlertsIn(tx, t.id, deps.alertTo, { own: null, alert: 'ticket_issued', at: kstStamp(new Date()) });
+    await logIn(tx, t.id, t.id, MFA_ACTIONS.ticketIssued, `by=db;operator=${operator}${selfOnlySuffix(plan)}`, null);
+    return { ...out, mails: plan.messages, selfOnly: plan.selfOnly };
   });
+  if (ticket.selfOnly) deps.out('알림: 다른 관리자·운영 주소가 없어 알림 메일을 보내지 않았습니다(접속 기록 alert=self_only).');
   deps.out(TICKET_WARNING);
   deps.out(`등록 코드: ${ticket.code.slice(0, 4)} ${ticket.code.slice(4)} (유효: ${kstStamp(ticket.expiresAt)}까지)`);
+  await send(deps, ticket.mails);
   return 0;
 }
 
@@ -203,10 +207,14 @@ async function mfaUnlock(deps: CliDeps, email: string, operator: string, reason:
     const t = await findTarget(tx, email);
     if (t.role !== 'admin') throw new CliError('대상이 관리자가 아닙니다');
     const d = await tx.query('delete from auth.rate_events where key = $1 and bucket = any($2)', [t.id, [FAIL_BUCKET, FAIL_RELEASED_BUCKET]]);
-    await logIn(tx, t.id, t.id, MFA_ACTIONS.unlocked, `by=db;operator=${operator};reason=${reason}`, null);
-    return d.rowCount;
+    // 다른 관리자·운영 주소에 알린다(보안 점검 m-3). 본인 메일은 보내지 않는다(잠금을 부른 사람이 메일함을 가진 공격자일 수 있다).
+    const plan = await planAlertsIn(tx, t.id, deps.alertTo, { own: null, alert: 'unlocked', at: kstStamp(new Date()) });
+    await logIn(tx, t.id, t.id, MFA_ACTIONS.unlocked, `by=db;operator=${operator};reason=${reason}${selfOnlySuffix(plan)}`, null);
+    return { n: d.rowCount, mails: plan.messages, selfOnly: plan.selfOnly };
   });
-  deps.out(`잠금을 풀었습니다(실패 기록 ${n}건 삭제). 비밀번호가 샜을 수 있으면 먼저 비밀번호 재설정을 권합니다.`);
+  deps.out(`잠금을 풀었습니다(실패 기록 ${n.n}건 삭제). 비밀번호가 샜을 수 있으면 먼저 비밀번호 재설정을 권합니다.`);
+  if (n.selfOnly) deps.out('알림: 다른 관리자·운영 주소가 없어 알림 메일을 보내지 않았습니다(접속 기록 alert=self_only).');
+  await send(deps, n.mails);
   return 0;
 }
 

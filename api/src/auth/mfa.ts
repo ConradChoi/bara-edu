@@ -497,6 +497,7 @@ type EnrollmentRow = {
   id: string;
   user_id: string;
   challenge_hash: string | null;
+  session_hash: string | null;
   entry: 'A' | 'B' | 'C';
   replace_check: 'totp' | 'recovery' | null;
   secret_ciphertext: Buffer;
@@ -507,7 +508,7 @@ type EnrollmentRow = {
   live: boolean;
 };
 
-const ENROLLMENT_COLS = 'id, user_id, challenge_hash, entry, replace_check, secret_ciphertext, secret_iv, key_version, fail_count, expires_at, expires_at > now() as live';
+const ENROLLMENT_COLS = 'id, user_id, challenge_hash, session_hash, entry, replace_check, secret_ciphertext, secret_iv, key_version, fail_count, expires_at, expires_at > now() as live';
 
 function enrollmentOut(ring: MfaKeyring, e: EnrollmentRow, email: string): EnrollmentOut {
   let secret: Buffer;
@@ -526,23 +527,23 @@ async function createEnrollmentIn(
   ring: MfaKeyring,
   userId: string,
   entry: 'A' | 'B' | 'C',
-  opts: { challengeHash?: string; replaceCheck?: 'totp' | 'recovery' },
+  opts: { challengeHash?: string; replaceCheck?: 'totp' | 'recovery'; sessionHash?: string },
 ): Promise<EnrollmentRow> {
   await tx.query('delete from auth.mfa_enrollments where user_id = $1', [userId]); // 사용자당 1개
   const secret = randomBytes(SECRET_BYTES);
   const sealed = encryptSecret(ring, userId, 'enrollment', secret);
   secret.fill(0);
   const r = await tx.query<EnrollmentRow>(
-    `insert into auth.mfa_enrollments (user_id, challenge_hash, entry, replace_check, secret_ciphertext, secret_iv, key_version, expires_at)
-     values ($1, $2, $3, $4, $5, $6, $7, now() + make_interval(secs => $8::int)) returning ${ENROLLMENT_COLS}`,
-    [userId, opts.challengeHash ?? null, entry, opts.replaceCheck ?? null, sealed.ciphertext, sealed.iv, sealed.keyVersion, ENROLLMENT_TTL_SECONDS],
+    `insert into auth.mfa_enrollments (user_id, challenge_hash, entry, replace_check, secret_ciphertext, secret_iv, key_version, expires_at, session_hash)
+     values ($1, $2, $3, $4, $5, $6, $7, now() + make_interval(secs => $8::int), $9) returning ${ENROLLMENT_COLS}`,
+    [userId, opts.challengeHash ?? null, entry, opts.replaceCheck ?? null, sealed.ciphertext, sealed.iv, sealed.keyVersion, ENROLLMENT_TTL_SECONDS, opts.sessionHash ?? null],
   );
   return r.rows[0];
 }
 
 export type StartInput =
   | { via: 'challenge'; challengeToken: string; renew: boolean; ipKey: string | null }
-  | { via: 'session'; userId: string; renew: boolean; currentCode?: string; recoveryCode?: string; ipKey: string | null };
+  | { via: 'session'; userId: string; sessionToken: string; renew: boolean; currentCode?: string; recoveryCode?: string; ipKey: string | null };
 
 export async function startEnrollment(deps: MfaDeps, input: StartInput): Promise<EnrollmentOut | Fail> {
   const ring = ringOf(deps);
@@ -615,13 +616,13 @@ export async function startEnrollment(deps: MfaDeps, input: StartInput): Promise
       mails.push(...plan.messages);
     }
     await releaseRecentFailsIn(tx, userId);
-    return enrollmentOut(ring, await createEnrollmentIn(tx, ring, userId, 'C', { replaceCheck: check }), a.email);
+    return enrollmentOut(ring, await createEnrollmentIn(tx, ring, userId, 'C', { replaceCheck: check, sessionHash: sha256(input.sessionToken) }), a.email);
   });
 }
 
 export async function currentEnrollment(
   deps: MfaDeps,
-  input: { via: 'challenge'; challengeToken: string } | { via: 'session'; userId: string },
+  input: { via: 'challenge'; challengeToken: string } | { via: 'session'; userId: string; sessionToken: string },
 ): Promise<EnrollmentOut | Fail> {
   const ring = ringOf(deps);
   return withService(deps.pool, async (tx) => {
@@ -636,7 +637,11 @@ export async function currentEnrollment(
     }
     const a = await accountIn(tx, input.userId);
     if (!a || a.role !== 'admin') return fail('forbidden', 'not_admin');
-    const e = await tx.query<EnrollmentRow>(`select ${ENROLLMENT_COLS} from auth.mfa_enrollments where user_id = $1 and challenge_hash is null`, [input.userId]);
+    // 입구 C는 시작한 세션에서만 다시 읽는다(보안 점검 m-1). A는 세션 사용자 기준 그대로.
+    const e = await tx.query<EnrollmentRow>(
+      `select ${ENROLLMENT_COLS} from auth.mfa_enrollments where user_id = $1 and challenge_hash is null and (entry <> 'C' or session_hash = $2)`,
+      [input.userId, sha256(input.sessionToken)],
+    );
     if (!e.rows[0]?.live) return fail('not_found', 'no_enrollment');
     return enrollmentOut(ring, e.rows[0], a.email);
   });
@@ -668,6 +673,8 @@ export async function confirmEnrollment(deps: MfaDeps, input: ConfirmInput): Pro
     const e = er.rows[0];
     // 등록 묶기(보안 점검 M-2): B는 이 대기표, A·C는 세션 사용자. 다른 사람·다른 대기표의 등록 대기는 없는 것으로 본다.
     if (!e || e.user_id !== owner || (c ? e.challenge_hash !== c.token_hash : e.challenge_hash !== null)) return fail('not_found', 'not_found');
+    // 입구 C는 시작한 세션에서만 확정한다(보안 점검 m-1).
+    if (!c && e.entry === 'C' && input.via === 'session' && e.session_hash !== sha256(input.sessionToken)) return fail('not_found', 'not_found');
     if (!e.live) {
       await tx.query('delete from auth.mfa_enrollments where id = $1', [e.id]);
       return fail('conflict', 'enrollment_expired');

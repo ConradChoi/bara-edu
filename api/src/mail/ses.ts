@@ -86,6 +86,11 @@ const LOCKED_DAILY_INTRO = [
   '하루 동안 번호가 너무 많이 틀려서, 안전을 위해 24시간 동안 이 계정의 번호 입력을 막았어요.',
   '직접 입력하다 틀린 것이라면 다른 관리자 또는 개발 담당에게 연락해 주세요. 개발 담당이 잠금을 풀 수 있어요.',
 ];
+// MFA-MAIL-ALERT-CLI-AFTER-1·2 (사건 ticket_issued·unlocked)
+const CLI_ALERT_AFTER = [
+  '{name}님이 개발 담당에게 직접 요청한 것이 맞는지 {name}님에게 전화로 확인해 주세요. 메일이나 메신저로 묻지 마세요.',
+  '요청한 적이 없다면 바로 개발 담당에게 전화로 알려 주세요.',
+];
 // MFA-MAIL-CHANGED-ADMIN-LINE
 export const PASSWORD_CHANGED_ADMIN_LINE = '2단계 인증은 그대로예요. 로그인할 때 인증 앱의 6자리 번호가 필요해요.';
 const RESET_BY = { admin: '다른 관리자가 초기화했어요. 모든 기기에서 로그아웃됐어요.', db: '관리자 또는 개발 담당이 초기화했어요. 모든 기기에서 로그아웃됐어요.' } as const;
@@ -96,6 +101,9 @@ export const ALERT_EVENT_TEXT = {
   locked: '인증 앱 번호가 여러 번 틀려 15분 동안 막혔어요.',
   locked_daily: '인증 앱 번호가 너무 많이 틀려 24시간 동안 막혔어요.',
   password_reset: '비밀번호 재설정 메일로 비밀번호를 바꿨어요.',
+  // 운영 서버 명령(CLI)으로 한 일(보안 점검 m-3, 2026-11-27)
+  ticket_issued: '개발 담당이 서버에서 2단계 인증 등록 코드를 발급했어요.',
+  unlocked: '개발 담당이 서버에서 인증 앱 번호 입력 잠금을 풀었어요.',
 } as const;
 
 const oneLine = (s: string) => s.replace(/[\r\n]+/g, ' ');
@@ -110,8 +118,10 @@ function templateFor(msg: MailMessage): Template {
     case 'mfa_enrolled':
     case 'mfa_reset':
     case 'mfa_recovery_used':
-    case 'admin_security_alert':
       return MFA_TEMPLATES[msg.template];
+    case 'admin_security_alert':
+      // 개발 담당이 서버에서 한 일(CLI)은 "본인이 한 일" 확인·초기화 안내가 맞지 않아 후속 문구를 바꾼다(TOTP 후속 보안 점검 R-2).
+      return msg.event === 'ticket_issued' || msg.event === 'unlocked' ? { ...MFA_TEMPLATES.admin_security_alert, after: CLI_ALERT_AFTER } : MFA_TEMPLATES.admin_security_alert;
     default:
       return TEMPLATES[msg.template];
   }

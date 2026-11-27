@@ -168,7 +168,7 @@ export function registerMfaRoutes(app: FastifyInstance, deliver: (msg: MailMessa
     }
     if (await ipLimited(req)) return tooMany(reply);
     return run(req, reply, async () =>
-      respond(reply, await startEnrollment(deps(req), { via: 'session', userId, renew, currentCode, recoveryCode, ipKey: ipKeyOf(req) }), (e) => e),
+      respond(reply, await startEnrollment(deps(req), { via: 'session', userId, sessionToken: String(req.headers['x-bara-session']), renew, currentCode, recoveryCode, ipKey: ipKeyOf(req) }), (e) => e),
     );
   });
 
@@ -182,7 +182,7 @@ export function registerMfaRoutes(app: FastifyInstance, deliver: (msg: MailMessa
     }
     const userId = req.auth.userId;
     if (!userId) return sendError(reply, 'unauthenticated', NEED_LOGIN);
-    return run(req, reply, async () => respond(reply, await currentEnrollment(deps(req), { via: 'session', userId }), (e) => e));
+    return run(req, reply, async () => respond(reply, await currentEnrollment(deps(req), { via: 'session', userId, sessionToken: String(req.headers['x-bara-session']) }), (e) => e));
   });
 
   // 4.4.4

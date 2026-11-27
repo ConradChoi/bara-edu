@@ -74,6 +74,9 @@ function loadMfa(env: NodeJS.ProcessEnv, prod: boolean, keyring: MfaKeyring | un
     if (!alertTo.includes(a)) alertTo.push(a);
   }
   if (alertTo.length > MAX_ALERT_TO) throw new Error(`ADMIN_SECURITY_ALERT_TO allows at most ${MAX_ALERT_TO} addresses`);
+  // 운영에서는 비울 수 없다(2026-11-27, TOTP 후속 보안 점검 R-1·I-A): 비면 보안 알림이 "탈취됐을 수 있는 메일함" 하나로만 가거나(관리자 1명)
+  // CLI mfa-ticket·mfa-unlock 알림이 아무에게도 가지 않는다.
+  if (prod && alertTo.length === 0) throw new Error('ADMIN_SECURITY_ALERT_TO is required in production');
 
   // 운영: 평문 키 변수가 있으면 거절, SSM 키가 없으면 거절(모드와 관계없이 — 등록 코드가 필요한 계정은 off에서도 키가 있어야 등록할 수 있다).
   if (prod && env.BARA_MFA_KEYS !== undefined) throw new Error(MFA_PLAINTEXT_KEY_ERROR);

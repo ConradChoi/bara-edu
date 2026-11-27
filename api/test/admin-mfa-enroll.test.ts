@@ -292,6 +292,44 @@ test('입구 C(6자리) + rotate: 새 복구 코드 10개, 기록 복구코드�
   ].sort());
 });
 
+test('m-1 입구 C 등록 대기는 시작한 세션에만 묶인다: 다른 세션은 다시 읽기·확정 불가, 시작한 세션이 지워지면 대기도 지워진다', async () => {
+  const a = await enrolledAdmin();
+  const s = await mfaSession(ctx, a.id);
+  const other = await mfaSession(ctx, a.id);
+  const e = (await call('POST', '/v1/auth/mfa/enroll/start', { currentCode: codeAt(a.secret) }, S(s))).json();
+  expect(e.entry).toBe('C');
+  expect((await q('select session_hash from auth.mfa_enrollments where id = $1', [e.enrollmentId]))[0].session_hash).toBe(sha(s));
+  // 시작한 세션은 다시 읽을 수 있다
+  const mine = await call('POST', '/v1/auth/mfa/enroll/current', {}, S(s));
+  expect(mine.statusCode).toBe(200);
+  expect(mine.json().secretBase32).toBe(e.secretBase32);
+  // 다른 세션은 없는 것으로 본다(비밀 키 없음)
+  const peek = await call('POST', '/v1/auth/mfa/enroll/current', {}, S(other));
+  expect(peek.statusCode).toBe(404);
+  expect(peek.body).not.toContain(e.secretBase32);
+  const steal = await call('POST', '/v1/auth/mfa/enroll/confirm', { enrollmentId: e.enrollmentId, code: codeFromB32(e.secretBase32), rotateRecoveryCodes: false }, S(other));
+  expect(steal.statusCode).toBe(404);
+  expect((await q('select enrolled_via from auth.mfa_factors where user_id = $1', [a.id]))[0].enrolled_via).not.toBe('replace');
+  // 시작한 세션이 지워지면(로그아웃) 대기도 사라진다
+  await q('delete from auth.sessions where token_hash = $1', [sha(s)]);
+  expect((await q('select count(*)::int n from auth.mfa_enrollments where id = $1', [e.enrollmentId]))[0].n).toBe(0);
+});
+
+test('m-1 보강: 세션 묶기가 없는(패치 전) 입구 C 대기는 current·confirm 모두 404, 다른 세션이 새로 시작하면 이전 세션의 대기는 404', async () => {
+  const a = await enrolledAdmin();
+  const s1 = await mfaSession(ctx, a.id);
+  const s2 = await mfaSession(ctx, a.id);
+  const e1 = (await call('POST', '/v1/auth/mfa/enroll/start', { currentCode: codeAt(a.secret) }, S(s1))).json();
+  await q('update auth.mfa_enrollments set session_hash = null where id = $1', [e1.enrollmentId]);
+  expect((await call('POST', '/v1/auth/mfa/enroll/current', {}, S(s1))).statusCode).toBe(404);
+  expect((await call('POST', '/v1/auth/mfa/enroll/confirm', { enrollmentId: e1.enrollmentId, code: codeFromB32(e1.secretBase32), rotateRecoveryCodes: false }, S(s1))).statusCode).toBe(404);
+  await clearLastStep(ctx, a.id);
+  const e2 = (await call('POST', '/v1/auth/mfa/enroll/start', { currentCode: codeAt(a.secret, 1) }, S(s2))).json();
+  expect(e2.entry).toBe('C');
+  expect((await call('POST', '/v1/auth/mfa/enroll/current', {}, S(s1))).statusCode).toBe(404);
+  expect((await call('POST', '/v1/auth/mfa/enroll/current', {}, S(s2))).json().enrollmentId).toBe(e2.enrollmentId);
+});
+
 // ---- 4.5
 
 test('복구 코드 재발급: 6자리 재확인, 오답은 mfa-fail, 재사용은 code_reused, 미등록은 409, 성공하면 옛 코드 무효·기록', async () => {

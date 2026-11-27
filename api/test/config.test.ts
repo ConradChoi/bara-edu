@@ -35,6 +35,7 @@ const PROD = {
   TLS_CERT_FILE: '/etc/bara-edu/tls/api.crt',
   TLS_KEY_FILE: '/etc/bara-edu/tls/api.key',
   ADMIN_MFA_MODE: 'enforce',
+  ADMIN_SECURITY_ALERT_TO: 'dev@example.com',
 };
 // 운영의 2단계 인증 키는 SSM에서 읽은 키 링으로만 받는다(secrets.ts resolveMfaKeyring)
 const RING = makeKeyring(new Map([[1, Buffer.alloc(32, 7)]]), 1);
