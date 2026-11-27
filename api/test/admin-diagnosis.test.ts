@@ -216,6 +216,13 @@ test('가림 규칙: 이름은 첫 글자 + ** (길이 무관), 연락처는 기
   expect(maskEmail('secret@example.com')).toBe('se***@example.com');
   expect(maskEmail('ab@x.kr')).toBe('***@x.kr');
   expect(maskEmail(null)).toBe('-');
+  // 2026-11-27 강화(개인정보 점검 R-1·R-2)
+  expect(maskPhone('02-123-4567')).toBe('02-****-67');
+  expect(maskPhone('1234567')).toBe('***');
+  expect(maskPhone('kakao hong19900101')).toBe('***');
+  expect(maskEmail('hong@naver.com 010-1234-5678')).toBe('***');
+  expect(maskEmail('hong@naver.com,01012345678')).toBe('***');
+  expect(maskEmail('a@b@c.kr')).toBe('***');
 });
 
 async function listResult(name: string | null, phone: string | null, email: string | null, userId: string | null, tier: string, createdAt: string) {
@@ -349,7 +356,7 @@ test('문의 개인정보 보기: revealId 행만 원문, 같은 호출에서 �
   const rows = r.json().data.rows as Record<string, unknown>[];
   expect(rows.find((x) => x.id === a)).toMatchObject({ name: '김민지', contact: '010-2222-3333', isRevealed: true });
   expect(rows.find((x) => x.id === b)).toMatchObject({ name: '박**', contact: 'pa***@example.com', isRevealed: false });
-  const lg = (await logs('조회')).filter((x) => x.detail === `강사과정 문의 이름·연락처 열람(${a})`);
+  const lg = (await logs('조회')).filter((x) => x.detail === `강사과정 문의 이름·연락처 열람(${a}) fields=name,contact`);
   expect(lg).toHaveLength(1);
   expect(lg[0]).toMatchObject({ admin_id: adminId, target_user_id: learnerId, ip_address: '203.0.113.9' });
 });
@@ -388,6 +395,8 @@ test('문의 연락처 가림 규칙: @ 있으면 이메일 규칙, 없으면 �
   expect(maskContact('abc')).toBe('***');
   expect(maskContact('12345')).toBe('***');
   expect(maskContact('+82 10-1234-5678')).toBe('821-****-5678');
+  expect(maskContact('02-123-4567')).toBe('02-****-67');
+  expect(maskContact('hong@naver.com 010-1234-5678')).toBe('***');
   expect(maskContact('a@b.kr')).toBe('***@b.kr');
   expect(maskContact('@b.kr')).toBe('***');
   expect(maskContact('hong.gil@example.com')).toBe('ho***@example.com');

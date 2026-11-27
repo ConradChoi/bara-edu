@@ -147,20 +147,27 @@ export function maskName(name: string | null | undefined): string {
   return `${Array.from(t)[0]}**`;
 }
 
-// 휴대전화·이메일 가림 규칙은 앱(lib/supabase/admin-queries.ts의 maskPhone·maskEmail)이 쓰던 것과 같다.
+// 휴대전화·이메일 가림 규칙(2026-11-27 강화, 개인정보 점검 R-1·R-2).
+// 휴대전화: 숫자·공백·하이픈·괄호·점·+ 외 글자가 섞이면(아이디·생년월일 등 다른 정보) 통째로 '***'.
+//   숫자 11자리 이상(휴대전화 010-1234-5678 등)은 앞 3 + 뒤 4, 9~10자리(유선 02-123-4567 등)는 앞 2 + 뒤 2, 9자리 미만은 '***'.
 export function maskPhone(phone: string | null | undefined): string {
   if (!phone) return '-';
+  if (/[^0-9\s\-+().]/.test(phone)) return '***';
   const digits = phone.replace(/[^0-9]/g, '');
-  if (digits.length < 7) return '***';
-  return `${digits.slice(0, 3)}-****-${digits.slice(-4)}`;
+  if (digits.length >= 11) return `${digits.slice(0, 3)}-****-${digits.slice(-4)}`;
+  if (digits.length >= 9) return `${digits.slice(0, 2)}-****-${digits.slice(-2)}`;
+  return '***';
 }
 
+// 이메일: 공백이 있거나 @가 하나가 아니거나 도메인이 도메인 글자(영문·숫자·.·-)만이 아니면(휴대전화를 함께 적은 값 등) 통째로 '***'.
 export function maskEmail(email: string | null | undefined): string {
   if (!email) return '-';
-  const at = email.indexOf('@');
-  if (at <= 0) return '***';
-  const local = email.slice(0, at);
-  const domain = email.slice(at + 1);
+  const t = email.trim();
+  const at = t.indexOf('@');
+  if (at <= 0 || /\s/.test(t) || t.indexOf('@', at + 1) !== -1) return '***';
+  const local = t.slice(0, at);
+  const domain = t.slice(at + 1);
+  if (!/^[A-Za-z0-9.-]+$/.test(domain)) return '***';
   if (local.length <= 2) return `***@${domain}`;
   return `${local.slice(0, 2)}***@${domain}`;
 }
@@ -273,7 +280,7 @@ export const adminListDiagnosisLeads = defineOp({
     );
 
     const target = p.revealId ? r.rows.find((x) => x.id === p.revealId) : undefined;
-    if (target) await writeLog(tx, userId, target.user_id, REVEAL_LOG_ACTION, `강사과정 문의 이름·연락처 열람(${target.id})`, ip);
+    if (target) await writeLog(tx, userId, target.user_id, REVEAL_LOG_ACTION, `강사과정 문의 이름·연락처 열람(${target.id}) fields=name,contact`, ip);
 
     return {
       result: 'ok',
