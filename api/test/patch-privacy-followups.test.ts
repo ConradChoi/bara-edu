@@ -111,7 +111,7 @@ test('패치를 소유자 역할로 여러 번 적용해도 성공하고 소유�
   expect(x[0]).toEqual({ a: false, b: false });
 });
 
-test('정책 제거 후 관리자(authenticated)의 리드 직접 update는 막히고 select는 된다. 패치를 두 번 적용해도 오류가 없다', async () => {
+test('정책 제거 후 관리자(authenticated)의 리드 직접 update는 막힌다(select도 2026-11-27 패치 뒤 현행 스키마에선 0행). 패치를 두 번 적용해도 오류가 없다', async () => {
   // 옛 정책이 있던 상태를 만들어 패치가 실제로 지우는지 본다
   await ctx.adminPool.query('drop policy if exists diagnosis_leads_admin_update on public.diagnosis_leads');
   await ctx.adminPool.query('create policy diagnosis_leads_admin_update on public.diagnosis_leads for update using (is_admin())');
@@ -136,7 +136,7 @@ test('정책 제거 후 관리자(authenticated)의 리드 직접 update는 막�
     await c.query('begin');
     await c.query('set local role bara_edu_authenticated');
     await c.query("select set_config('request.user_id', $1, true)", [admin]);
-    expect((await c.query('select id from diagnosis_leads where id = $1', [lead])).rowCount).toBe(1);
+    expect((await c.query('select id from diagnosis_leads where id = $1', [lead])).rowCount).toBe(0);
     const upd = await c.query("update diagnosis_leads set admin_note = 'x' where id = $1", [lead]).then((r) => r.rowCount, (e: Error) => e.message);
     await c.query('rollback');
     expect(upd === 0 || typeof upd === 'string').toBe(true);

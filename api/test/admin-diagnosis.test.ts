@@ -5,7 +5,7 @@ import { MemoryMailer } from '../src/mail/mailer.js';
 import { MemoryStorage } from '../src/storage/storage.js';
 import { loadConfig } from '../src/config.js';
 import { createSession } from '../src/auth/sessions.js';
-import { maskEmail, maskName, maskPhone } from '../src/ops/admin-diagnosis.js';
+import { maskContact, maskEmail, maskMessagePreview, maskName, maskPhone } from '../src/ops/admin-diagnosis.js';
 import { setupTestDb } from './helpers/db.js';
 
 const KEY = 'k'.repeat(32);
@@ -216,6 +216,20 @@ test('가림 규칙: 이름은 첫 글자 + ** (길이 무관), 연락처는 기
   expect(maskEmail('secret@example.com')).toBe('se***@example.com');
   expect(maskEmail('ab@x.kr')).toBe('***@x.kr');
   expect(maskEmail(null)).toBe('-');
+  // 2026-11-27 강화(개인정보 점검 R-1·R-2)
+  expect(maskPhone('02-123-4567')).toBe('02-****-67');
+  expect(maskPhone('1234567')).toBe('***');
+  expect(maskPhone('kakao hong19900101')).toBe('***');
+  expect(maskEmail('hong@naver.com 010-1234-5678')).toBe('***');
+  expect(maskEmail('hong@naver.com,01012345678')).toBe('***');
+  expect(maskEmail('a@b@c.kr')).toBe('***');
+  expect(maskEmail('hong@naver.com-010-1234-5678')).toBe('***');
+  expect(maskEmail('hong@naver.com.01012345678')).toBe('***');
+  expect(maskEmail('hong@naver')).toBe('***');
+  expect(maskEmail('kim@mail.co.kr')).toBe('ki***@mail.co.kr');
+  expect(maskPhone('900101-1234567')).toBe('***');
+  expect(maskPhone('9001011234567')).toBe('***');
+  expect(maskPhone('010-9025-5093')).toBe('010-****-5093');
 });
 
 async function listResult(name: string | null, phone: string | null, email: string | null, userId: string | null, tier: string, createdAt: string) {
@@ -299,4 +313,138 @@ test('개인정보 보기: 접속 기록이 실패하면 503 log_failed이고 �
 test('목록: 관리자만(학습자 forbidden, 세션 없음 401)', async () => {
   expect((await list({}, learnerToken)).json().data).toEqual({ result: 'forbidden' });
   expect((await list({}, '')).statusCode).toBe(401);
+});
+
+// ---------------- 강사과정 문의 목록(admin.listDiagnosisLeads, 2026-11-27) ----------------
+
+const leadAt = async (name: string, contact: string, userId: string | null, status: string, createdAt: string) =>
+  (await q(
+    `insert into diagnosis_leads (user_id, name, contact, message, consent_contact, status, created_at) values ($1,$2,$3,'문의 내용',true,$4::diagnosis_lead_status,$5) returning id`,
+    [userId, name, contact, status, createdAt],
+  ))[0].id as string;
+const leads = (params: object, token?: string, ip?: string) => op('admin.listDiagnosisLeads', params, token, ip);
+
+test('문의 목록: 이름·연락처(휴대전화·이메일)가 가려져 오고 원문은 응답에 없다. 목록만 열면 기록 없음', async () => {
+  await q('delete from diagnosis_leads');
+  const a = await leadAt('김민지', '010-2222-3333', learnerId, 'new', '2026-12-02T00:00:00Z');
+  const b = await leadAt('Nguyen', 'nv.test@example.com', null, 'contacted', '2026-12-03T00:00:00Z');
+  const n0 = (await logs('조회')).length;
+  const r = await leads({});
+  expect(r.statusCode, r.body).toBe(200);
+  expect(r.json().data).toEqual({
+    result: 'ok',
+    rows: [
+      { id: b, createdAt: '2026-12-03T00:00:00.000Z', resultId: null, name: 'N**', contact: 'nv***@example.com', isRevealed: false, message: '문의 내용', messageMasked: false, status: 'contacted', adminNote: null, handledAt: null, userId: null },
+      { id: a, createdAt: '2026-12-02T00:00:00.000Z', resultId: null, name: '김**', contact: '010-****-3333', isRevealed: false, message: '문의 내용', messageMasked: false, status: 'new', adminNote: null, handledAt: null, userId: learnerId },
+    ],
+  });
+  for (const v of ['김민지', 'Nguyen', '2222', 'nv.test']) expect(r.body).not.toContain(v);
+  expect((await logs('조회')).length).toBe(n0);
+});
+
+test('문의 목록 필터: 상태, 잘못된 값은 400', async () => {
+  await q('delete from diagnosis_leads');
+  const a = await leadAt('가', '01011112222', null, 'new', '2026-12-02T00:00:00Z');
+  const b = await leadAt('나', '01011113333', null, 'closed', '2026-12-03T00:00:00Z');
+  const ids = async (p: object) => (await leads(p)).json().data.rows.map((x: { id: string }) => x.id);
+  expect(await ids({ status: 'new' })).toEqual([a]);
+  expect(await ids({ status: 'closed' })).toEqual([b]);
+  expect(await ids({ status: 'all' })).toEqual([b, a]);
+  expect((await leads({ status: 'bogus' })).statusCode).toBe(400);
+  expect((await leads({ revealId: 'x' })).statusCode).toBe(400);
+  expect((await leads({ extra: 1 })).statusCode).toBe(400);
+});
+
+test('문의 개인정보 보기: revealId 행만 원문, 같은 호출에서 조회 기록 1건(값 없음)', async () => {
+  await q('delete from diagnosis_leads');
+  const a = await leadAt('김민지', '010-2222-3333', learnerId, 'new', '2026-12-02T00:00:00Z');
+  const b = await leadAt('박서준', 'park@example.com', null, 'new', '2026-12-03T00:00:00Z');
+  const r = await leads({ revealId: a }, adminToken, '203.0.113.9');
+  const rows = r.json().data.rows as Record<string, unknown>[];
+  expect(rows.find((x) => x.id === a)).toMatchObject({ name: '김민지', contact: '010-2222-3333', isRevealed: true });
+  expect(rows.find((x) => x.id === b)).toMatchObject({ name: '박**', contact: 'pa***@example.com', isRevealed: false });
+  const lg = (await logs('조회')).filter((x) => x.detail === `강사과정 문의 이름·연락처 열람(${a}) fields=name,contact,message`);
+  expect(lg).toHaveLength(1);
+  expect(lg[0]).toMatchObject({ admin_id: adminId, target_user_id: learnerId, ip_address: '203.0.113.9' });
+});
+
+test('문의 개인정보 보기: 필터 밖·없는 행이면 열지 않고 기록 없음', async () => {
+  await q('delete from diagnosis_leads');
+  const a = await leadAt('김민지', '010-2222-3333', null, 'new', '2026-12-02T00:00:00Z');
+  const n0 = (await logs('조회')).length;
+  for (const p of [{ revealId: a, status: 'closed' }, { revealId: '11111111-1111-4111-8111-111111111111' }]) {
+    const r = await leads(p);
+    expect(r.json().data.rows.every((x: { isRevealed: boolean }) => !x.isRevealed)).toBe(true);
+    expect(r.body).not.toContain('김민지');
+  }
+  expect((await logs('조회')).length).toBe(n0);
+});
+
+test('문의 개인정보 보기: 접속 기록이 실패하면 503 log_failed이고 원문이 없다', async () => {
+  await q('delete from diagnosis_leads');
+  const a = await leadAt('김민지', '010-2222-3333', null, 'new', '2026-12-02T00:00:00Z');
+  await withFailingLog(async () => {
+    const r = await leads({ revealId: a });
+    expect(r.statusCode).toBe(503);
+    expect(r.json().error).toMatchObject({ code: 'unavailable', message: 'log_failed' });
+    for (const v of ['김민지', '2222']) expect(r.body).not.toContain(v);
+  });
+});
+
+test('문의 목록: 관리자만(학습자 forbidden, 세션 없음 401)', async () => {
+  expect((await leads({}, learnerToken)).json().data).toEqual({ result: 'forbidden' });
+  expect((await leads({}, '')).statusCode).toBe(401);
+});
+
+test('문의 연락처 가림 규칙: @ 있으면 이메일 규칙, 없으면 휴대전화 규칙, 빈 값·짧은 값', () => {
+  expect(maskContact(null)).toBe('-');
+  expect(maskContact('')).toBe('-');
+  expect(maskContact('abc')).toBe('***');
+  expect(maskContact('12345')).toBe('***');
+  expect(maskContact('+82 10-1234-5678')).toBe('821-****-5678');
+  expect(maskContact('02-123-4567')).toBe('02-****-67');
+  expect(maskContact('hong@naver.com 010-1234-5678')).toBe('***');
+  expect(maskContact('a@b.kr')).toBe('***@b.kr');
+  expect(maskContact('@b.kr')).toBe('***');
+  expect(maskContact('hong.gil@example.com')).toBe('ho***@example.com');
+});
+
+test('문의 내용 미리보기(R-3 B안): 이메일·전화·주민번호 모양은 ***, 40자 넘으면 자르고 …, 날짜·시각은 그대로', () => {
+  expect(maskMessagePreview(null)).toEqual({ text: null, masked: false });
+  expect(maskMessagePreview('강사과정 일정 궁금해요')).toEqual({ text: '강사과정 일정 궁금해요', masked: false });
+  expect(maskMessagePreview('2026-11-26 14:12 이후 연락 주세요')).toEqual({ text: '2026-11-26 14:12 이후 연락 주세요', masked: false });
+  expect(maskMessagePreview('010-1234-5678로 연락 주세요').text).toBe('***로 연락 주세요');
+  expect(maskMessagePreview('01012345678').text).toBe('***');
+  expect(maskMessagePreview('+82 10 1234 5678 해외입니다').text).toBe('*** 해외입니다');
+  expect(maskMessagePreview('수강료 150,000원, 2026.11.26 ~ 2027.02.28').text).toBe('수강료 150,000원, 2026.11.26 ~ 2027.02.28');
+  expect(maskMessagePreview('메일 hong@naver.com 으로').text).toBe('메일 *** 으로');
+  expect(maskMessagePreview('메일 hong (at) naver.com').text).toBe('메일 ***');
+  expect(maskMessagePreview('주민 900101-1234567').text).toBe('주민 ***');
+  expect(maskMessagePreview('０１０-１２３４-５６７８').text).toBe('***');
+  const long = '가'.repeat(50);
+  expect(maskMessagePreview(long)).toEqual({ text: `${'가'.repeat(40)}…`, masked: true });
+  expect(maskMessagePreview('줄\n바꿈').text).toBe('줄 바꿈');
+  // R-7: 넓은 구분 기호
+  for (const v of ['010ㅡ1234ㅡ5678', '010_1234_5678', '010,1234,5678', '010~1234~5678', '010*1234*5678', '010—1234—5678']) {
+    expect(maskMessagePreview(`번호 ${v} 입니다`).text, v).toBe('번호 *** 입니다');
+  }
+  expect(maskMessagePreview('900101ㅡ1234567').text).toBe('***');
+  expect(maskMessagePreview('2026-11-26 14:12:30 방문').text).toBe('*** 방문'); // 초 단위 시각은 가림(안전 쪽, QA Minor 4 허용)
+  // R-8: 같은 행의 이름·연락처 원문
+  expect(maskMessagePreview('저는 홍길동입니다. 홍길동에게 연락', { name: '홍길동', contact: '010-1111-2222' }).text).toBe('저는 홍**입니다. 홍**에게 연락');
+  expect(maskMessagePreview('연락은 kakao_hong2 으로', { name: '홍길동', contact: 'kakao_hong2' }).text).toBe('연락은 *** 으로');
+});
+
+test('문의 목록: message는 미리보기, [개인정보 보기] 행만 전문(접속 기록 fields에 message)', async () => {
+  await q('delete from diagnosis_leads');
+  const msg = '010-9999-8888로 저녁에 연락 부탁드립니다. 아이 상담 경험이 있어서 강사과정이 궁금합니다';
+  const a = (await q("insert into diagnosis_leads (name, contact, message, consent_contact) values ('김민지', '010-2222-3333', $1, true) returning id", [msg]))[0].id as string;
+  const r = await leads({});
+  const row = r.json().data.rows[0];
+  expect(row.messageMasked).toBe(true);
+  expect(row.message.startsWith('***로 저녁에 연락')).toBe(true);
+  expect(r.body).not.toContain('9999');
+  expect(r.body).not.toContain('궁금합니다');
+  const rv = (await leads({ revealId: a })).json().data.rows[0];
+  expect(rv).toMatchObject({ message: msg, messageMasked: false, isRevealed: true });
 });

@@ -256,7 +256,7 @@
 | `created_at` | timestamptz default now() | |
 
 - **기존 메커니즘 재사용 여부 판단**: 현재 코드베이스의 "문의하기"는 `ContactSection`의 `tel:`/`mailto:` 링크뿐이고 **접수 데이터를 저장하는 테이블이 전혀 없다**. `enrollments`를 유사 리드로 전용하는 방식은 수강신청 상태머신(pending/approved/rejected)과 입금 기한·수료 조건에 오염을 일으키므로 금지한다. → **신규 테이블이 맞다.** 다만 `topic` 컬럼을 두어 추후 일반 문의로 확장 가능하게 설계한다.
-- RLS: insert는 RPC 경유, select/update는 `is_admin()`만.
+- RLS: insert는 RPC 경유. 직접 select/update 정책은 없다(update 2026-11-26, select 2026-11-27 제거). 관리자 목록은 API op `admin.listDiagnosisLeads`(이름·연락처 가림 + [개인정보 보기] 한 행만 원문·접속 기록), 상태·메모 변경은 `admin.updateDiagnosisLead`로만.
 
 ### 7.5 `diagnosis_course_links` — tier → 강좌 매핑 (운영 설정)
 

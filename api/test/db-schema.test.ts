@@ -32,8 +32,8 @@ test('정책 수 = 원본 정책 수 - storage 정책 4개 - 의도적으로 없
   expect(storageCount).toBe(4);
   const originalCount = new Set(defs).size;
   const { rows } = await adminPool.query("select count(*)::int n from pg_policies where schemaname='public'");
-  // 원본(supabase/schema.sql)에는 있지만 이 스키마에서 의도적으로 없앤 정책: 리드 update(2026-11-26, 변경은 접속 기록과 함께 API op로만), 진단 결과·응답 관리자 select 2개(2026-11-26, privacy R-1: 가림 있는 API op로만 읽음)
-  const removedOnPurpose = 3;
+  // 원본(supabase/schema.sql)에는 있지만 이 스키마에서 의도적으로 없앤 정책: 리드 update(2026-11-26, 변경은 접속 기록과 함께 API op로만), 진단 결과·응답 관리자 select 2개(2026-11-26, privacy R-1: 가림 있는 API op로만 읽음), 리드 관리자 select(2026-11-27, QA minor 2: admin.listDiagnosisLeads로만 읽음)
+  const removedOnPurpose = 4;
   expect(rows[0].n).toBe(originalCount - storageCount - removedOnPurpose);
 });
 
