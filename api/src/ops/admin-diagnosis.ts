@@ -171,7 +171,8 @@ export function maskEmail(email: string | null | undefined): string {
   const domain = t.slice(at + 1);
   // 도메인은 영문 TLD로 끝나는 라벨 모양이어야 하고, 숫자가 7개 이상이면 번호를 이어 붙인 값으로 보고 가린다(R-5).
   if (!/^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}$/.test(domain) || (domain.match(/[0-9]/g)?.length ?? 0) >= 7) return '***';
-  if (local.length <= 2) return `***@${domain}`;
+  // 아이디에 영문·숫자·._%+- 밖의 글자(한글 등)가 있으면 통째로 가린다. 앞 두 글자가 이름 두 글자가 되지 않게.
+  if (local.length <= 2 || /[^A-Za-z0-9._%+-]/.test(local)) return `***@${domain}`;
   return `${local.slice(0, 2)}***@${domain}`;
 }
 

@@ -1,5 +1,5 @@
 {
- "_note": "앱 lib/mask-email.ts와 API api/src/ops/admin-diagnosis.ts maskEmail이 같은 결과를 내는지 보는 공용 표(2026-11-27). 한글 도메인은 통째로 가린다.",
+ "_note": "앱 lib/mask-email.ts와 API api/src/ops/admin-diagnosis.ts maskEmail이 같은 결과를 내는지 보는 공용 표(2026-11-27). 한글 도메인은 통째로 가린다. 아이디에 영문·숫자·기호(._%+-) 밖의 글자(한글 등)가 있으면 아이디를 통째로 가린다(이름이 그대로 보이지 않게).",
  "cases": [
   [
    "secret@example.com",
@@ -56,6 +56,54 @@
   [
    "hong@example.한국",
    "***"
+  ],
+  [
+   "홍길동@naver.com",
+   "***@naver.com"
+  ],
+  [
+   "kim홍@naver.com",
+   "***@naver.com"
+  ],
+  [
+   "길동hong@gmail.com",
+   "***@gmail.com"
+  ],
+  [
+   "hong.gd+1@gmail.com",
+   "ho***@gmail.com"
+  ],
+  [
+   "kim@naver.com",
+   "ki***@naver.com"
+  ],
+  [
+   "hong@123456.kr",
+   "ho***@123456.kr"
+  ],
+  [
+   "hong@1234567.kr",
+   "***"
+  ],
+  [
+   "hong @naver.com",
+   "***"
+  ],
+  [
+   "hong　gd@naver.com",
+   "***"
+  ],
+  [
+   "ho​ng@naver.com",
+   "***@naver.com"
+  ],
+  [
+   "hong@naver.​com",
+   "***"
+  ],
+  [
+   "Hong@Naver.COM",
+   "Ho***@Naver.COM"
   ]
  ]
 }

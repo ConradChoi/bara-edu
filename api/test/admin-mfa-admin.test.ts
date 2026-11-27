@@ -443,6 +443,22 @@ test('CLI mfa-unlock: 두 bucket(실패·풀린 실패)을 지우고 기록, 등
   expect(await q('select 1 from auth.mfa_factors where user_id = $1', [a.id])).toHaveLength(1);
 });
 
+test('N-5 CLI mfa-unlock: 탈퇴(withdrawn) 관리자는 거절하고 실패 기록·접속 기록·메일을 남기지 않는다', async () => {
+  const a = await enrolledAdmin();
+  await q("insert into auth.rate_events (bucket, key) select b, $1 from unnest(array['mfa-fail','mfa-fail-released']) b", [a.id]);
+  await q(`begin; set local session_replication_role = replica; update profiles set status = 'withdrawn' where id = '${a.id}'; commit`);
+  expect(await q('select status::text from profiles where id = $1', [a.id])).toEqual([{ status: 'withdrawn' }]);
+  const before = (await logsOf(ctx, a.id)).length;
+  const allLogs = (await q('select count(*)::int as n from admin_access_logs'))[0].n;
+  const r = await cli(['mfa-unlock', '--email', a.email, '--operator', '개발', '--reason', 'owner_locked']);
+  expect(r.code).toBe(1);
+  expect(r.err.join('\n')).toContain('활성 관리자가 아닙니다');
+  expect(await q("select bucket from auth.rate_events where key = $1 order by bucket", [a.id])).toEqual([{ bucket: 'mfa-fail' }, { bucket: 'mfa-fail-released' }]);
+  expect(await logsOf(ctx, a.id)).toHaveLength(before);
+  expect((await q('select count(*)::int as n from admin_access_logs'))[0].n).toBe(allLogs);
+  expect(r.mailer.sent).toHaveLength(0);
+});
+
 test('I-8 CLI mfa-report: 관리자마다 등록 일시·IP·경로·복구 코드·최근 로그인 IP, 비밀 값 없음', async () => {
   const a = await enrolledAdmin('점검관리자');
   await q("update auth.mfa_factors set enrolled_ip = '198.51.100.7', enrolled_via = 'ticket' where user_id = $1", [a.id]);
@@ -475,6 +491,13 @@ test('CLI admin-sessions-revoke: 관리자 세션만 전부 삭제', async () =>
   expect(r.out[0]).toMatch(/^관리자 세션 \d+개를 지웠습니다\.$/);
   expect(await q('select 1 from auth.sessions s join profiles p on p.id = s.user_id where p.role = $1', ['admin'])).toHaveLength(0);
   expect((await call('GET', '/v1/auth/session', undefined, S(ls))).statusCode).toBe(200);
+  // 개인정보 점검 권고 3: 세션이 지워진 관리자마다 접속 기록 1건(작업자·건수), 학습자는 기록 없음
+  expect((await logsOf(ctx, a.id)).at(-1)).toMatchObject({ action: '관리자세션일괄종료', detail: expect.stringMatching(/^by=db;operator=개발;sessions=[1-9]\d*$/) });
+  expect(await q("select 1 from admin_access_logs where action = '관리자세션일괄종료' and admin_id = $1", [l.id])).toHaveLength(0);
+  // 지울 세션이 없으면 기록도 없다
+  const before = (await q("select count(*)::int as n from admin_access_logs where action = '관리자세션일괄종료'"))[0].n;
+  expect((await cli(['admin-sessions-revoke', '--operator', '개발'])).out[0]).toBe('관리자 세션 0개를 지웠습니다.');
+  expect((await q("select count(*)::int as n from admin_access_logs where action = '관리자세션일괄종료'"))[0].n).toBe(before);
 });
 
 test('운영 명령의 키가 API의 키(auth.mfa_key_check)와 다르면 rekey·reset·ticket 모두 쓰기 전에 멈춘다', async () => {

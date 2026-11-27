@@ -54,6 +54,8 @@ export class CliError extends Error {}
 
 // 작업자 이름은 접속 기록 detail(키=값;…)에 들어가므로 구분자·제어 문자를 받지 않는다
 const OPERATOR_RE = /^[^;=\p{Cc}]{1,50}$/u;
+// admin-sessions-revoke 접속 기록 action(개인정보 점검 권고 3, 2026-11-27). 보안 사건 목록(대시보드)에는 넣지 않는다.
+const ADMIN_SESSIONS_REVOKED = '관리자세션일괄종료';
 
 type Target = { id: string; email: string; role: string | null; status: string | null; enrolled: boolean };
 
@@ -130,7 +132,7 @@ export async function runCli(argv: string[], deps: CliDeps): Promise<number> {
       case 'mfa-rekey':
         return await mfaRekey(deps);
       default:
-        return await revokeAdminSessions(deps);
+        return await revokeAdminSessions(deps, operator);
     }
   } catch (err) {
     if (err instanceof CliError) deps.err(err.message);
@@ -205,7 +207,8 @@ async function mfaUnlock(deps: CliDeps, email: string, operator: string, reason:
   if (!reason || !(UNLOCK_REASONS as readonly string[]).includes(reason)) throw new CliError(`--reason은 ${UNLOCK_REASONS.join(', ')} 중 하나여야 합니다`);
   const n = await withService(deps.pool, async (tx) => {
     const t = await findTarget(tx, email);
-    if (t.role !== 'admin') throw new CliError('대상이 관리자가 아닙니다');
+    // 탈퇴한 관리자 계정은 풀지 않는다(보안 점검 N-5). mfa-reset·mfa-ticket과 같은 검사.
+    if (t.role !== 'admin' || t.status !== 'active') throw new CliError('대상이 활성 관리자가 아닙니다');
     const d = await tx.query('delete from auth.rate_events where key = $1 and bucket = any($2)', [t.id, [FAIL_BUCKET, FAIL_RELEASED_BUCKET]]);
     // 다른 관리자·운영 주소에 알린다(보안 점검 m-3). 본인 메일은 보내지 않는다(잠금을 부른 사람이 메일함을 가진 공격자일 수 있다).
     const plan = await planAlertsIn(tx, t.id, deps.alertTo, { own: null, alert: 'unlocked', at: kstStamp(new Date()) });
@@ -295,10 +298,15 @@ async function mfaRekey(deps: CliDeps): Promise<number> {
   return 0;
 }
 
-async function revokeAdminSessions(deps: CliDeps): Promise<number> {
+async function revokeAdminSessions(deps: CliDeps, operator: string): Promise<number> {
   const n = await withService(deps.pool, async (tx) => {
-    const d = await tx.query(`delete from auth.sessions s where exists (select 1 from public.profiles p where p.id = s.user_id and p.role = 'admin')`);
-    return d.rowCount;
+    const d = await tx.query<{ user_id: string; n: number }>(
+      `with d as (delete from auth.sessions s where exists (select 1 from public.profiles p where p.id = s.user_id and p.role = 'admin') returning s.user_id)
+       select user_id, count(*)::int as n from d group by user_id`,
+    );
+    // 세션이 지워진 관리자마다 기록 1건(개인정보 점검 권고 3). 지운 세션이 없으면 바뀐 것이 없으므로 기록하지 않는다.
+    for (const r of d.rows) await logIn(tx, r.user_id, r.user_id, ADMIN_SESSIONS_REVOKED, `by=db;operator=${operator};sessions=${r.n}`, null);
+    return d.rows.reduce((sum, r) => sum + r.n, 0);
   });
   deps.out(`관리자 세션 ${n}개를 지웠습니다.`);
   return 0;
