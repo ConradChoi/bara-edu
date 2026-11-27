@@ -1,8 +1,8 @@
 // 정식 오픈 회원 안내 메일 1회 발송 (2026-11-27). 근거: 정식 오픈 계획 docs/01-plan/features/bara-edu-lms.launch-v1.md(개인정보 점검 4-3).
-// 받는 사람: 활성 학습자(role=learner, status=active)의 가입 이메일. 관리자는 제외. 광고 아님(처리방침·약관 게시 안내).
+// 받는 사람: 이메일 인증을 마친 활성 학습자(role=learner, status=active)의 가입 이메일(인증 전 가입 대기자는 제외, QA). 관리자는 제외. 광고 아님(처리방침·약관 게시 안내).
 // 실행(WAS, api 폴더 안): node 2026-11-27-launch-notice-mail.cjs            → 받을 사람 수만 출력(기본)
 //                        node 2026-11-27-launch-notice-mail.cjs --send     → 한 명씩 따로 보냄(받는 사람끼리 주소가 보이지 않게)
-// 출력에는 건수만 나온다(주소 없음). MAIL_FROM·AWS_REGION은 api.env 값을 쓴다.
+// 출력에는 건수만 나온다(주소 없음). 발송 이력을 남기지 않으므로 --send는 한 번만 실행한다(일부 실패해도 다시 돌리지 말고 실패 건수만 보고 따로 처리, QA). MAIL_FROM·AWS_REGION은 api.env 값을 쓴다.
 const { Client } = require('pg');
 const { SESv2Client, SendEmailCommand } = require('@aws-sdk/client-sesv2');
 
@@ -14,7 +14,7 @@ const TEXT = [
   '바라 평생교육원이 2026년 11월 27일 정식으로 문을 열었어요. 먼저 가입해 주셔서 감사합니다.',
   '',
   '정식 오픈에 맞추어 개인정보처리방침·이용약관·환불정책을 v1.0으로 새로 게시했어요.',
-  '개인정보처리방침의 내용은 11월 26일 게시본과 같고, 이용약관·환불정책은 시행일만 바뀌었어요.',
+  '개인정보처리방침의 실질적인 내용은 11월 26일 게시본과 같고, 정식 오픈 전 방침을 요청하실 수 있다는 안내가 더해졌어요. 이용약관·환불정책은 시행일만 바뀌었어요.',
   '',
   '최근(2026년 11월) 개인정보처리방침에서 바뀐 주요 내용',
   '- 서비스 서버와 데이터 보관을 Amazon Web Services(서울)로 옮겼어요.',
@@ -33,13 +33,14 @@ const TEXT = [
 
 (async () => {
   const url = process.env.DATABASE_URL;
+  if (!url) throw new Error('DATABASE_URL is not set');
   const c = new Client({ connectionString: url, ssl: url.includes('sslmode') ? undefined : { rejectUnauthorized: false } });
   await c.connect();
   let to;
   try {
     await c.query('begin read only');
     await c.query('set local role bara_edu_service');
-    to = (await c.query("select u.email from auth.users u join profiles p on p.id = u.id where p.role = 'learner' and p.status = 'active' and u.email is not null order by u.created_at")).rows.map((r) => r.email);
+    to = (await c.query("select u.email from auth.users u join profiles p on p.id = u.id where p.role = 'learner' and p.status = 'active' and u.email is not null and u.email_confirmed_at is not null order by u.created_at")).rows.map((r) => r.email);
     await c.query('rollback');
   } finally {
     await c.end();

@@ -37,6 +37,7 @@ function expectCount(label, rows, n) {
 
 (async () => {
   const url = process.env.DATABASE_URL;
+  if (!url) throw new Error('DATABASE_URL is not set');
   const c = new Client({ connectionString: url, ssl: url.includes('sslmode') ? undefined : { rejectUnauthorized: false } });
   await c.connect();
   try {

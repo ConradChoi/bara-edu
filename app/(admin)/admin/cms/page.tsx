@@ -41,8 +41,8 @@ export default async function AdminCmsPage({ searchParams }: { searchParams: Pro
                 <div className="flex flex-col">
                   <span className="text-[14px] font-semibold text-n-9">{g.title}</span>
                   <span className="text-[11.5px] text-n-5">
-                    /legal/{g.slug} · 최신 v{g.latestVersion}
-                    {g.publishedVersion ? ` · 게시중 v${g.publishedVersion}` : ' · 게시된 버전 없음'}
+                    /legal/{g.slug} · 최신 {formatDocVersion(g.latestVersion)}
+                    {g.publishedVersion ? ` · 게시중 ${formatDocVersion(g.publishedVersion)}` : ' · 게시된 버전 없음'}
                   </span>
                 </div>
               </div>
