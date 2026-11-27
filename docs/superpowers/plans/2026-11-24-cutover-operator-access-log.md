@@ -74,6 +74,8 @@
 | 11-27 16:0x | 서버 `ylia-was` | 배포 | API `5967391`(관리자 전용 연락처: 관리자 메일만 문의처를 관리자 문의 한 줄로). 이전 릴리스 `2ad1fd7` 보관. 재시작 후 active, healthz 200, 홈 200 |
 | 11-27 16:0x | WAS `/app/bara-edu/shared/api.env` | 변경 | 백업 `api.env.bak-20261127-contact`(600 root) 후 `ADMIN_CONTACT_PHONE` 1줄 추가(대표 결정, 공개 문의처와 같은 번호, 값은 기록하지 않음). 재시작 후 API healthz 200, CLI `mfa-report` 정상(exit 0). 되돌리기: 백업으로 복원 후 재시작 |
 | 11-27 16:06 | GitHub·Amplify 앱 | 배포 | main `5967391` Amplify #87 SUCCEED(앱 변경 없음, 문서). 개인정보 점검 Go·QA 조건부 Go(조건 반영) |
+| 11-27 16:2x | WEB `/etc/logrotate.d/nginx` | 변경 | L11 대표 결정(3개월은 최소 보관): 백업 `/root/logrotate-nginx.bak-20261127` 후 `rotate 14` → `rotate 92`(매일, 약 92일). logrotate -d 오류 없음 |
+| 11-27 16:2x | WEB·WAS `/etc/systemd/journald.conf.d/size.conf` | 변경 | 백업 `/root/journald-size.conf.bak-20261127b` 후 `SystemMaxUse=200M` → `600M`(WEB은 200M에 닿아 약 2개월치만 남던 상태), `MaxRetentionSec=3month` 그대로. journald 재시작 active |
 
 ## 같은 날 함께 정리한 것
 
