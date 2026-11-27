@@ -141,7 +141,8 @@ export type AdminDiagnosisLeadRow = {
   name: string; // 가린 값(홍**) 또는 revealId 행이면 원문
   contact: string;
   isRevealed: boolean;
-  message: string | null;
+  message: string | null; // 목록: 앞 40자 + 연락처 모양 *** 미리보기, revealId 행만 전문(R-3 B안)
+  messageMasked: boolean;
   status: string;
   adminNote: string | null;
   handledAt: string | null;

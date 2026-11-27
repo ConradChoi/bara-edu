@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { Tx } from '../db/context.js';
-import { memoHasPii } from './admin-profile.js';
+import { MEMO_DATETIME_RE, memoHasPii } from './admin-profile.js';
 import { defineOp, OpError } from './registry.js';
 
 // 관리자 도형심리 진단 기능의 접속 기록 연동(처리방침 제8조 제5항).
@@ -250,6 +250,27 @@ export function maskContact(contact: string | null | undefined): string {
   return contact.includes('@') ? maskEmail(contact) : maskPhone(contact);
 }
 
+// 문의 내용(message) 목록 미리보기(2026-11-27 대표 결정 R-3 B안): 문의자가 직접 쓰는 칸이라 연락처·상담 사정이 들어갈 수 있다.
+// 목록에는 앞 MESSAGE_PREVIEW_LEN자만, 이메일·전화번호·주민번호 모양은 '***'로 바꿔 내려 주고 전문은 [개인정보 보기] 행에서만(접속 기록 fields에 message).
+export const MESSAGE_PREVIEW_LEN = 40;
+const PREVIEW_EMAIL_RE = /\S+\s*@\s*\S+|\S+\s*[(\[]\s*at\s*[)\]]\s*\S+/gi;
+const PREVIEW_INTL_RE = /\+\s*\d[\d\s\-.()]*/g;
+const PREVIEW_DIGITS_RE = /\d[\d\s\-.()/:]*\d/g;
+export function maskMessagePreview(message: string | null | undefined): { text: string | null; masked: boolean } {
+  if (message == null) return { text: null, masked: false };
+  const full = message.normalize('NFKC').replace(/\s+/g, ' ').trim();
+  let t = full
+    .replace(PREVIEW_EMAIL_RE, '***')
+    .replace(PREVIEW_INTL_RE, '***')
+    // 숫자가 7개 이상 이어진 덩어리(전화·계좌·주민번호)는 가린다. 날짜·시각(2026-11-26, 14:12) 한 개뿐이면 둔다.
+    .replace(PREVIEW_DIGITS_RE, (m) => ((m.match(/\d/g)?.length ?? 0) >= 7 && m.replace(MEMO_DATETIME_RE, '').replace(/[\s\-.()/:]/g, '') !== '' ? '***' : m));
+  const chars = Array.from(t);
+  if (chars.length > MESSAGE_PREVIEW_LEN) t = `${chars.slice(0, MESSAGE_PREVIEW_LEN).join('')}…`;
+  // 위 규칙을 빠져나간 모양이 남아 있으면 미리보기 전체를 가린다(안전 쪽).
+  if (memoHasPii(t)) t = '***';
+  return { text: t, masked: t !== full };
+}
+
 type LeadListRow = {
   id: string; created_at: Date; result_id: string | null; name: string; contact: string; message: string | null;
   status: string; admin_note: string | null; handled_at: Date | null; user_id: string | null;
@@ -283,12 +304,13 @@ export const adminListDiagnosisLeads = defineOp({
     );
 
     const target = p.revealId ? r.rows.find((x) => x.id === p.revealId) : undefined;
-    if (target) await writeLog(tx, userId, target.user_id, REVEAL_LOG_ACTION, `강사과정 문의 이름·연락처 열람(${target.id}) fields=name,contact`, ip);
+    if (target) await writeLog(tx, userId, target.user_id, REVEAL_LOG_ACTION, `강사과정 문의 이름·연락처 열람(${target.id}) fields=name,contact,message`, ip);
 
     return {
       result: 'ok',
       rows: r.rows.map((row) => {
         const isRevealed = row === target;
+        const preview = isRevealed ? { text: row.message, masked: false } : maskMessagePreview(row.message);
         return {
           id: row.id,
           createdAt: row.created_at.toISOString(),
@@ -296,7 +318,8 @@ export const adminListDiagnosisLeads = defineOp({
           name: isRevealed ? row.name : maskName(row.name),
           contact: isRevealed ? row.contact : maskContact(row.contact),
           isRevealed,
-          message: row.message,
+          message: preview.text,
+          messageMasked: preview.masked,
           status: row.status,
           adminNote: row.admin_note,
           handledAt: row.handled_at ? row.handled_at.toISOString() : null,

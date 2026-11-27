@@ -5,7 +5,7 @@ import { MemoryMailer } from '../src/mail/mailer.js';
 import { MemoryStorage } from '../src/storage/storage.js';
 import { loadConfig } from '../src/config.js';
 import { createSession } from '../src/auth/sessions.js';
-import { maskContact, maskEmail, maskName, maskPhone } from '../src/ops/admin-diagnosis.js';
+import { maskContact, maskEmail, maskMessagePreview, maskName, maskPhone } from '../src/ops/admin-diagnosis.js';
 import { setupTestDb } from './helpers/db.js';
 
 const KEY = 'k'.repeat(32);
@@ -334,8 +334,8 @@ test('문의 목록: 이름·연락처(휴대전화·이메일)가 가려져 오
   expect(r.json().data).toEqual({
     result: 'ok',
     rows: [
-      { id: b, createdAt: '2026-12-03T00:00:00.000Z', resultId: null, name: 'N**', contact: 'nv***@example.com', isRevealed: false, message: '문의 내용', status: 'contacted', adminNote: null, handledAt: null, userId: null },
-      { id: a, createdAt: '2026-12-02T00:00:00.000Z', resultId: null, name: '김**', contact: '010-****-3333', isRevealed: false, message: '문의 내용', status: 'new', adminNote: null, handledAt: null, userId: learnerId },
+      { id: b, createdAt: '2026-12-03T00:00:00.000Z', resultId: null, name: 'N**', contact: 'nv***@example.com', isRevealed: false, message: '문의 내용', messageMasked: false, status: 'contacted', adminNote: null, handledAt: null, userId: null },
+      { id: a, createdAt: '2026-12-02T00:00:00.000Z', resultId: null, name: '김**', contact: '010-****-3333', isRevealed: false, message: '문의 내용', messageMasked: false, status: 'new', adminNote: null, handledAt: null, userId: learnerId },
     ],
   });
   for (const v of ['김민지', 'Nguyen', '2222', 'nv.test']) expect(r.body).not.toContain(v);
@@ -363,7 +363,7 @@ test('문의 개인정보 보기: revealId 행만 원문, 같은 호출에서 �
   const rows = r.json().data.rows as Record<string, unknown>[];
   expect(rows.find((x) => x.id === a)).toMatchObject({ name: '김민지', contact: '010-2222-3333', isRevealed: true });
   expect(rows.find((x) => x.id === b)).toMatchObject({ name: '박**', contact: 'pa***@example.com', isRevealed: false });
-  const lg = (await logs('조회')).filter((x) => x.detail === `강사과정 문의 이름·연락처 열람(${a}) fields=name,contact`);
+  const lg = (await logs('조회')).filter((x) => x.detail === `강사과정 문의 이름·연락처 열람(${a}) fields=name,contact,message`);
   expect(lg).toHaveLength(1);
   expect(lg[0]).toMatchObject({ admin_id: adminId, target_user_id: learnerId, ip_address: '203.0.113.9' });
 });
@@ -407,4 +407,34 @@ test('문의 연락처 가림 규칙: @ 있으면 이메일 규칙, 없으면 �
   expect(maskContact('a@b.kr')).toBe('***@b.kr');
   expect(maskContact('@b.kr')).toBe('***');
   expect(maskContact('hong.gil@example.com')).toBe('ho***@example.com');
+});
+
+test('문의 내용 미리보기(R-3 B안): 이메일·전화·주민번호 모양은 ***, 40자 넘으면 자르고 …, 날짜·시각은 그대로', () => {
+  expect(maskMessagePreview(null)).toEqual({ text: null, masked: false });
+  expect(maskMessagePreview('강사과정 일정 궁금해요')).toEqual({ text: '강사과정 일정 궁금해요', masked: false });
+  expect(maskMessagePreview('2026-11-26 14:12 이후 연락 주세요')).toEqual({ text: '2026-11-26 14:12 이후 연락 주세요', masked: false });
+  expect(maskMessagePreview('010-1234-5678로 연락 주세요').text).toBe('***로 연락 주세요');
+  expect(maskMessagePreview('01012345678').text).toBe('***');
+  expect(maskMessagePreview('+82 10 1234 5678 해외입니다').text).toBe('***해외입니다');
+  expect(maskMessagePreview('메일 hong@naver.com 으로').text).toBe('메일 *** 으로');
+  expect(maskMessagePreview('메일 hong (at) naver.com').text).toBe('메일 ***');
+  expect(maskMessagePreview('주민 900101-1234567').text).toBe('주민 ***');
+  expect(maskMessagePreview('０１０-１２３４-５６７８').text).toBe('***');
+  const long = '가'.repeat(50);
+  expect(maskMessagePreview(long)).toEqual({ text: `${'가'.repeat(40)}…`, masked: true });
+  expect(maskMessagePreview('줄\n바꿈').text).toBe('줄 바꿈');
+});
+
+test('문의 목록: message는 미리보기, [개인정보 보기] 행만 전문(접속 기록 fields에 message)', async () => {
+  await q('delete from diagnosis_leads');
+  const msg = '010-9999-8888로 저녁에 연락 부탁드립니다. 아이 상담 경험이 있어서 강사과정이 궁금합니다';
+  const a = (await q("insert into diagnosis_leads (name, contact, message, consent_contact) values ('김민지', '010-2222-3333', $1, true) returning id", [msg]))[0].id as string;
+  const r = await leads({});
+  const row = r.json().data.rows[0];
+  expect(row.messageMasked).toBe(true);
+  expect(row.message.startsWith('***로 저녁에 연락')).toBe(true);
+  expect(r.body).not.toContain('9999');
+  expect(r.body).not.toContain('궁금합니다');
+  const rv = (await leads({ revealId: a })).json().data.rows[0];
+  expect(rv).toMatchObject({ message: msg, messageMasked: false, isRevealed: true });
 });

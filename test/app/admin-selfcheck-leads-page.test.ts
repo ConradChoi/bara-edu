@@ -42,7 +42,7 @@ import Page from '@/app/(admin)/admin/selfcheck/leads/page';
 
 const masked = (id: string, name: string, contact = '010-****-5678') => ({
   id, createdAt: '2026-12-03T05:02:00.000Z', resultId: null, name, contact, isRevealed: false,
-  message: '문의', status: 'new', adminNote: null, handledAt: null, userId: null,
+  message: '문의', messageMasked: false, status: 'new', adminNote: null, handledAt: null, userId: null,
 });
 const okRows = (rows: unknown[]) => ({ status: 200, body: { data: { result: 'ok', rows } } });
 const render = async (sp: Record<string, string> = {}) => renderToStaticMarkup(await Page({ searchParams: Promise.resolve(sp) }));
@@ -97,4 +97,15 @@ test('권한 없음·실패는 안내(빈 목록 문구 없음), 로그인 만�
   expect(html).not.toContain('접수된 문의가 없어요.');
   responses = [{ status: 401, body: { error: { code: 'unauthenticated', message: 'x' } } }];
   await expect(render()).rejects.toThrow('REDIRECT:/sign-in');
+});
+
+test('문의 내용: 가린 미리보기면 안내 문구, 원문 행이면 전문·안내 없음', async () => {
+  responses = [okRows([{ ...masked(L1, '홍**'), message: '***로 연락 주세요', messageMasked: true }])];
+  const html = await render();
+  expect(html).toContain('***로 연락 주세요');
+  expect(html).toContain('전문은 [개인정보 보기]로 확인');
+  responses = [okRows([{ ...masked(L1, '홍길동', '010-1234-5678'), isRevealed: true, message: '010-9999-8888로 연락 주세요', messageMasked: false }])];
+  const html2 = await render({ revealPii: L1, revealToken: 'sig', revealExp: '9999999999' });
+  expect(html2).toContain('010-9999-8888로 연락 주세요');
+  expect(html2).not.toContain('전문은 [개인정보 보기]로 확인');
 });
