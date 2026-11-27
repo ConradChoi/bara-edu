@@ -204,6 +204,7 @@ test('관리자 전용 연락처(ADMIN_CONTACT_PHONE): 관리자 메일만 문�
   }
   const memberMails = [
     { to: 'm@x.kr', template: 'password_changed', at },
+    { to: 'm@x.kr', template: 'password_changed', at, adminLine: false },
     { to: 'm@x.kr', template: 'confirm', link: 'https://bara-edu.kr/auth/confirm?token=t' },
     { to: 'm@x.kr', template: 'profile_changed', fields: ['phone'], at },
   ] as const;

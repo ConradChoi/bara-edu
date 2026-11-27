@@ -768,7 +768,7 @@ POST인 이유: 대기표를 본문으로만 받기 위해서다(4.0).
 
 ### 4.8 메일 템플릿 (신규, 링크 없음)
 
-모든 메일: 링크·주소 없음, 6자리·복구 코드·등록 코드·비밀 키·IP 없음. 인사·문의처·서명은 기존 `Template`이 붙인다. 문의처는 **공통 블록(`SUPPORT_PHONE`·`SUPPORT_HOURS`)을 그대로** 쓴다. 관리자 전용 연락처가 생기면 바꾼다(후속, 1.3 D4). 문구는 카피 7장.
+모든 메일: 링크·주소 없음, 6자리·복구 코드·등록 코드·비밀 키·IP 없음. 인사·문의처·서명은 기존 `Template`이 붙인다. 문의처는 **공통 블록(`SUPPORT_PHONE`·`SUPPORT_HOURS`)을 그대로** 쓴다. 단 서버 설정 `ADMIN_CONTACT_PHONE`이 있으면 관리자 메일만 `관리자 문의(개발 담당) 전화: …` 한 줄(2026-11-27, 1.3 D4·카피 7.0). 문구는 카피 7장.
 
 | 템플릿 | 받는 사람 | 담는 정보 | 카피 |
 |---|---|---|---|
@@ -1021,7 +1021,7 @@ POST인 이유: 대기표를 본문으로만 받기 위해서다(4.0).
 | `api/src/auth/withdraw.ts` | 탈퇴 시 `mfa_*` 행과 `mfa_account_state` 삭제 |
 | `api/src/auth/tokens.ts` | 락 순서 주석 갱신(2.11) |
 | `api/src/secrets.ts`, `api/src/config.ts` | `BARA_MFA_KEY_PARAMS`·`BARA_MFA_KEY_CURRENT`(운영), `BARA_MFA_KEYS`(로컬만, 운영에 있으면 시작 거절), 정확히 32바이트, `ADMIN_MFA_MODE`(운영 필수, 세 값 외 시작 거절, 개발 기본 `enforce`), `ADMIN_MFA_GRACE_UNTIL`(운영 `optional`이면 필수, ISO), `ADMIN_SECURITY_ALERT_TO`(선택, 쉼표 최대 5개, 형식 틀리면 운영 시작 거절) |
-| `api/src/mail/mailer.ts`, `api/src/mail/ses.ts` | `mfa_enrolled`, `mfa_reset`, `mfa_recovery_used`, `mfa_locked`(15분·24시간 두 문구), `admin_security_alert` 템플릿, `password_changed`의 관리자 한 줄. 공통 문의처 블록 그대로(4.8) |
+| `api/src/mail/mailer.ts`, `api/src/mail/ses.ts` | `mfa_enrolled`, `mfa_reset`, `mfa_recovery_used`, `mfa_locked`(15분·24시간 두 문구), `admin_security_alert` 템플릿, `password_changed`의 관리자 한 줄. 공통 문의처 블록 그대로(4.8), `ADMIN_CONTACT_PHONE`이 있으면 관리자 메일만 관리자 문의 한 줄(`isAdminMail`, 2026-11-27) |
 | `api/scripts/admin-mfa.ts`(구현 결정: `src/db/cli.ts` 대신, 4.11 D-15) | `mfa-reset`, `mfa-ticket`, `mfa-clear`, `mfa-unlock`, `mfa-report`, `mfa-rekey`, `admin-sessions-revoke`(2.7.3 표). `--operator` 필수, `--reason` 고정 키, 등록 코드 출력 전 경고 |
 | `api/src/jobs/scheduler.ts` | 만료된 대기표·등록 대기·등록 코드 정리(2.11) |
 | `api/README.md` | 새 환경 변수, SSM 파라미터, 키 교체·모드 변경·CLI 절차, Session Manager 접속 규칙 |
