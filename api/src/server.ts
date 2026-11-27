@@ -20,7 +20,7 @@ async function main(): Promise<void> {
   const mailer: Mailer = fakes
     ? fakes.mailer
     : process.env.MAIL_FROM
-      ? new SesMailer(new SESv2Client({ region: config.awsRegion }), process.env.MAIL_FROM)
+      ? new SesMailer(new SESv2Client({ region: config.awsRegion }), process.env.MAIL_FROM, undefined, config.adminContactPhone)
       : {
           async send() {
             throw new Error('mailer not configured');

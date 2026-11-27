@@ -141,7 +141,7 @@ flowchart TD
 | D1 | 방금 쓴 번호(카피 10-1) | 재사용은 `wrong_code`와 다른 오류 **`code_reused`**(403, 실패 횟수 안 셈)로 준다. 화면은 "방금 쓴 번호예요" 문구(MFA-LOGIN-ERR-USED 등)를 쓴다. FALLBACK 문구는 쓰지 않는다. 판정 범위는 M-9로 제한해 오라클을 막는다 | 2.8, 4.2, 카피 1.4·2.2 |
 | D2 | 초기화 여부 표시(카피 10-2) | 로그인 응답 `enroll_required`에 **`enrollReason: "first" \| "reset"`**을 넣는다. `reset`이면 MFA-REENROLL-* 문구 | 4.1, 카피 3 |
 | D3 | 자동 로그아웃 이유(카피 10-3) | 401에 **`reason: "max" \| "idle"`**을 싣고, proxy가 `/sign-in?redirect=…&ended=max\|idle`로 넘긴다. 로그인 화면은 MFA-SESSION-MAX/IDLE를 쓴다. 이유를 모르면 기존 배너 그대로. 기존 배너 문구("세션이 만료되었어요") 변경은 이번 범위 밖(후속) | 2.3, 4.9, 9.2, 카피 6 |
-| D4 | 관리자 메일 문의처(카피 10-4) | 별도 관리자 연락처가 생기기 전까지 **공통 문의처 블록(`SUPPORT_PHONE`·`SUPPORT_HOURS`)을 그대로** 쓴다. 관리자 전용 연락처는 후속 과제 | 4.8, 카피 7.0 |
+| D4 | 관리자 메일 문의처(카피 10-4) | 별도 관리자 연락처가 생기기 전까지 **공통 문의처 블록(`SUPPORT_PHONE`·`SUPPORT_HOURS`)을 그대로** 쓴다. 관리자 전용 연락처는 후속 과제 → 2026-11-27 반영: 서버 설정 `ADMIN_CONTACT_PHONE`이 있으면 관리자 메일만 `관리자 문의(개발 담당) 전화: …` 한 줄로 바꾼다(카피 7.0) | 4.8, 카피 7.0 |
 | D5 | `mfa_locked` 메일 주소(카피 10-5) | **링크·주소 없이 글로만** 안내한다(화면의 버튼 이름) | 4.8, 카피 7.4 |
 | D6 | 인쇄 안내지 이름(카피 10-6) | 관리자 **이름은 인쇄하고 이메일은 인쇄하지 않는다** | T-5.4, 카피 8 |
 | D7 | 복구 코드 재발급 메일(카피 10-7) | 보내지 않는다(카피 7.0 제안 채택). 접속 기록 `복구코드재발급`과 3.8 보안 이벤트 카드로 확인한다 | 4.8 |
@@ -768,7 +768,7 @@ POST인 이유: 대기표를 본문으로만 받기 위해서다(4.0).
 
 ### 4.8 메일 템플릿 (신규, 링크 없음)
 
-모든 메일: 링크·주소 없음, 6자리·복구 코드·등록 코드·비밀 키·IP 없음. 인사·문의처·서명은 기존 `Template`이 붙인다. 문의처는 **공통 블록(`SUPPORT_PHONE`·`SUPPORT_HOURS`)을 그대로** 쓴다. 관리자 전용 연락처가 생기면 바꾼다(후속, 1.3 D4). 문구는 카피 7장.
+모든 메일: 링크·주소 없음, 6자리·복구 코드·등록 코드·비밀 키·IP 없음. 인사·문의처·서명은 기존 `Template`이 붙인다. 문의처는 **공통 블록(`SUPPORT_PHONE`·`SUPPORT_HOURS`)을 그대로** 쓴다. 단 서버 설정 `ADMIN_CONTACT_PHONE`이 있으면 관리자 메일만 `관리자 문의(개발 담당) 전화: …` 한 줄(2026-11-27, 1.3 D4·카피 7.0). 문구는 카피 7장.
 
 | 템플릿 | 받는 사람 | 담는 정보 | 카피 |
 |---|---|---|---|
@@ -1021,7 +1021,7 @@ POST인 이유: 대기표를 본문으로만 받기 위해서다(4.0).
 | `api/src/auth/withdraw.ts` | 탈퇴 시 `mfa_*` 행과 `mfa_account_state` 삭제 |
 | `api/src/auth/tokens.ts` | 락 순서 주석 갱신(2.11) |
 | `api/src/secrets.ts`, `api/src/config.ts` | `BARA_MFA_KEY_PARAMS`·`BARA_MFA_KEY_CURRENT`(운영), `BARA_MFA_KEYS`(로컬만, 운영에 있으면 시작 거절), 정확히 32바이트, `ADMIN_MFA_MODE`(운영 필수, 세 값 외 시작 거절, 개발 기본 `enforce`), `ADMIN_MFA_GRACE_UNTIL`(운영 `optional`이면 필수, ISO), `ADMIN_SECURITY_ALERT_TO`(선택, 쉼표 최대 5개, 형식 틀리면 운영 시작 거절) |
-| `api/src/mail/mailer.ts`, `api/src/mail/ses.ts` | `mfa_enrolled`, `mfa_reset`, `mfa_recovery_used`, `mfa_locked`(15분·24시간 두 문구), `admin_security_alert` 템플릿, `password_changed`의 관리자 한 줄. 공통 문의처 블록 그대로(4.8) |
+| `api/src/mail/mailer.ts`, `api/src/mail/ses.ts` | `mfa_enrolled`, `mfa_reset`, `mfa_recovery_used`, `mfa_locked`(15분·24시간 두 문구), `admin_security_alert` 템플릿, `password_changed`의 관리자 한 줄. 공통 문의처 블록 그대로(4.8), `ADMIN_CONTACT_PHONE`이 있으면 관리자 메일만 관리자 문의 한 줄(`isAdminMail`, 2026-11-27) |
 | `api/scripts/admin-mfa.ts`(구현 결정: `src/db/cli.ts` 대신, 4.11 D-15) | `mfa-reset`, `mfa-ticket`, `mfa-clear`, `mfa-unlock`, `mfa-report`, `mfa-rekey`, `admin-sessions-revoke`(2.7.3 표). `--operator` 필수, `--reason` 고정 키, 등록 코드 출력 전 경고 |
 | `api/src/jobs/scheduler.ts` | 만료된 대기표·등록 대기·등록 코드 정리(2.11) |
 | `api/README.md` | 새 환경 변수, SSM 파라미터, 키 교체·모드 변경·CLI 절차, Session Manager 접속 규칙 |
