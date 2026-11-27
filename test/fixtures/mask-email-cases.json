@@ -1,0 +1,61 @@
+{
+ "_note": "앱 lib/mask-email.ts와 API api/src/ops/admin-diagnosis.ts maskEmail이 같은 결과를 내는지 보는 공용 표(2026-11-27). 한글 도메인은 통째로 가린다.",
+ "cases": [
+  [
+   "secret@example.com",
+   "se***@example.com"
+  ],
+  [
+   "ab@x.kr",
+   "***@x.kr"
+  ],
+  [
+   null,
+   "-"
+  ],
+  [
+   "",
+   "-"
+  ],
+  [
+   "  kim@mail.co.kr ",
+   "ki***@mail.co.kr"
+  ],
+  [
+   "hong@naver.com 010-1234-5678",
+   "***"
+  ],
+  [
+   "hong@naver.com,01012345678",
+   "***"
+  ],
+  [
+   "a@b@c.kr",
+   "***"
+  ],
+  [
+   "hong@naver.com.01012345678",
+   "***"
+  ],
+  [
+   "hong@naver",
+   "***"
+  ],
+  [
+   "@example.com",
+   "***"
+  ],
+  [
+   "noat",
+   "***"
+  ],
+  [
+   "hong@홍길동.kr",
+   "***"
+  ],
+  [
+   "hong@example.한국",
+   "***"
+  ]
+ ]
+}
