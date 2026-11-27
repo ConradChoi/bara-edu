@@ -7,6 +7,7 @@ import { redirect } from 'next/navigation';
 import { ADMIN_DIAGNOSIS_COPY, fill } from '@/data/diagnosis/consent-copy';
 import { getDiagnosisResultDetailApi, type DiagnosisResultDetail } from '@/lib/db/admin-diagnosis';
 import { formatKstDatetimeLocal } from '@/lib/kst';
+import { formatConsentPrivacyDoc } from '@/lib/legal-version';
 
 export const metadata: Metadata = { title: '진단 결과 상세 | 관리자' };
 
@@ -141,9 +142,9 @@ function consentValue(detail: DiagnosisResultDetail): string {
   const base = fill(ADMIN_DIAGNOSIS_COPY.consentValue, {
     version: detail.sensitiveConsentVersion ?? '',
     datetime: formatKstDatetimeLocal(detail.sensitiveConsentedAt).replace('T', ' ') || '-',
-    n: detail.privacyDocVersion ?? '',
+    // 처리방침 버전이 없으면 "처리방침 {doc}" 자리를 SC-ADM-CONSENT-NODOC로 바꾼다.
+    doc: detail.privacyDocVersion === null ? '' : formatConsentPrivacyDoc(detail.privacyDocVersion, detail.sensitiveConsentedAt),
   });
   if (detail.privacyDocVersion !== null) return base;
-  // 처리방침 버전이 없으면 "처리방침 v{n}" 자리를 SC-ADM-CONSENT-NODOC로 바꾼다.
-  return base.replace(/처리방침 v$/, ADMIN_DIAGNOSIS_COPY.consentNoDoc);
+  return base.replace(/처리방침 $/, ADMIN_DIAGNOSIS_COPY.consentNoDoc);
 }

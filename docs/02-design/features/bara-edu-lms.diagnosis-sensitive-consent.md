@@ -839,7 +839,7 @@ revoke execute on function public.delete_my_diagnosis_result(uuid, boolean) from
 
 ### C5. 관리자 진단 상세 `POST /v1/op/admin.getDiagnosisResultDetail` (기존 op)
 
-응답 `data`에 3개 추가(그 밖은 그대로): `sensitiveConsentVersion: string | null`, `sensitiveConsentedAt: string(ISO) | null`, `privacyDocVersion: number | null`. 화면은 SC-ADM-CONSENT-VALUE로 그리고, `sensitiveConsentVersion`이 null이면 SC-ADM-CONSENT-NONE(정리 스크립트 전 짧은 구간에만 가능), `privacyDocVersion`이 null이면 SC-ADM-CONSENT-NODOC.
+응답 `data`에 3개 추가(그 밖은 그대로): `sensitiveConsentVersion: string | null`, `sensitiveConsentedAt: string(ISO) | null`, `privacyDocVersion: number | null`. 화면은 SC-ADM-CONSENT-VALUE로 그리고(처리방침 버전은 `v1.0` 형식, 오픈 전 기록(버전 10, 11-28 0시 전 동의)은 `오픈 전 v10` — 2026-11-27 정식 오픈, `lib/legal-version.ts`), `sensitiveConsentVersion`이 null이면 SC-ADM-CONSENT-NONE(정리 스크립트 전 짧은 구간에만 가능), `privacyDocVersion`이 null이면 SC-ADM-CONSENT-NODOC.
 
 ### C4-1. 관리자 강사과정 문의 목록 `POST /v1/op/admin.listDiagnosisLeads` (신규 op, 관리자, 2026-11-27 후속)
 

@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { unpublishVersion } from '@/app/actions/admin-cms';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import { getAdminLegalDocumentGroups } from '@/lib/supabase/admin-queries';
+import { formatDocVersion } from '@/lib/legal-version';
 
 export const metadata: Metadata = { title: '약관·정책 CMS | 관리자' };
 
@@ -40,8 +41,8 @@ export default async function AdminCmsPage({ searchParams }: { searchParams: Pro
                 <div className="flex flex-col">
                   <span className="text-[14px] font-semibold text-n-9">{g.title}</span>
                   <span className="text-[11.5px] text-n-5">
-                    /legal/{g.slug} · 최신 v{g.latestVersion}
-                    {g.publishedVersion ? ` · 게시중 v${g.publishedVersion}` : ' · 게시된 버전 없음'}
+                    /legal/{g.slug} · 최신 {formatDocVersion(g.latestVersion)}
+                    {g.publishedVersion ? ` · 게시중 ${formatDocVersion(g.publishedVersion)}` : ' · 게시된 버전 없음'}
                   </span>
                 </div>
               </div>
@@ -49,7 +50,7 @@ export default async function AdminCmsPage({ searchParams }: { searchParams: Pro
                 {g.versions.map((v) => (
                   <li key={v.id} className="flex items-center justify-between rounded-md border border-n-2 px-3 py-2 text-[12.5px]">
                     <span>
-                      v{v.version} · {new Date(v.createdAt).toLocaleDateString('ko-KR')}
+                      {formatDocVersion(v.version)} · {new Date(v.createdAt).toLocaleDateString('ko-KR')}
                       {v.isPublished && <span className="ml-2 rounded-pill bg-success/15 px-2 py-0.5 text-[11px] font-semibold text-success">게시중</span>}
                     </span>
                     <div className="flex gap-1.5">

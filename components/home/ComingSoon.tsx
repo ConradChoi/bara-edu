@@ -1,55 +1,10 @@
-"use client";
-
-import { useState } from "react";
-
 // Header/Footer는 더 이상 여기서 직접 렌더링하지 않는다 — 이 컴포넌트를 감싸는
 // app/(public)/page.tsx가 이제 (public)/layout.tsx 안에 있어 AppHeader와 전역 Footer를
 // 자동으로 상속받는다(design.md 4.5.8). 예전처럼 여기서도 그리면 Footer가 두 번
 // 나오게 된다(홈 화면 작업 중 발견, 2026-08-10).
+// 사전신청 이메일 폼은 정식 오픈(2026-11-27)에 뺐다 — 처리방침에 없는 수집이라 오픈과 함께 폐지·파기(home.md 5절, 정식 오픈 계획).
+// 이 화면은 NEXT_PUBLIC_IS_OPEN이 true가 아닐 때(되돌릴 때)만 보인다.
 export default function ComingSoon() {
-  const [email, setEmail] = useState("");
-  const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
-  const [message, setMessage] = useState("");
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!email || status === "loading") return;
-
-    setStatus("loading");
-    try {
-      const scriptUrl = process.env.NEXT_PUBLIC_APPS_SCRIPT_URL;
-      if (!scriptUrl) {
-        setStatus("success");
-        setMessage("사전 신청이 완료되었습니다. 오픈 소식을 가장 먼저 보내드릴게요!");
-        setEmail("");
-        return;
-      }
-
-      const res = await fetch(scriptUrl, {
-        method: "POST",
-        headers: { "Content-Type": "text/plain" },
-        body: JSON.stringify({ email, source: "coming-soon" }),
-      });
-      const text = await res.text();
-      const data = JSON.parse(text);
-
-      if (data.status === 409) {
-        setStatus("error");
-        setMessage(data.error ?? "이미 신청된 이메일입니다.");
-      } else if (data.ok) {
-        setStatus("success");
-        setMessage("사전 신청이 완료되었습니다. 오픈 소식을 가장 먼저 보내드릴게요!");
-        setEmail("");
-      } else {
-        setStatus("error");
-        setMessage(data.error ?? "오류가 발생했습니다. 다시 시도해 주세요.");
-      }
-    } catch {
-      setStatus("error");
-      setMessage("네트워크 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.");
-    }
-  }
-
   return (
     <div
       className="min-h-screen flex flex-col overflow-x-hidden"
@@ -127,75 +82,6 @@ export default function ComingSoon() {
           </p>
         </div>
 
-        {/* 이메일 신청 폼 */}
-        <div
-          style={{
-            width: "100%",
-            maxWidth: 480,
-            marginTop: 8,
-          }}
-        >
-          {status !== "success" ? (
-            <form
-              onSubmit={handleSubmit}
-              style={{ display: "flex", flexDirection: "column", gap: 10 }}
-            >
-              <div className="flex flex-col sm:flex-row gap-2">
-                <input
-                  type="email"
-                  required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="이메일 주소를 입력해 주세요"
-                  disabled={status === "loading"}
-                  className="w-full sm:flex-1"
-                  style={{
-                    height: 52,
-                    borderRadius: 10,
-                    border: "1.5px solid #e5e7eb",
-                    backgroundColor: "#f9fafb",
-                    padding: "0 16px",
-                    fontSize: 14,
-                    color: "#1a1a1a",
-                    outline: "none",
-                    minWidth: 0,
-                  }}
-                />
-                <button
-                  type="submit"
-                  disabled={status === "loading"}
-                  className="w-full sm:w-auto"
-                  style={{
-                    height: 52,
-                    borderRadius: 10,
-                    backgroundColor: status === "loading" ? "#f0a868" : "#E67E22",
-                    color: "#ffffff",
-                    fontWeight: 700,
-                    fontSize: 14,
-                    padding: "0 24px",
-                    border: "none",
-                    cursor: status === "loading" ? "not-allowed" : "pointer",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  {status === "loading" ? "신청 중…" : "사전 신청하기"}
-                </button>
-              </div>
-              {status === "error" && (
-                <p style={{ fontSize: 12, color: "#dc2626", textAlign: "center" }}>
-                  {message}
-                </p>
-              )}
-            </form>
-          ) : (
-            <p
-              className="text-center font-medium"
-              style={{ fontSize: 14, color: "#E67E22" }}
-            >
-              ✓ {message}
-            </p>
-          )}
-        </div>
       </main>
     </div>
   );

@@ -81,11 +81,16 @@ test('없는 결과는 404, 로그인 만료는 로그인으로', async () => {
 });
 
 test('동의 기록 줄: 민감정보 동의 버전·한국 시각·처리방침 버전(SC-ADM-CONSENT-VALUE)', async () => {
-  apiResponse = { ok: true, data: { data: { ...detail, sensitiveConsentVersion: 'sc-v1', sensitiveConsentedAt: '2026-12-03T05:02:00.000Z', privacyDocVersion: 10 } } };
+  apiResponse = { ok: true, data: { data: { ...detail, sensitiveConsentVersion: 'sc-v1', sensitiveConsentedAt: '2026-12-03T05:02:00.000Z', privacyDocVersion: 1 } } };
   const html = await render();
   expect(html).toContain('동의 기록');
-  expect(html).toContain('민감정보 동의 sc-v1 · 2026-12-03 14:02 / 처리방침 v10');
+  expect(html).toContain('민감정보 동의 sc-v1 · 2026-12-03 14:02 / 처리방침 v1.0');
   expect(html).not.toContain('별도 동의 없음');
+});
+
+test('오픈 전 동의 기록(처리방침 v10, 11-27 이전)은 "오픈 전 v10"으로 보인다(정식 오픈 계획 D2, 개인정보 점검)', async () => {
+  apiResponse = { ok: true, data: { data: { ...detail, sensitiveConsentVersion: 'sc-v1', sensitiveConsentedAt: '2026-11-26T13:30:00.000Z', privacyDocVersion: 10 } } };
+  expect(await render()).toContain('민감정보 동의 sc-v1 · 2026-11-26 22:30 / 처리방침 오픈 전 v10');
 });
 
 test('처리방침 버전이 없으면 SC-ADM-CONSENT-NODOC, 동의 기록이 없으면 경고 배지(SC-ADM-CONSENT-NONE)', async () => {
