@@ -572,13 +572,13 @@ export async function startEnrollment(deps: MfaDeps, input: StartInput): Promise
 
     const userId = input.userId;
     const replace = input.currentCode !== undefined || input.recoveryCode !== undefined;
-    if (replace) {
-      // 입구 C는 이 세션에 묶이므로(session_hash FK) 세션 행을 먼저 for key share로 잡는다(01-auth.sql 잠금 순서 sessions -> mfa_enrollments).
-      // 그 사이 로그아웃·정리로 세션이 지워졌으면 FK 오류(500) 대신 401(QA Minor 1). 잡은 뒤에는 커밋 때까지 지워지지 않는다.
-      const s = await tx.query('select 1 from auth.sessions where token_hash = $1 for key share', [sha256(input.sessionToken)]);
-      if (s.rowCount === 0) return fail('unauthenticated', 'session_ended');
+    // 입구 C는 이 세션에 묶인다(session_hash FK). 세션이 이미 지워졌으면 바로 401(QA Minor 1).
+    // 여기서 세션 행을 잠그지 않는다: 다른 세션의 확정(confirm)이 등록 대기를 잡은 채 이 세션을 지우면 교착이 되기 때문(QA 2026-11-27 I-2).
+    // 검사와 저장 사이에 지워지는 경우는 저장 때 FK 오류를 savepoint로 받아 401로 바꾼다(아래 createEnrollmentIn).
+    if (replace && (await tx.query('select 1 from auth.sessions where token_hash = $1', [sha256(input.sessionToken)])).rowCount === 0) {
+      return fail('unauthenticated', 'session_ended');
     }
-    // 락 순서: (세션) -> 등록 대기 -> (mfa-fail) -> 등록
+    // 락 순서: 등록 대기 -> (mfa-fail) -> 등록
     const ex = await tx.query<EnrollmentRow>(`select ${ENROLLMENT_COLS} from auth.mfa_enrollments where user_id = $1 for update`, [userId]);
     const a = await accountIn(tx, userId);
     if (!a || a.role !== 'admin') return fail('forbidden', 'not_admin');
@@ -622,7 +622,19 @@ export async function startEnrollment(deps: MfaDeps, input: StartInput): Promise
       mails.push(...plan.messages);
     }
     await releaseRecentFailsIn(tx, userId);
-    return enrollmentOut(ring, await createEnrollmentIn(tx, ring, userId, 'C', { replaceCheck: check, sessionHash: sha256(input.sessionToken) }), a.email);
+    await tx.query('savepoint mfa_enroll_c');
+    try {
+      const e = await createEnrollmentIn(tx, ring, userId, 'C', { replaceCheck: check, sessionHash: sha256(input.sessionToken) });
+      await tx.query('release savepoint mfa_enroll_c');
+      return enrollmentOut(ring, e, a.email);
+    } catch (err) {
+      // 재확인(6자리·복구 코드)은 끝났는데 그 사이 이 세션이 지워졌다(로그아웃·다른 세션의 확정). 재확인 결과는 남기고 대기만 만들지 않는다.
+      // FK 이름(자동 생성)에 기대지 않고, 23503이면 savepoint로 되돌린 뒤 세션이 정말 없는지 다시 본다.
+      if ((err as { code?: string }).code !== '23503') throw err;
+      await tx.query('rollback to savepoint mfa_enroll_c');
+      if ((await tx.query('select 1 from auth.sessions where token_hash = $1', [sha256(input.sessionToken)])).rowCount !== 0) throw err;
+      return fail('unauthenticated', 'session_ended');
+    }
   });
 }
 

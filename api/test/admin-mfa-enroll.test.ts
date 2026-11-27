@@ -322,16 +322,19 @@ test('m-1 보강: 세션 묶기가 없는(패치 전) 입구 C 대기는 current
   const e1 = (await call('POST', '/v1/auth/mfa/enroll/start', { currentCode: codeAt(a.secret) }, S(s1))).json();
   // 패치 전 상태 흉내: R-3 검사 제약을 잠시 빼고 null로 만든다(끝에서 R-3 블록으로 되돌린다)
   await q('alter table auth.mfa_enrollments drop constraint mfa_enrollments_entry_c_session_check');
-  await q('update auth.mfa_enrollments set session_hash = null where id = $1', [e1.enrollmentId]);
-  expect((await call('POST', '/v1/auth/mfa/enroll/current', {}, S(s1))).statusCode).toBe(404);
-  expect((await call('POST', '/v1/auth/mfa/enroll/confirm', { enrollmentId: e1.enrollmentId, code: codeFromB32(e1.secretBase32), rotateRecoveryCodes: false }, S(s1))).statusCode).toBe(404);
-  await clearLastStep(ctx, a.id);
-  const e2 = (await call('POST', '/v1/auth/mfa/enroll/start', { currentCode: codeAt(a.secret, 1) }, S(s2))).json();
-  expect(e2.entry).toBe('C');
-  expect((await call('POST', '/v1/auth/mfa/enroll/current', {}, S(s1))).statusCode).toBe(404);
-  expect((await call('POST', '/v1/auth/mfa/enroll/current', {}, S(s2))).json().enrollmentId).toBe(e2.enrollmentId);
-  await q("delete from auth.mfa_enrollments where entry = 'C' and session_hash is null");
-  await q("alter table auth.mfa_enrollments add constraint mfa_enrollments_entry_c_session_check check (entry <> 'C' or session_hash is not null)");
+  try {
+    await q('update auth.mfa_enrollments set session_hash = null where id = $1', [e1.enrollmentId]);
+    expect((await call('POST', '/v1/auth/mfa/enroll/current', {}, S(s1))).statusCode).toBe(404);
+    expect((await call('POST', '/v1/auth/mfa/enroll/confirm', { enrollmentId: e1.enrollmentId, code: codeFromB32(e1.secretBase32), rotateRecoveryCodes: false }, S(s1))).statusCode).toBe(404);
+    await clearLastStep(ctx, a.id);
+    const e2 = (await call('POST', '/v1/auth/mfa/enroll/start', { currentCode: codeAt(a.secret, 1) }, S(s2))).json();
+    expect(e2.entry).toBe('C');
+    expect((await call('POST', '/v1/auth/mfa/enroll/current', {}, S(s1))).statusCode).toBe(404);
+    expect((await call('POST', '/v1/auth/mfa/enroll/current', {}, S(s2))).json().enrollmentId).toBe(e2.enrollmentId);
+  } finally {
+    await q("delete from auth.mfa_enrollments where entry = 'C' and session_hash is null");
+    await q("alter table auth.mfa_enrollments add constraint mfa_enrollments_entry_c_session_check check (entry <> 'C' or session_hash is not null)");
+  }
 });
 
 test('R-3: 입구 C 대기에 session_hash가 없으면 DB가 거절한다(입구 A는 없어도 된다)', async () => {
@@ -362,6 +365,29 @@ test('QA Minor 1: 입구 C 시작 도중 그 세션이 지워지면(로그아웃
     c.release();
   }
   expect((await q('select count(*)::int n from auth.mfa_enrollments where user_id = $1', [a.id]))[0].n).toBe(0);
+});
+
+test('QA I-2: 다른 세션의 확정이 등록 대기를 잡은 채 이 세션을 지워도 교착 없이 401 session_ended', async () => {
+  const a = await enrolledAdmin();
+  const s1 = await mfaSession(ctx, a.id);
+  const s2 = await mfaSession(ctx, a.id);
+  const e1 = (await call('POST', '/v1/auth/mfa/enroll/start', { currentCode: codeAt(a.secret) }, S(s1))).json();
+  await clearLastStep(ctx, a.id);
+  const c = await ctx.adminPool.connect();
+  try {
+    // s1의 확정 흉내: 등록 대기 행을 잡고(for update) 다른 세션(s2)을 지운다
+    await c.query('begin');
+    await c.query('select 1 from auth.mfa_enrollments where id = $1 for update', [e1.enrollmentId]);
+    const pending = call('POST', '/v1/auth/mfa/enroll/start', { currentCode: codeAt(a.secret, 1) }, S(s2));
+    await new Promise((r) => setTimeout(r, 300));
+    await c.query('delete from auth.sessions where token_hash = $1', [sha(s2)]);
+    await c.query('commit');
+    const r = await pending;
+    expect(r.statusCode).toBe(401);
+    expect(r.json().error.message).toBe('session_ended');
+  } finally {
+    c.release();
+  }
 });
 
 // ---- 4.5

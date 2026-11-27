@@ -256,5 +256,5 @@
 
 후속 반영(2026-11-27 오후, fix/sys-followups):
 - R-3: 검사 제약 `mfa_enrollments_entry_c_session_check (entry <> 'C' or session_hash is not null)`(패치 `2026-11-27-mfa-enroll-c-session-required.sql`, 01-auth.sql 같은 블록). 패치는 먼저 `session_hash`가 null인 입구 C 대기(옛 API가 만든 죽은 행)를 지운다. API `ec8066c` 이상에서만 적용(옛 API로 되돌리면 제약을 먼저 뺀다).
-- QA Minor 1: 입구 C 시작은 맨 앞에서 그 세션 행을 `for key share`로 잡는다. 이미 지워졌으면 401 `session_ended`(FK 오류 500 없음), 잡은 뒤에는 커밋까지 로그아웃 삭제가 기다린다. 잠금 순서 sessions -> mfa_enrollments와도 맞아 N-2의 교착 여지도 없앴다.
+- QA Minor 1: 입구 C 시작은 처음에 세션이 있는지 보고(없으면 401 `session_ended`), 저장 때 FK 오류(23503)가 나면 savepoint로 되돌린 뒤 세션이 정말 없을 때만 401로 바꾼다(FK 오류 500 없음). 세션 행을 미리 `for key share`로 잠그는 안은 QA 재점검(I-2)에서 "다른 세션의 확정이 등록 대기를 잡은 채 이 세션을 지우면 교착"이 확인되어 쓰지 않았다(테스트 `QA I-2`). 재확인(6자리·복구 코드 소비, 알림)은 그대로 남는다(실제로 쓴 것이므로).
 - 남은 것: N-4, N-5.

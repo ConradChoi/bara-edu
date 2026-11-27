@@ -14,10 +14,23 @@ test('MFA-SESSION-SOON: 10분 전이 되면 화면을 다시 열지 않아도 �
   const root = createRoot(el);
   await act(async () => root.render(createElement(SessionSoonNotice, { endsInMs: 15 * 60_000 })));
   expect(el.textContent).not.toContain(C['MFA-SESSION-SOON']);
-  await act(async () => vi.advanceTimersByTime(5 * 60_000 - 1));
+  await act(async () => vi.advanceTimersByTime(5 * 60_000 - 30_000));
   expect(el.textContent).not.toContain(C['MFA-SESSION-SOON']);
-  await act(async () => vi.advanceTimersByTime(1));
+  await act(async () => vi.advanceTimersByTime(30_000));
   expect(el.textContent).toContain(C['MFA-SESSION-SOON']);
   expect(el.querySelector('[role="status"]')).not.toBeNull();
+  await act(async () => root.unmount());
+});
+
+test('QA I-1: 절전으로 타이머가 멈췄다가 돌아오면(시계만 흐름) 창에 돌아오는 순간 알림', async () => {
+  vi.useFakeTimers();
+  const el = document.createElement('div');
+  const root = createRoot(el);
+  await act(async () => root.render(createElement(SessionSoonNotice, { endsInMs: 60 * 60_000 })));
+  expect(el.textContent).not.toContain(C['MFA-SESSION-SOON']);
+  // 타이머는 돌지 않고 시계만 55분 흐름(절전)
+  vi.setSystemTime(Date.now() + 55 * 60_000);
+  await act(async () => window.dispatchEvent(new Event('focus')));
+  expect(el.textContent).toContain(C['MFA-SESSION-SOON']);
   await act(async () => root.unmount());
 });

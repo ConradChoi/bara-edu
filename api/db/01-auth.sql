@@ -181,7 +181,7 @@ create table if not exists auth.mfa_runtime (
 
 -- 관리자 2단계 인증 후속(2026-11-27, 패치 2026-11-27-mfa-enroll-session.sql과 같은 줄)
 -- 잠금 순서 보충: auth.sessions 삭제(로그아웃·세션 정리)는 이 FK로 mfa_enrollments 삭제까지 잠근다(sessions -> mfa_enrollments).
--- 입구 C 시작은 맨 앞에서 그 세션 행을 for key share로 잡는다(sessions -> mfa_enrollments 순서를 지키고, 시작 도중 로그아웃되면 FK 오류 대신 401, QA Minor 1).
+-- 입구 C 시작은 세션 행을 미리 잠그지 않는다(다른 세션의 확정과 교착 방지, QA I-2). 저장 때 이 FK가 실패하면(시작 도중 로그아웃) 401로 바꾼다(QA Minor 1).
 -- 입구 C는 시작한 세션에 묶는다(2026-11-27, 보안 점검 m-1): 같은 사용자의 다른 세션은 등록 대기(새 비밀 키)를 다시 읽거나 확정할 수 없다.
 -- 세션이 지워지면(로그아웃·만료 정리) 대기도 함께 지워진다.
 alter table auth.mfa_enrollments add column if not exists session_hash text references auth.sessions (token_hash) on delete cascade;
