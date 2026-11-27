@@ -161,3 +161,20 @@ test('kstStamp: profile_changed·password_changed의 {at} 형식(KST, 12시간�
   expect(kstStamp(new Date('2026-11-25T15:05:00Z'))).toBe('2026년 11월 26일 오전 12시 5분');
   expect(kstStamp(new Date('2026-11-26T03:00:00Z'))).toBe('2026년 11월 26일 오후 12시 0분');
 });
+
+test('admin_security_alert: 개발 담당이 서버에서 한 일(ticket_issued·unlocked)은 요청 확인 안내, 그 밖의 사건은 기존 안내(TOTP 후속 R-2)', async () => {
+  const { sent, client } = fakeClient();
+  const m = new SesMailer(client, FROM);
+  for (const event of ['ticket_issued', 'unlocked', 'reset'] as const) {
+    await m.send({ to: 'dev@example.com', template: 'admin_security_alert', at: '2026년 11월 27일 오후 1시', ownerName: '대표', event });
+  }
+  const text = (i: number) => sent[i].Content!.Simple!.Body?.Text?.Data ?? '';
+  expect(text(0)).toContain('사건: 개발 담당이 서버에서 2단계 인증 등록 코드를 발급했어요.');
+  expect(text(1)).toContain('사건: 개발 담당이 서버에서 인증 앱 번호 입력 잠금을 풀었어요.');
+  for (const i of [0, 1]) {
+    expect(text(i)).toContain('대표님이 개발 담당에게 직접 요청한 것이 맞는지 대표님에게 전화로 확인해 주세요.');
+    expect(text(i)).not.toContain('2단계 인증을 초기화하고');
+    expect(text(i)).not.toMatch(/\d{4}\s?\d{4}/); // 등록 코드 모양 없음
+  }
+  expect(text(2)).toContain('본인이 한 일이 아니라면 관리자 화면에서 대표님의 2단계 인증을 초기화하고');
+});

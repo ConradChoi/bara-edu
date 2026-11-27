@@ -238,3 +238,16 @@
 4. 대표가 오늘 밤 등록하고 복구 코드를 종이 두 곳에 보관한다. 이어서 6자리 로그인 1회, `mfa-report` 행 확인, 운영자 접근 기록 문서 기록을 한다(I-C). 대표 확인이 끝나면 `enforce` 전환 일정을 잡는다(내부 관리계획 갱신이 선행).
 
 권고 m-1~m-4는 다음 배포에 반영하고, qa-reviewer가 m-1·m-2를 테스트로 고정한다.
+
+
+### 후속 보안 점검 (2026-11-27, m-1·m-3 반영분, fix/totp-minors)
+
+판정 조건부 Go(차단 없음), QA Go. 반영한 것:
+- R-1(I-A 후속): 운영(`NODE_ENV=production`)에서 `ADMIN_SECURITY_ALERT_TO`가 비면 API·CLI 시작 거절(`api/src/config.ts`). 운영 값은 11-26부터 1개 설정됨(값은 기록하지 않음).
+- R-2: `ticket_issued`·`unlocked` 알림은 "개발 담당에게 직접 요청한 것이 맞는지 전화로 확인" 안내로 바꿈(문구 정의서 7.6).
+- N-2: 잠금 순서 보충(sessions -> mfa_enrollments) 주석을 01-auth.sql 후속 줄에 둠.
+- N-6·QA Minor 4: 패치 전 대기 404, 다른 세션이 새로 시작하면 이전 대기 404 테스트.
+
+뜻 정리(N-1): CLI `mfa-ticket`·`mfa-unlock` 기록의 `alert=self_only`는 "본인 메일도 보내지 않으므로 아무에게도 알리지 못함"이다(R-1 뒤로 운영에서는 생기지 않는다). 다른 사건의 `alert=self_only`는 "본인에게만 보냄"이다.
+
+남은 것: R-3(입구 C의 `session_hash` not null 검사 제약, 옛 API가 다 내려간 뒤), N-4(같은 세션 토큰 탈취는 구조적 잔여 위험), N-5(`mfa-unlock`이 status=active를 보지 않음, 영향 낮음), QA Minor 1(세션이 지워지는 순간의 FK 오류 500 매핑).
