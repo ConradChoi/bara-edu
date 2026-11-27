@@ -91,7 +91,7 @@ rm -f ~/migrate.env && unset SUPABASE_DB_URL TARGET_DB_ADMIN_URL SUPABASE_URL SU
 | `ADMIN_MFA_MODE` | 운영 O | 로컬 `enforce` | 관리자 2단계 인증 모드 `off`/`optional`/`enforce`. 운영에서 없거나 셋 중 하나가 아니면 시작 거절(보안 점검 I-3). 시작 로그 `event=mfa_mode`, `enforce`가 아니면 경고 `mfa_mode_weak`. 마지막으로 시작한 모드(`auth.mfa_runtime`)와 다르면 시작할 때 비밀번호만의 관리자 세션을 모두 지운다(`mfa_mode_changed`). 바꿀 때는 대표 승인 기록 |
 | `ADMIN_MFA_GRACE_UNTIL` | 운영 `optional`이면 O | - | 유예 종료 시각(오프셋 있는 ISO 8601, 예 `2026-12-03T00:00:00+09:00`). 화면 배너 표시용(`/v1/auth/mfa/status`의 `graceUntil`). 자동 전환은 하지 않는다 |
 | `ADMIN_SECURITY_ALERT_TO` | 권장 | - | 관리자 보안 알림을 추가로 받을 주소(쉼표, 최대 5개, 관리자 이메일과 다른 메일함). 다른 활성 관리자도 없고 이것도 없으면 본인 메일만 보내고 접속 기록에 `alert=self_only` |
-| `ADMIN_CONTACT_PHONE` | 선택 | - | 관리자 메일(2단계 인증 알림·관리자 비밀번호 변경)의 문의처를 `관리자 문의(개발 담당) 전화: …` 한 줄로 바꾼다. 형식 `0NN-NNNN-NNNN`(하이픈 필수), 틀리면 API·CLI 시작 거절. 없으면 공통 문의처. 저장소가 공개라 값은 서버 `api.env`에만 둔다(카피 7.0) |
+| `ADMIN_CONTACT_PHONE` | 선택 | - | 관리자 메일(2단계 인증 알림·관리자 비밀번호 변경)의 문의처를 `관리자 문의(개발 담당) 전화: …` 한 줄로 바꾼다. 형식은 하이픈이 있는 국내 번호(예: `010-1234-5678`, `02-123-4567`), 틀리면 API·CLI 시작 거절. 없으면 공통 문의처. 저장소가 공개라 값은 서버 `api.env`에만 둔다(카피 7.0) |
 | `BARA_MFA_KEY_PARAMS` | 운영 O | - | 2단계 인증 마스터 키 SSM SecureString 목록 `1=/bara-edu/api/mfa-key-v1[,2=/bara-edu/api/mfa-key-v2]`. 각 값은 base64로 정확히 32바이트(`openssl rand -base64 32`, 끝 줄바꿈 없이). 운영에서는 모드와 상관없이(off 포함) 필수. 읽기 실패·형식 오류·`auth.mfa_key_check` 불일치면 시작 거절 |
 | `BARA_MFA_KEY_CURRENT` | `BARA_MFA_KEY_PARAMS`가 있으면 O | - | 새로 암호화·HMAC할 때 쓰는 키 버전(목록에 있어야 함). 옛 버전은 검증용으로 목록에 남긴다(키 교체 절차: 기획서 2.6, `mfa-rekey`) |
 | `BARA_MFA_KEYS` | 로컬 전용 | - | 로컬·테스트용 평문 키 목록 `1=<base64 32바이트>,…`(현재 버전은 `BARA_MFA_KEY_CURRENT`, 없으면 가장 큰 버전). `NODE_ENV=production`에서 있으면 시작 거절. 운영이 아닌데 키가 하나도 없으면 2단계 API는 503 `unavailable` |

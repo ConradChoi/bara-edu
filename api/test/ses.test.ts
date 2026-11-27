@@ -207,6 +207,9 @@ test('관리자 전용 연락처(ADMIN_CONTACT_PHONE): 관리자 메일만 문�
     { to: 'm@x.kr', template: 'password_changed', at, adminLine: false },
     { to: 'm@x.kr', template: 'confirm', link: 'https://bara-edu.kr/auth/confirm?token=t' },
     { to: 'm@x.kr', template: 'profile_changed', fields: ['phone'], at },
+    // 로그인 없이도 요청되는 메일은 받는 사람이 관리자여도 공통 블록(개인정보 점검 권고 4)
+    { to: 'a@x.kr', template: 'recovery', link: 'https://bara-edu.kr/reset-password?token=t' },
+    { to: 'a@x.kr', template: 'already_registered', link: 'https://bara-edu.kr/sign-in', forgotLink: 'https://bara-edu.kr/forgot-password' },
   ] as const;
   for (const msg of memberMails) {
     const { sent, client } = fakeClient();

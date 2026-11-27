@@ -10,7 +10,7 @@ const SIGNATURE = '바라 평생교육원';
 // 이 값만 있는 줄은 already_registered의 forgotLink로 바꾸고 HTML에서는 <a>로 감싼다
 const FORGOT_LINK = '{forgotLink}';
 
-// 관리자 보안 알림의 공통 끝 문장(카피 7.1~7.4 AFTER). 관리자 메일도 공통 문의처 블록을 그대로 쓴다(1.3 D4).
+// 관리자 보안 알림의 공통 끝 문장(카피 7.1~7.4 AFTER). 관리자 메일의 문의처는 ADMIN_CONTACT_PHONE이 있으면 관리자 문의 한 줄, 없으면 공통 블록(1.3 D4, 카피 7.0).
 const MFA_TEMPLATES = {
   // MFA-MAIL-ENROLLED-*
   mfa_enrolled: {

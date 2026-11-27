@@ -31,7 +31,7 @@ export const SERVICE_KEY_ERROR = 'BARA_SERVICE_KEY (or the BARA_SERVICE_KEY_PARA
 export const MFA_MODE_ERROR = 'ADMIN_MFA_MODE must be one of off, optional, enforce (required in production)';
 export const MFA_KEY_REQUIRED_ERROR = 'NODE_ENV=production requires BARA_MFA_KEY_PARAMS and BARA_MFA_KEY_CURRENT (SSM)';
 export const MFA_PLAINTEXT_KEY_ERROR = 'BARA_MFA_KEYS (plaintext key) must not be set in production; use BARA_MFA_KEY_PARAMS';
-export const ADMIN_CONTACT_PHONE_ERROR = 'ADMIN_CONTACT_PHONE must be a hyphenated domestic number (0NN-NNNN-NNNN)';
+export const ADMIN_CONTACT_PHONE_ERROR = 'ADMIN_CONTACT_PHONE must be a hyphenated domestic number (e.g. 0NN-NNNN-NNNN or 0N-NNN-NNNN)';
 const ADMIN_CONTACT_PHONE_RE = /^0\d{1,2}-\d{3,4}-\d{4}$/;
 export const PLAINTEXT_WARNING = 'TLS is off in production (BARA_ALLOW_PLAINTEXT=1): WEB to WAS traffic is not encrypted';
 
