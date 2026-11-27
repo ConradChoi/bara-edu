@@ -445,14 +445,17 @@ test('CLI mfa-unlock: 두 bucket(실패·풀린 실패)을 지우고 기록, 등
 
 test('N-5 CLI mfa-unlock: 탈퇴(withdrawn) 관리자는 거절하고 실패 기록·접속 기록·메일을 남기지 않는다', async () => {
   const a = await enrolledAdmin();
-  await q("insert into auth.rate_events (bucket, key) values ('mfa-fail', $1)", [a.id]);
+  await q("insert into auth.rate_events (bucket, key) select b, $1 from unnest(array['mfa-fail','mfa-fail-released']) b", [a.id]);
   await q(`begin; set local session_replication_role = replica; update profiles set status = 'withdrawn' where id = '${a.id}'; commit`);
+  expect(await q('select status::text from profiles where id = $1', [a.id])).toEqual([{ status: 'withdrawn' }]);
   const before = (await logsOf(ctx, a.id)).length;
+  const allLogs = (await q('select count(*)::int as n from admin_access_logs'))[0].n;
   const r = await cli(['mfa-unlock', '--email', a.email, '--operator', '개발', '--reason', 'owner_locked']);
   expect(r.code).toBe(1);
   expect(r.err.join('\n')).toContain('활성 관리자가 아닙니다');
-  expect(await q("select 1 from auth.rate_events where key = $1 and bucket = 'mfa-fail'", [a.id])).toHaveLength(1);
+  expect(await q("select bucket from auth.rate_events where key = $1 order by bucket", [a.id])).toEqual([{ bucket: 'mfa-fail' }, { bucket: 'mfa-fail-released' }]);
   expect(await logsOf(ctx, a.id)).toHaveLength(before);
+  expect((await q('select count(*)::int as n from admin_access_logs'))[0].n).toBe(allLogs);
   expect(r.mailer.sent).toHaveLength(0);
 });
 

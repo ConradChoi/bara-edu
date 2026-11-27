@@ -638,7 +638,7 @@ export default function SignupTrendChart({ data }: { data: DailySignupPoint[] })
 </tr>
 ```
 
-`maskEmail`은 로컬파트 앞 2자 + `***` + `@도메인` 형식(`ab***@gmail.com`, 스펙 예시와 동일). 로컬파트가 2자 미만이면 있는 만큼만 쓰고 나머지를 `***`로 채운다(예: `a***@gmail.com`).
+`maskEmail`은 로컬파트 앞 2자 + `***` + `@도메인` 형식(`ab***@gmail.com`, 스펙 예시와 동일). 로컬파트가 2자 이하이거나 영문·숫자·`._%+-` 밖의 글자(한글 등)가 있으면 `***@도메인`으로 가린다(2026-11-27 갱신, 자세한 규칙은 diagnosis-sensitive-consent 설계 C4 이메일 행).
 
 #### Admin 신청·입금 관리 — 패턴: 목록 테이블 + 확인 다이얼로그 + 토스트
 ```
