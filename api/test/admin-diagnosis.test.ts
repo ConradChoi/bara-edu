@@ -415,7 +415,8 @@ test('문의 내용 미리보기(R-3 B안): 이메일·전화·주민번호 모�
   expect(maskMessagePreview('2026-11-26 14:12 이후 연락 주세요')).toEqual({ text: '2026-11-26 14:12 이후 연락 주세요', masked: false });
   expect(maskMessagePreview('010-1234-5678로 연락 주세요').text).toBe('***로 연락 주세요');
   expect(maskMessagePreview('01012345678').text).toBe('***');
-  expect(maskMessagePreview('+82 10 1234 5678 해외입니다').text).toBe('***해외입니다');
+  expect(maskMessagePreview('+82 10 1234 5678 해외입니다').text).toBe('*** 해외입니다');
+  expect(maskMessagePreview('수강료 150,000원, 2026.11.26 ~ 2027.02.28').text).toBe('수강료 150,000원, 2026.11.26 ~ 2027.02.28');
   expect(maskMessagePreview('메일 hong@naver.com 으로').text).toBe('메일 *** 으로');
   expect(maskMessagePreview('메일 hong (at) naver.com').text).toBe('메일 ***');
   expect(maskMessagePreview('주민 900101-1234567').text).toBe('주민 ***');

@@ -254,7 +254,7 @@ export function maskContact(contact: string | null | undefined): string {
 // 목록에는 앞 MESSAGE_PREVIEW_LEN자만, 이메일·전화번호·주민번호 모양은 '***'로 바꿔 내려 주고 전문은 [개인정보 보기] 행에서만(접속 기록 fields에 message).
 export const MESSAGE_PREVIEW_LEN = 40;
 const PREVIEW_EMAIL_RE = /\S+\s*@\s*\S+|\S+\s*[(\[]\s*at\s*[)\]]\s*\S+/gi;
-const PREVIEW_INTL_RE = /\+\s*\d[\d\s\-.()]*/g;
+const PREVIEW_INTL_RE = /\+\s*\d(?:[\d\s\-.()]*\d)?/g;
 const PREVIEW_DIGITS_RE = /\d[\d\s\-.()/:]*\d/g;
 export function maskMessagePreview(message: string | null | undefined): { text: string | null; masked: boolean } {
   if (message == null) return { text: null, masked: false };

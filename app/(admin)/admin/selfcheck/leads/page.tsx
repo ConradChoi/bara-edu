@@ -111,7 +111,7 @@ export default async function AdminDiagnosisLeadsPage({
                     )}
                   </div>
                 </td>
-                <td className={lead.isRevealed ? 'max-w-[260px] whitespace-pre-wrap break-words' : 'max-w-[180px]'}>
+                <td className={lead.isRevealed ? 'max-w-[260px] whitespace-pre-wrap break-words' : 'max-w-[180px] break-words'}>
                   {lead.message ?? '-'}
                   {lead.messageMasked && !lead.isRevealed && (
                     <span className="mt-0.5 block text-[10.5px] text-n-6">전문은 [개인정보 보기]로 확인</span>
