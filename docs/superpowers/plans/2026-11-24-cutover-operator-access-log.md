@@ -86,6 +86,8 @@
 | 11-28 11:0x | `bara_edu`(앱 계정 → `set local role bara_edu_service`, 읽기 전용 트랜잭션, 롤백) | 조회 | 대표 요청. 공개 강좌의 seed 시험용 강좌 확인: 강좌별 신청 건수·상태별 건수·첫/마지막 신청일만 조회(회원 정보 출력 없음). 시험용 `web-design-practice`·`ai-data-analysis` 신청 0건 |
 | 11-28 21:3x | GitHub·Amplify 앱 | 배포 | main `66954ba`(fix/color-contrast 합침: 색 대비 WCAG AA, 글자용 파생 토큰 6개, QA Go) Amplify #97 SUCCEED. 홈 200. Lighthouse 모바일 접근성 5개 화면 100, color-contrast 통과. API·DB 변경 없음
 | 11-28 23:xx | GitHub·Amplify 앱 | 배포 | main `997396e`(fix/home-gate 합침: 푸터 호스팅서비스 제공자·공정위 사업자정보 확인 링크, 홈 섹션·푸터 조회 실패 시 섹션 단위 대체, 이전 안내 팝업 조기 종료(대표 결정)). QA Go·개인정보 Go. Amplify #99 SUCCEED. 홈·강좌·로그인 200, 404 화면까지 새 푸터 노출, 팝업 미노출 확인. API·DB 변경 없음
+| 11-29 0x:xx | Amplify 앱 환경 변수 (bara-edu 앱) | 변경 | 대표 승인. 안 쓰는 `NEXT_PUBLIC_OPEN_DATE` 삭제(코드 참조 0건). 남은 앱 변수 2개(IS_OPEN·SITE_NAME) 값 그대로 확인, IS_OPEN=true. 브랜치 변수 BARA_API_URL 그대로. 되돌리기: 콘솔에서 변수 재추가 |
+| 11-29 0x:xx | GitHub·Amplify 앱 | 배포 | main `64d107b`(fix/home-text-cleanup 합침: 헤더 메뉴 15px·360px 미만 14px, 진단 배너 16/15px, 옛 오픈 날짜 설정 정리). QA Go(재검토). Amplify #102 SUCCEED. 운영 측정: 320·360·768·1440px 헤더 한 줄·가로 스크롤 0, 배너 설명 16px. API·DB 변경 없음 |
 
 ## 같은 날 함께 정리한 것
 
