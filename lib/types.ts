@@ -231,6 +231,4 @@ export interface SiteConfig {
   ftcBizInfoUrl: string;
   kakaoUrl?: string;
   instagramUrl?: string;
-  openingDate?: string;
-  isOpen: boolean;
 }

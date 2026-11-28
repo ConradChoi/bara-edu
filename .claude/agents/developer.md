@@ -15,7 +15,7 @@ model: sonnet
 - **배포**: AWS Amplify (bara-edu.kr 도메인, ACM HTTPS 자동 적용)
 - **네이밍**: 컴포넌트 PascalCase.tsx, 함수/유틸 camelCase.ts, 폴더 kebab-case
 - **레이어**: Presentation(`app/`, `components/`) → Application(`page.tsx` 데이터 패치) → Domain(`lib/types.ts`, `lib/utils.ts`) → Infrastructure(`lib/sheets.ts`)
-- **환경변수**: `APPS_SCRIPT_URL`(서버 전용), `NEXT_PUBLIC_SITE_NAME`, `NEXT_PUBLIC_IS_OPEN`(Coming Soon 토글), `NEXT_PUBLIC_OPEN_DATE`
+- **환경변수**: `APPS_SCRIPT_URL`(서버 전용), `NEXT_PUBLIC_SITE_NAME`, `NEXT_PUBLIC_IS_OPEN`(Coming Soon 토글)
 
 ## 역할
 - **Figma 디자인 게이트(F1~F9) 승인 없이는 구현에 착수하지 않는다.** 착수 전 design.md의 게이트 체크리스트를 확인한다.

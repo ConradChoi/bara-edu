@@ -21,6 +21,4 @@ export const siteConfig: SiteConfig = {
   ftcBizInfoUrl: 'https://www.ftc.go.kr/bizCommPop.do?wrkr_no=8328603446',
   kakaoUrl: undefined,
   instagramUrl: undefined,
-  openingDate: '2026년 하반기',
-  isOpen: process.env.NEXT_PUBLIC_IS_OPEN === 'true',
 };
