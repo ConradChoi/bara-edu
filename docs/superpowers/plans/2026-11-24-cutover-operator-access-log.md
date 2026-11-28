@@ -85,6 +85,7 @@
 | 11-27 23:35 | `bara_edu` | 변경 | 대표 요청. 패치 `2026-11-27-legal-prelaunch-archive-lock.sql` 적용(QA Go): `archive.legal_documents_prelaunch` 읽기 전용(소유 역할 insert·update·delete·truncate 회수, 문장 단위 차단 트리거). 적용 전후·재적용 후 모두 12행, 원문 다이제스트 `b717fd6e…4f90`(id 순 `id:sha256(content)` 줄의 sha256)가 저장소 내보내기 파일과 같음. 권한 select만, 트리거 1개 활성, 쓰기 시험(0행 update) 42501로 막힘. 데이터 변경 없음 |
 | 11-28 11:0x | `bara_edu`(앱 계정 → `set local role bara_edu_service`, 읽기 전용 트랜잭션, 롤백) | 조회 | 대표 요청. 공개 강좌의 seed 시험용 강좌 확인: 강좌별 신청 건수·상태별 건수·첫/마지막 신청일만 조회(회원 정보 출력 없음). 시험용 `web-design-practice`·`ai-data-analysis` 신청 0건 |
 | 11-28 21:3x | GitHub·Amplify 앱 | 배포 | main `66954ba`(fix/color-contrast 합침: 색 대비 WCAG AA, 글자용 파생 토큰 6개, QA Go) Amplify #97 SUCCEED. 홈 200. Lighthouse 모바일 접근성 5개 화면 100, color-contrast 통과. API·DB 변경 없음
+| 11-28 23:xx | GitHub·Amplify 앱 | 배포 | main `997396e`(fix/home-gate 합침: 푸터 호스팅서비스 제공자·공정위 사업자정보 확인 링크, 홈 섹션·푸터 조회 실패 시 섹션 단위 대체, 이전 안내 팝업 조기 종료(대표 결정)). QA Go·개인정보 Go. Amplify #99 SUCCEED. 홈·강좌·로그인 200, 404 화면까지 새 푸터 노출, 팝업 미노출 확인. API·DB 변경 없음
 
 ## 같은 날 함께 정리한 것
 
