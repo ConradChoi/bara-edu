@@ -58,7 +58,7 @@ export default function FormDialog({
             <button
               type="submit"
               className={`h-[38px] flex-1 rounded-pill text-[13px] font-semibold text-white ${
-                tone === 'danger' ? 'bg-danger' : 'bg-pink-deep'
+                tone === 'danger' ? 'bg-danger-strong' : 'bg-pink-deep'
               }`}
             >
               {submitLabel}
