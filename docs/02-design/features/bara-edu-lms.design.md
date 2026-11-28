@@ -965,10 +965,11 @@ export interface SiteConfig {
   phone: string;                       // '010-9025-5093' — 기존 필드, 더미값(010-0000-0000) 교체 필요(H-M8)
   email: string;                       // 'info@ylia.io' — 기존 필드, 'info@bara-edu.kr' 교체 필요(H-M8, home.md 11.5 신규 발견)
   address: string;                     // '경기도 광명시 오리로 362 4층 (창업지원센터)' — 기존 필드, 더미값('서울특별시') 교체 필요
+  hostingProvider: string;             // 'Amazon Web Services, Inc.' — 호스팅서비스 제공자(전자상거래법 표시사항, 2026-11-28 추가)
+  ftcBizInfoUrl: string;               // 공정위 사업자정보 공개페이지 링크(2026-11-28 추가)
   kakaoUrl?: string;
   instagramUrl?: string;
-  openingDate?: string;
-  isOpen: boolean;
+  // openingDate·isOpen은 2026-11-28 삭제(읽는 곳 없음). 오픈 전환은 홈이 NEXT_PUBLIC_IS_OPEN을 직접 읽는다.
 }
 ```
 

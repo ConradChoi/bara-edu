@@ -203,7 +203,7 @@
 - [x] 홈에 처리방침 근거 없는 개인정보 수집 없음 — 2026-11-28 privacy-security-officer 재확인 Go: 입력 폼·분석 도구·추적 쿠키 0건, localStorage는 팝업 닫기 시각뿐, ComingSoon은 정적 문구(롤백해도 수집 경로 없음). 운영 홈 외부 도메인은 `cdn.jsdelivr.net`(Pretendard 글꼴) 하나. 후속 Should: 글꼴 자체 호스팅(방문자 IP의 제3자 CDN 전달 해소)
 - [x] 사전신청 기수집 이메일 처리 완료 (5절 부수조치 3) — 2026-11-27 완료(시트 0건 확인 후 삭제, 운영자 접근 기록 11-27 17:09·17:3x). 정식 오픈 작업에서 진행: 코드에서 폼·전송 제거(`components/home/ComingSoon.tsx`), Amplify `NEXT_PUBLIC_APPS_SCRIPT_URL` 삭제, 대표가 Apps Script 배포 해제·시트 파일 삭제·휴지통 비우기(안내 없이 파기, 대표 결정). 완료 시 건수만 운영 기록에 남긴다(정식 오픈 계획 `bara-edu-lms.launch-v1.md`)
 - [x] 실제 공개 강좌 최소 3건 등록 (Q6) — 2026-11-28 확인: 공개 강좌 5건(도형기질활용지도자 1급·2급, 개인정보보호법의 개념, 웹디자인 실무 과정, AI 데이터분석 과정). 웹디자인·AI 데이터분석은 seed에서 시작한 강좌지만 대표 결정(11-28)으로 교육과정으로 그대로 공개한다. seed의 비즈니스 영어회화는 공개 목록에 없음
-- [x] qa-reviewer 리뷰 통과 — 2026-11-28 처음 조건부 Go(Major 2건: 조회 실패 시 홈 전체 오류, 오픈 후에도 이전 안내 팝업 노출) → 섹션 단위 대체와 팝업 조기 종료(대표 결정) 후 Go(main `997396e`). 후속 Minor: og:image·Organization JSON-LD 없음(H-M9 부분), 홈 진단 배너 13px·헤더 12.5px 글자, 안 쓰는 `openingDate`·`isOpen`·`NEXT_PUBLIC_OPEN_DATE`
+- [x] qa-reviewer 리뷰 통과 — 2026-11-28 처음 조건부 Go(Major 2건: 조회 실패 시 홈 전체 오류, 오픈 후에도 이전 안내 팝업 노출) → 섹션 단위 대체와 팝업 조기 종료(대표 결정) 후 Go(main `997396e`). 후속 Minor: og:image·Organization JSON-LD 없음(H-M9 부분, 미처리). 헤더 메뉴 12.5→15px(360px 미만 14px)·진단 배너 13→16/15px, 안 쓰는 `openingDate`·`isOpen`·`NEXT_PUBLIC_OPEN_DATE` 정리는 2026-11-28 처리(브랜치 `fix/home-text-cleanup`)
 - [x] **PO 최종 승인(F9)** → 이후 `IS_OPEN=true` 및 스모크 테스트 — 대표가 2026-11-27 정식 오픈을 결정했다(`bara-edu-lms.launch-v1.md` 1절). `NEXT_PUBLIC_IS_OPEN=true`는 서버 이전 때부터 켜져 있었고, 오픈 뒤 공개 화면 세 곳과 관리자 화면을 확인했다(같은 문서 5절)
 
 ---
