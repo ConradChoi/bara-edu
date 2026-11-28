@@ -83,6 +83,7 @@
 | 11-27 17:12 | Amazon SES | 발송 | 정식 오픈 안내 메일(`2026-11-27-launch-notice-mail.cjs`, 대표 문구 승인) 1회: 시험 실행 수신자 5 → `--send --expect=5` → sent 5, failed 0. 주소는 기록하지 않음. 다시 보내지 않는다 |
 | 11-27 17:3x | Google 계정(대표) | 변경(파기) | 사전신청 자료 정리(대표 결정: 안내 없이 파기): 대표가 Apps Script 웹 앱 배포 해제, 시트 0건 확인 후 스프레드시트 삭제와 Drive 휴지통 비우기 |
 | 11-27 23:35 | `bara_edu` | 변경 | 대표 요청. 패치 `2026-11-27-legal-prelaunch-archive-lock.sql` 적용(QA Go): `archive.legal_documents_prelaunch` 읽기 전용(소유 역할 insert·update·delete·truncate 회수, 문장 단위 차단 트리거). 적용 전후·재적용 후 모두 12행, 원문 다이제스트 `b717fd6e…4f90`(id 순 `id:sha256(content)` 줄의 sha256)가 저장소 내보내기 파일과 같음. 권한 select만, 트리거 1개 활성, 쓰기 시험(0행 update) 42501로 막힘. 데이터 변경 없음 |
+| 11-28 11:0x | `bara_edu`(앱 계정 → `set local role bara_edu_service`, 읽기 전용 트랜잭션, 롤백) | 조회 | 대표 요청. 공개 강좌의 seed 시험용 강좌 확인: 강좌별 신청 건수·상태별 건수·첫/마지막 신청일만 조회(회원 정보 출력 없음). 시험용 `web-design-practice`·`ai-data-analysis` 신청 0건 |
 
 ## 같은 날 함께 정리한 것
 
