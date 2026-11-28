@@ -16,9 +16,18 @@ export default function FooterBody({ hasRefundPolicy = false }: { hasRefundPolic
             <span className="text-n-6"> · 운영 {siteConfig.operator} · 대표 {siteConfig.representative}</span>
           </p>
           <p className="text-n-6">
-            사업자등록번호 {siteConfig.businessRegistrationNumber} · 통신판매업 신고번호 {siteConfig.mailOrderLicenseNumber}
+            사업자등록번호 {siteConfig.businessRegistrationNumber} · 통신판매업 신고번호 {siteConfig.mailOrderLicenseNumber}{' '}
+            <a
+              href={siteConfig.ftcBizInfoUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-n-7 underline underline-offset-2 hover:text-indigo"
+            >
+              사업자정보 확인
+            </a>
           </p>
           <p className="text-n-7">주소 {siteConfig.address}</p>
+          <p className="text-n-6">호스팅서비스 제공 {siteConfig.hostingProvider}</p>
           <p className="text-n-7">
             대표전화{' '}
             <a href={`tel:${digitsOnlyPhone}`} className="hover:text-indigo hover:underline">

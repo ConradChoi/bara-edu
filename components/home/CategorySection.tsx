@@ -1,8 +1,17 @@
+import { unstable_rethrow } from 'next/navigation';
 import FilterChip from '@/components/courses/FilterChip';
 import { getActiveCategoryTree } from '@/lib/supabase/queries';
 
 export default async function CategorySection() {
-  const categories = await getActiveCategoryTree();
+  // 조회 실패 시 홈 전체를 오류 화면으로 바꾸지 않고 이 섹션만 숨긴다(home.md 11.7, QA Major-1, 2026-11-28).
+  let categories: Awaited<ReturnType<typeof getActiveCategoryTree>>;
+  try {
+    categories = await getActiveCategoryTree();
+  } catch (err) {
+    unstable_rethrow(err);
+    console.error('[home] category section failed', err);
+    return null;
+  }
   const topCategories = categories.filter((c) => c.depth === 1);
 
   if (topCategories.length === 0) return null;
