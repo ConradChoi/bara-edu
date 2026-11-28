@@ -40,7 +40,7 @@ export default async function DiagnosisResultPage({
       <div className="mx-auto flex max-w-[420px] flex-col items-center gap-3 px-6 py-16 text-center">
         <p className="text-[15px] font-semibold text-n-9">{RESULT_COPY.notFoundTitle}</p>
         <p className="text-[12.5px] text-n-6">{RESULT_COPY.notFoundDesc}</p>
-        <Link href="/selfcheck" className="mt-2 rounded-pill bg-pink px-5 py-2 text-[13px] font-semibold text-white">
+        <Link href="/selfcheck" className="mt-2 rounded-pill bg-pink-deep px-5 py-2 text-[13px] font-semibold text-white">
           {RESULT_COPY.notFoundBtn}
         </Link>
       </div>
@@ -63,7 +63,7 @@ export default async function DiagnosisResultPage({
         <ResultSummaryCard summary={summary} tierLabel={tierLabel} />
         <ResultLinkNotice />
         <GuestDeleteHelp />
-        <div className="rounded-lg border border-warning bg-warning/10 px-4 py-3.5 text-[12.5px] font-medium text-warning">
+        <div className="rounded-lg border border-warning bg-warning/10 px-4 py-3.5 text-[12.5px] font-medium text-warning-strong">
           이 진단 결과는 이미 다른 계정에 연결되어 있어요. 본인의 결과가 맞다면 고객센터로 문의해 주세요.
         </div>
       </div>
@@ -102,7 +102,7 @@ export default async function DiagnosisResultPage({
     <div className="mx-auto flex max-w-[520px] flex-col gap-5 px-6 py-10">
       {isRecentSubmitter && <ClearSelfcheckDraft />}
       {claimDenied === '1' && (
-        <div className="rounded-md border border-warning bg-warning/10 px-3.5 py-3 text-[13px] font-medium text-warning">
+        <div className="rounded-md border border-warning bg-warning/10 px-3.5 py-3 text-[13px] font-medium text-warning-strong">
           결과 연결에 실패했어요. 이미 다른 계정에 연결되어 있을 수 있어요.
         </div>
       )}
@@ -116,7 +116,7 @@ export default async function DiagnosisResultPage({
           <p className="text-[12.5px] text-n-9">이 진단 결과가 본인 것이 맞나요? 내 계정에 연결하면 상세 결과를 볼 수 있어요.</p>
           <p className="text-[12.5px] text-n-9">{RESULT_COPY.claimWarn}</p>
           <form action={claimDiagnosis.bind(null, token)}>
-            <button type="submit" className="h-10 w-full rounded-pill bg-pink text-[13px] font-semibold text-white">
+            <button type="submit" className="h-10 w-full rounded-pill bg-pink-deep text-[13px] font-semibold text-white">
               이 결과를 내 계정에 연결하기
             </button>
           </form>
@@ -140,7 +140,7 @@ export default async function DiagnosisResultPage({
               </Link>
               <PendingClaimLink
                 token={token}
-                className="flex h-10 flex-1 items-center justify-center rounded-pill bg-pink text-[13px] font-semibold text-white"
+                className="flex h-10 flex-1 items-center justify-center rounded-pill bg-pink-deep text-[13px] font-semibold text-white"
               >
                 회원가입
               </PendingClaimLink>
@@ -160,7 +160,7 @@ export default async function DiagnosisResultPage({
         </div>
       )}
 
-      <p className="print-hide text-[11px] text-n-5">{DIAGNOSIS_DISCLAIMER}</p>
+      <p className="print-hide text-[11px] text-n-6">{DIAGNOSIS_DISCLAIMER}</p>
 
       {deleteTarget && (
         <div className="print-hide flex justify-center">
@@ -168,7 +168,7 @@ export default async function DiagnosisResultPage({
             token={token}
             hasLead={deleteTarget.hasLead}
             triggerLabel={RESULT_COPY.deleteBtn}
-            triggerClassName="flex min-h-12 w-full items-center justify-center rounded-pill border border-n-3 px-4 text-[14px] font-medium text-danger"
+            triggerClassName="flex min-h-12 w-full items-center justify-center rounded-pill border border-n-3 px-4 text-[14px] font-medium text-danger-strong"
           />
         </div>
       )}
@@ -180,7 +180,7 @@ export default async function DiagnosisResultPage({
 function ResultLinkNotice() {
   return (
     <div className="print-hide flex items-start gap-2 rounded-md bg-info/10 px-3.5 py-3 text-[14px] text-n-8">
-      <span aria-hidden="true" className="font-semibold text-info">
+      <span aria-hidden="true" className="font-semibold text-info-strong">
         i
       </span>
       <p>{RESULT_COPY.linkNotice}</p>
@@ -210,17 +210,17 @@ function ResultSummaryCard({
       <p className="text-[11.5px] text-n-6">추천 과정</p>
       <p className="text-[17px] font-semibold text-n-9">{tierLabel}</p>
       <p className="flex items-baseline gap-1.5">
-        <span className="text-[30px] font-semibold text-pink">{Math.round(summary.totalScore)}</span>
+        <span className="text-[30px] font-semibold text-pink-ink">{Math.round(summary.totalScore)}</span>
         <span className="text-[13px] text-n-6">/ 100점</span>
       </p>
       {summary.courseTitle && <p className="text-[13px] font-semibold text-n-9">{summary.courseTitle}</p>}
       <p className="text-[11px] text-n-6">{DIAGNOSIS_DISCLAIMER}</p>
       {summary.courseSlug ? (
-        <Link href={`/courses/${summary.courseSlug}`} className="print-hide mt-1 h-11 w-full rounded-pill bg-pink text-center text-[13px] font-semibold leading-[44px] text-white">
+        <Link href={`/courses/${summary.courseSlug}`} className="print-hide mt-1 h-11 w-full rounded-pill bg-pink-deep text-center text-[13px] font-semibold leading-[44px] text-white">
           {summary.ctaLabel ?? '과정 자세히 보기'}
         </Link>
       ) : (
-        <Link href="/#apply-guide" className="print-hide mt-1 h-11 w-full rounded-pill bg-pink text-center text-[13px] font-semibold leading-[44px] text-white">
+        <Link href="/#apply-guide" className="print-hide mt-1 h-11 w-full rounded-pill bg-pink-deep text-center text-[13px] font-semibold leading-[44px] text-white">
           문의하기
         </Link>
       )}
@@ -249,7 +249,7 @@ function DetailSection({ detail }: { detail: NonNullable<Awaited<ReturnType<type
 
       <div className="flex flex-col items-center gap-1">
         <RadarChart labels={DIAGNOSIS_AREAS.map((a) => a.name)} values={DIAGNOSIS_AREAS.map((a) => scores[a.dbKey])} />
-        <p className="text-[10.5px] text-n-5">(스크린리더용) 위 Radar와 동일한 수치는 위 6영역 점수에 병기됨</p>
+        <p className="text-[10.5px] text-n-6">(스크린리더용) 위 Radar와 동일한 수치는 위 6영역 점수에 병기됨</p>
       </div>
 
       {detail.strengthAreas.length > 0 || detail.improvementAreas.length > 0 ? (
@@ -259,7 +259,7 @@ function DetailSection({ detail }: { detail: NonNullable<Awaited<ReturnType<type
             if (!area) return null;
             return (
               <div key={`s-${code}`} className="flex items-start gap-2">
-                <span className="shrink-0 rounded-pill bg-success/10 px-2 py-0.5 text-[11px] font-semibold text-success">강점</span>
+                <span className="shrink-0 rounded-pill bg-success/10 px-2 py-0.5 text-[11px] font-semibold text-success-strong">강점</span>
                 <p className="text-[12.5px] text-n-7">
                   <span className="font-semibold text-n-9">{area.name}</span> — {area.strengthCopy}
                 </p>
@@ -271,7 +271,7 @@ function DetailSection({ detail }: { detail: NonNullable<Awaited<ReturnType<type
             if (!area) return null;
             return (
               <div key={`i-${code}`} className="flex items-start gap-2">
-                <span className="shrink-0 rounded-pill bg-warning/10 px-2 py-0.5 text-[11px] font-semibold text-warning">보완</span>
+                <span className="shrink-0 rounded-pill bg-warning/10 px-2 py-0.5 text-[11px] font-semibold text-warning-strong">보완</span>
                 <p className="text-[12.5px] text-n-7">
                   <span className="font-semibold text-n-9">{area.name}</span> — {area.improvementCopy}
                 </p>
@@ -285,7 +285,7 @@ function DetailSection({ detail }: { detail: NonNullable<Awaited<ReturnType<type
 
       <PrintButton />
 
-      <Link href="/my" className="print-hide text-center text-[12px] font-semibold text-pink">
+      <Link href="/my" className="print-hide text-center text-[12px] font-semibold text-pink-ink">
         마이페이지에서 다시 보기
       </Link>
     </div>

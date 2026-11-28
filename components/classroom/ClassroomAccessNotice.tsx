@@ -7,7 +7,7 @@ export default function ClassroomAccessNotice({ reason }: { reason: 'not-enrolle
   return (
     <div className="mx-auto flex max-w-[360px] flex-col items-center gap-4 px-6 py-20 text-center">
       <p className="text-[15px] font-semibold text-n-9">{message}</p>
-      <Link href="/my" className="rounded-pill bg-pink px-5 py-2.5 text-[13px] font-semibold text-white">
+      <Link href="/my" className="rounded-pill bg-pink-deep px-5 py-2.5 text-[13px] font-semibold text-white">
         마이페이지로 이동
       </Link>
     </div>

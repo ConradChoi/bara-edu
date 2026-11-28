@@ -9,7 +9,7 @@ const BORDER: Record<Tone, string> = {
   danger: 'border-l-danger',
   success: 'border-l-success',
 };
-const ICON: Record<Tone, string> = { info: 'text-info', warning: 'text-warning', danger: 'text-danger', success: 'text-success' };
+const ICON: Record<Tone, string> = { info: 'text-info-strong', warning: 'text-warning-strong', danger: 'text-danger-strong', success: 'text-success-strong' };
 
 function Icon({ tone }: { tone: Tone }) {
   return (

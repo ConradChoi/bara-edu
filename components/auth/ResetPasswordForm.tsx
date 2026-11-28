@@ -72,7 +72,7 @@ export default function ResetPasswordForm({ token }: { token: string }) {
       {serverError === 'expired' && (
         <div role="alert" className={`${NOTICE} flex-col`}>
           <div className="flex gap-3">
-            <AlertIcon className="mt-0.5 size-6 shrink-0 text-danger" />
+            <AlertIcon className="mt-0.5 size-6 shrink-0 text-danger-strong" />
             <div className="flex flex-col gap-1">
               <p>비밀번호를 바꾸지 못했어요. 링크가 만료됐거나 이미 썼을 수 있어요. 새 메일을 받아 주세요.</p>
               <p className="text-n-7">링크는 1시간 동안, 한 번만 쓸 수 있어요.</p>
@@ -85,7 +85,7 @@ export default function ResetPasswordForm({ token }: { token: string }) {
       )}
       {serverError === 'unavailable' && (
         <div role="alert" className={NOTICE}>
-          <AlertIcon className="mt-0.5 size-6 shrink-0 text-danger" />
+          <AlertIcon className="mt-0.5 size-6 shrink-0 text-danger-strong" />
           <p>지금 연결이 원활하지 않아요. 입력한 내용은 그대로예요. 잠시 후 다시 눌러 주세요.</p>
         </div>
       )}
@@ -119,7 +119,7 @@ export default function ResetPasswordForm({ token }: { token: string }) {
         />
         {pwError && (
           <p id={PW_ERROR_ID} role="alert" className="flex gap-2 text-base leading-[1.6] text-n-9 break-keep">
-            <AlertIcon className="mt-0.5 size-5 shrink-0 text-danger" />
+            <AlertIcon className="mt-0.5 size-5 shrink-0 text-danger-strong" />
             {pwError}
           </p>
         )}
@@ -149,7 +149,7 @@ export default function ResetPasswordForm({ token }: { token: string }) {
         />
         {serverMismatch ? (
           <p id={CONFIRM_ERROR_ID} role="alert" className="flex gap-2 text-base leading-[1.6] text-n-9 break-keep">
-            <AlertIcon className="mt-0.5 size-5 shrink-0 text-danger" />
+            <AlertIcon className="mt-0.5 size-5 shrink-0 text-danger-strong" />
             {MSG_PASSWORD_MISMATCH_CLIENT}
           </p>
         ) : (

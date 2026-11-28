@@ -12,12 +12,12 @@ export default function MarkCompleteButton({
   alreadyCompleted: boolean;
 }) {
   if (alreadyCompleted) {
-    return <p className="text-[13px] font-medium text-success">완료됨 ✓</p>;
+    return <p className="text-[13px] font-medium text-success-strong">완료됨 ✓</p>;
   }
 
   return (
     <form action={markLessonComplete.bind(null, lessonId, courseId)}>
-      <button type="submit" className="rounded-pill bg-pink px-4 py-2 text-[13px] font-semibold text-white">
+      <button type="submit" className="rounded-pill bg-pink-deep px-4 py-2 text-[13px] font-semibold text-white">
         학습 완료로 표시
       </button>
     </form>

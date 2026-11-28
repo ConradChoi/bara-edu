@@ -291,7 +291,7 @@ export default function DiagnosisStepper({
                   if (pendingDraftRef.current) applyDraft(pendingDraftRef.current);
                   closeRestoreDialog();
                 }}
-                className="min-h-12 flex-1 rounded-pill bg-pink text-[15px] font-semibold text-white"
+                className="min-h-12 flex-1 rounded-pill bg-pink-deep text-[15px] font-semibold text-white"
               >
                 {DRAFT_RESTORE_COPY.continue}
               </button>
@@ -307,7 +307,7 @@ export default function DiagnosisStepper({
         </div>
       ) : (
         serverError && (
-          <div role="alert" className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger">
+          <div role="alert" className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger-strong">
             {SUBMIT_ERROR_COPY[serverError]}
           </div>
         )
@@ -316,7 +316,7 @@ export default function DiagnosisStepper({
       <form ref={formRef} onSubmit={handleSubmit} onChange={handleChange} noValidate className="flex flex-col gap-5">
         {/* ===== 1페이지: 기본정보 ===== */}
         <div hidden={page !== 0} className="flex flex-col gap-4">
-          <p className="text-[12px] font-semibold text-pink">1/{TOTAL_PAGES} · 기본정보</p>
+          <p className="text-[12px] font-semibold text-pink-ink">1/{TOTAL_PAGES} · 기본정보</p>
           <p className="text-[13px] text-n-6">진단을 위해 몇 가지 정보가 필요해요</p>
 
           <TextField name="name" label="이름 *" placeholder="이름을 입력해 주세요" defaultValue={defaultName} hasError={errorFields.has('name')} />
@@ -337,7 +337,7 @@ export default function DiagnosisStepper({
             hasError={errorFields.has('email')}
           />
           {(errorFields.has('phone') || errorFields.has('email')) && (
-            <p className="-mt-2 text-[11px] text-danger">휴대전화 또는 이메일 중 최소 1개는 입력해 주세요</p>
+            <p className="-mt-2 text-[11px] text-danger-strong">휴대전화 또는 이메일 중 최소 1개는 입력해 주세요</p>
           )}
 
           <div data-field="learningExperience" className="flex flex-col gap-1.5">
@@ -351,14 +351,14 @@ export default function DiagnosisStepper({
               ].map((opt) => (
                 <label
                   key={opt.value}
-                  className="cursor-pointer rounded-pill border border-n-3 px-3.5 py-2 text-[12.5px] text-n-7 has-[:checked]:border-pink has-[:checked]:bg-pink/10 has-[:checked]:text-pink"
+                  className="cursor-pointer rounded-pill border border-n-3 px-3.5 py-2 text-[12.5px] text-n-7 has-[:checked]:border-pink has-[:checked]:bg-pink/10 has-[:checked]:text-pink-ink"
                 >
                   <input type="radio" name="learningExperience" value={opt.value} className="sr-only" />
                   {opt.label}
                 </label>
               ))}
             </div>
-            {errorFields.has('learningExperience') && <p className="text-[11px] text-danger">지금까지의 학습 경험을 선택해 주세요</p>}
+            {errorFields.has('learningExperience') && <p className="text-[11px] text-danger-strong">지금까지의 학습 경험을 선택해 주세요</p>}
           </div>
 
           <TextField name="certificateLevel" label="보유 자격 수준 (선택)" placeholder="예: 도형기질활용지도자 2급" />
@@ -464,7 +464,7 @@ export default function DiagnosisStepper({
             </div>
 
             {errorFields.size > 0 && page === areaIdx + 1 && (
-              <div className="rounded-md border border-danger bg-danger/10 px-3 py-2.5 text-[12.5px] font-medium text-danger">
+              <div className="rounded-md border border-danger bg-danger/10 px-3 py-2.5 text-[12.5px] font-medium text-danger-strong">
                 5문항 중 {errorFields.size}문항에 아직 답하지 않았어요. 표시된 문항에 답해 주세요.
               </div>
             )}
@@ -480,19 +480,19 @@ export default function DiagnosisStepper({
                   <label key={s.score} className="flex min-h-[44px] cursor-pointer items-center gap-2.5 text-[12.5px] text-n-7">
                     <input type="radio" name={q.code} value={s.score} required className="h-4 w-4 shrink-0" />
                     <span>
-                      <span className="mr-1.5 text-n-5">{s.score}.</span>
+                      <span className="mr-1.5 text-n-6">{s.score}.</span>
                       {scaleLabelById[s.score]}
                     </span>
                   </label>
                 ))}
-                {errorFields.has(q.code) && <p className="text-[11px] text-danger">이 문항에 답해 주세요</p>}
+                {errorFields.has(q.code) && <p className="text-[11px] text-danger-strong">이 문항에 답해 주세요</p>}
               </fieldset>
             ))}
           </div>
         ))}
 
         {submitError && (
-          <div className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger">
+          <div className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger-strong">
             제출에 실패했어요. 잠시 후 다시 시도해 주세요.
           </div>
         )}
@@ -508,14 +508,14 @@ export default function DiagnosisStepper({
             </button>
           )}
           {page < TOTAL_PAGES - 1 ? (
-            <button type="button" onClick={goNext} className="h-11 flex-1 rounded-pill bg-pink text-[13px] font-semibold text-white">
+            <button type="button" onClick={goNext} className="h-11 flex-1 rounded-pill bg-pink-deep text-[13px] font-semibold text-white">
               다음
             </button>
           ) : (
             <button
               type="submit"
               disabled={submitting}
-              className="h-11 flex-1 rounded-pill bg-pink text-[13px] font-semibold text-white disabled:opacity-60"
+              className="h-11 flex-1 rounded-pill bg-pink-deep text-[13px] font-semibold text-white disabled:opacity-60"
             >
               {submitting ? '제출 중...' : '제출하고 결과 보기'}
             </button>
@@ -545,7 +545,7 @@ function ConsentCheck({ name, label, describedBy, error }: { name: string; label
       </label>
       <div aria-live="polite">
         {error && (
-          <p id={errorId} className="flex items-start gap-1.5 text-[14px] font-medium text-danger">
+          <p id={errorId} className="flex items-start gap-1.5 text-[14px] font-medium text-danger-strong">
             <span aria-hidden="true">⚠</span>
             <span>{error}</span>
           </p>
@@ -600,7 +600,7 @@ function TextField({
         defaultValue={defaultValue}
         className={`h-11 rounded-md border bg-n-1 px-3 text-[13px] text-n-9 outline-none focus:border-pink ${hasError ? 'border-danger' : 'border-n-3'}`}
       />
-      {hasError && <span className="text-[11px] text-danger">필수 항목이에요</span>}
+      {hasError && <span className="text-[11px] text-danger-strong">필수 항목이에요</span>}
     </label>
   );
 }

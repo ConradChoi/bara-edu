@@ -50,7 +50,7 @@ export default function AuthForm({ mode, redirectTo, defaultEmail }: AuthFormPro
           <div className="flex flex-col gap-2 border-t border-n-3 pt-4">
             <ResendConfirmationForm defaultEmail={state.email} />
           </div>
-          <Link href="/sign-in" className="text-center text-[13px] font-medium text-pink">
+          <Link href="/sign-in" className="text-center text-[13px] font-medium text-pink-ink">
             로그인 화면으로
           </Link>
         </div>
@@ -88,7 +88,7 @@ export default function AuthForm({ mode, redirectTo, defaultEmail }: AuthFormPro
           </p>
         </div>
         <div className="flex flex-col items-center gap-2">
-          <Link href="/sign-in" className="text-center text-[13px] font-medium text-pink">
+          <Link href="/sign-in" className="text-center text-[13px] font-medium text-pink-ink">
             로그인 화면으로
           </Link>
           <Link href="/sign-up" className="text-center text-[12.5px] text-n-6 underline">
@@ -199,17 +199,17 @@ export default function AuthForm({ mode, redirectTo, defaultEmail }: AuthFormPro
       {state && 'error' in state &&
         (mode === 'signup' ? (
           <p className="flex gap-3 rounded-md border-l-4 border-danger bg-n-1 px-4 py-3 text-base leading-[1.6] text-n-9 break-keep">
-            <AlertIcon className="mt-0.5 size-6 shrink-0 text-danger" />
+            <AlertIcon className="mt-0.5 size-6 shrink-0 text-danger-strong" />
             {state.error}
           </p>
         ) : (
-          <p className="text-[12.5px] text-danger">{state.error}</p>
+          <p className="text-[12.5px] text-danger-strong">{state.error}</p>
         ))}
 
       <button
         type="submit"
         disabled={pending}
-        className="h-[46px] rounded-pill bg-pink text-[14px] font-semibold text-white disabled:opacity-60"
+        className="h-[46px] rounded-pill bg-pink-deep text-[14px] font-semibold text-white disabled:opacity-60"
       >
         {pending ? '처리 중...' : mode === 'signup' ? '가입하기' : '로그인'}
       </button>
@@ -218,14 +218,14 @@ export default function AuthForm({ mode, redirectTo, defaultEmail }: AuthFormPro
         {mode === 'signup' ? (
           <>
             이미 계정이 있으신가요?{' '}
-            <Link href="/sign-in" className="font-medium text-pink">
+            <Link href="/sign-in" className="font-medium text-pink-ink">
               로그인
             </Link>
           </>
         ) : (
           <>
             계정이 없으신가요?{' '}
-            <Link href="/sign-up" className="font-medium text-pink">
+            <Link href="/sign-up" className="font-medium text-pink-ink">
               회원가입
             </Link>
           </>
@@ -262,7 +262,7 @@ function Field({
         placeholder={placeholder}
         required={required}
         defaultValue={defaultValue}
-        className="h-11 rounded-md border border-n-3 bg-n-1 px-3 text-[13px] text-n-9 outline-none placeholder:text-n-5 focus:border-pink"
+        className="h-11 rounded-md border border-n-3 bg-n-1 px-3 text-[13px] text-n-9 outline-none placeholder:text-n-6 focus:border-pink"
       />
     </label>
   );

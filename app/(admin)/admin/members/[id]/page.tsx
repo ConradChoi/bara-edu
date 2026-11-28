@@ -70,7 +70,7 @@ export default async function AdminMemberDetailPage({
       </div>
 
       {success && SUCCESS_MESSAGE[success] && (
-        <div className="rounded-md border border-success bg-success/10 px-3.5 py-3 text-[13px] font-medium text-success">
+        <div className="rounded-md border border-success bg-success/10 px-3.5 py-3 text-[13px] font-medium text-success-strong">
           {SUCCESS_MESSAGE[success]}
         </div>
       )}
@@ -80,7 +80,7 @@ export default async function AdminMemberDetailPage({
         </div>
       )}
       {error === 'failed' && (
-        <div className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger">
+        <div className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger-strong">
           처리 중 문제가 발생했어요. 잠시 후 다시 시도해 주세요.
         </div>
       )}
@@ -111,7 +111,7 @@ export default async function AdminMemberDetailPage({
           aria-labelledby="unverified-note-title"
           className="flex max-w-[720px] gap-3 rounded-md border border-n-3 border-l-4 border-l-warning bg-n-1 px-4 py-3 text-[13px] leading-[1.6] text-n-8"
         >
-          <svg className="mt-0.5 size-4 shrink-0 text-warning" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+          <svg className="mt-0.5 size-4 shrink-0 text-warning-strong" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
             <circle cx="12" cy="12" r="10" />
             <path d="M12 16v-4" />
             <path d="M12 8h.01" />
@@ -212,7 +212,7 @@ export default async function AdminMemberDetailPage({
               <li key={c.id} className="flex items-center justify-between rounded-lg border border-n-3 p-3 text-[13px]">
                 <div className="flex flex-col">
                   <span className="font-medium text-n-9">{c.courseTitle}</span>
-                  {c.isManualOverride && c.note && <span className="text-[11.5px] text-n-5">수동 처리: {c.note}</span>}
+                  {c.isManualOverride && c.note && <span className="text-[11.5px] text-n-6">수동 처리: {c.note}</span>}
                 </div>
                 <span className="text-n-6">{new Date(c.issuedAt).toLocaleDateString('ko-KR')}</span>
               </li>

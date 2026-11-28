@@ -411,6 +411,21 @@ security-officer 점검(1차 No-Go → 수정 후 반영)과 qa-reviewer 점검(
 
 다크모드는 가이드의 `html.dark` 오버라이드를 그대로 따른다.
 
+**접근성 파생 토큰(글자용, WCAG AA 4.5:1)** — 원본 토큰 값은 바꾸지 않고 글자·흰 글자 배경 용도만 분리한다.
+
+| 토큰 | 값 | 용도 |
+|---|---|---|
+| `--pink-deep` | `#D91B81` | 흰 글자가 올라가는 분홍 면(버튼·선택 칩), 흰 글자 4.75:1 |
+| `--pink-ink` | `#C4166F` | 분홍 글자·hover 글자 |
+| `--info-strong` | `#0B6E99` | info 글자(info/15 배경 5.10:1) |
+| `--success-strong` | `#11703F` | success 글자(success 15% 배경 5.22:1, 흰 바탕 6.15:1) |
+| `--warning-strong` | `#9A5A00` | warning 글자(warning 15% 배경 4.85:1, 흰 바탕 5.47:1) |
+| `--danger-strong` | `#B42318` | danger 글자(danger 15% 배경 5.42:1, 흰 바탕 6.57:1) |
+
+- 글자에는 `n-5`를 쓰지 않는다(`n-6` 이상). `n-5`는 테두리·비텍스트 전용이다.
+- `pink`, `info`, `success`, `warning`, `danger` 원본 토큰은 면·테두리·아이콘 전용이다. 글자와 흰 글자 배경에는 파생 토큰을 쓴다.
+- Figma Foundations Colors 변수에도 같은 이름으로 추가한다(Figma-First).
+
 ### 4.0b Figma 화면 기준(Viewport) — 페이지별 명시
 
 > 2026-08-02: "Admin은 PC인데 USER는 모바일이야 PC야?"라는 질문이 나온 뒤, 페이지마다 기준이 암묵적이라 헷갈리는 문제를 발견해 아래에 명시한다. Figma 프레임 이름에도 폭(px)을 표기해뒀다.

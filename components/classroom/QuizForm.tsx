@@ -27,7 +27,7 @@ export default function QuizForm({
           ))}
         </fieldset>
       ))}
-      <button type="submit" className="h-11 self-start rounded-pill bg-pink px-5 text-[13px] font-semibold text-white">
+      <button type="submit" className="h-11 self-start rounded-pill bg-pink-deep px-5 text-[13px] font-semibold text-white">
         제출하고 채점 결과 보기
       </button>
     </form>

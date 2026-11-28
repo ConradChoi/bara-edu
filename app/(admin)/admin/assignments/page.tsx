@@ -52,12 +52,12 @@ export default async function AdminAssignmentsPage({
       <h1 className="text-[20px] font-semibold text-n-9">과제 검토</h1>
 
       {success && SUCCESS_MESSAGE[success] && (
-        <div className="rounded-md border border-success bg-success/10 px-3.5 py-3 text-[13px] font-medium text-success">
+        <div className="rounded-md border border-success bg-success/10 px-3.5 py-3 text-[13px] font-medium text-success-strong">
           {SUCCESS_MESSAGE[success]}
         </div>
       )}
       {error && ERROR_MESSAGE[error] && (
-        <div className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger">
+        <div className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger-strong">
           {ERROR_MESSAGE[error]}
         </div>
       )}
@@ -68,7 +68,7 @@ export default async function AdminAssignmentsPage({
             key={f.key}
             href={f.key === 'all' ? '/admin/assignments' : `/admin/assignments?status=${f.key}`}
             className={`px-4 py-2.5 text-[13px] font-medium ${
-              filter === f.key ? 'border-b-2 border-pink text-pink' : 'text-n-6'
+              filter === f.key ? 'border-b-2 border-pink text-pink-ink' : 'text-n-6'
             }`}
           >
             {f.label}
@@ -100,13 +100,13 @@ export default async function AdminAssignmentsPage({
                 <td>
                   <div className="flex flex-col">
                     <span className="font-medium text-n-9">{s.userName}</span>
-                    <span className="text-[11.5px] text-n-5">{s.userEmail}</span>
+                    <span className="text-[11.5px] text-n-6">{s.userEmail}</span>
                   </div>
                 </td>
                 <td>
                   <div className="flex flex-col">
                     <span>{s.courseTitle}</span>
-                    <span className="text-[11.5px] text-n-5">{s.lessonTitle}</span>
+                    <span className="text-[11.5px] text-n-6">{s.lessonTitle}</span>
                   </div>
                 </td>
                 <td className="max-w-[240px]">
@@ -122,7 +122,7 @@ export default async function AdminAssignmentsPage({
                 </td>
                 <td>
                   <StatusBadge tone={STATUS_TONE[s.status]}>{STATUS_LABEL[s.status]}</StatusBadge>
-                  {s.status === 'rejected' && s.reviewNote && <p className="mt-1 text-[11px] text-n-5">{s.reviewNote}</p>}
+                  {s.status === 'rejected' && s.reviewNote && <p className="mt-1 text-[11px] text-n-6">{s.reviewNote}</p>}
                 </td>
                 <td>
                   {s.status === 'submitted' && (

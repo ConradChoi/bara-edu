@@ -36,7 +36,7 @@ export default function FormDialog({
       <button
         type="button"
         onClick={() => dialogRef.current?.showModal()}
-        className={triggerClassName ?? 'rounded-pill bg-pink px-4 py-1.5 text-[12.5px] font-semibold text-white'}
+        className={triggerClassName ?? 'rounded-pill bg-pink-deep px-4 py-1.5 text-[12.5px] font-semibold text-white'}
       >
         {triggerLabel}
       </button>
@@ -58,7 +58,7 @@ export default function FormDialog({
             <button
               type="submit"
               className={`h-[38px] flex-1 rounded-pill text-[13px] font-semibold text-white ${
-                tone === 'danger' ? 'bg-danger' : 'bg-pink'
+                tone === 'danger' ? 'bg-danger-strong' : 'bg-pink-deep'
               }`}
             >
               {submitLabel}

@@ -20,7 +20,7 @@ export const OTP_HINT_CLASS = { lg: 'text-base leading-[1.6] text-n-7 break-keep
 export function FieldError({ id, size, children }: { id: string; size: 'lg' | 'admin'; children: React.ReactNode }) {
   return (
     <p id={id} role="alert" className={`flex items-start gap-2 ${size === 'lg' ? 'text-base' : 'text-[14px]'} leading-[1.6] text-n-9 break-keep`}>
-      <AlertIcon className={`mt-0.5 shrink-0 text-danger ${size === 'lg' ? 'size-5' : 'size-4'}`} />
+      <AlertIcon className={`mt-0.5 shrink-0 text-danger-strong ${size === 'lg' ? 'size-5' : 'size-4'}`} />
       <span>{children}</span>
     </p>
   );

@@ -43,7 +43,7 @@ export default function AssignmentForm({
           </div>
           <p className="mt-2 whitespace-pre-wrap text-n-7">{latest.content}</p>
           {latest.status === 'rejected' && latest.reviewNote && (
-            <p className="mt-2 text-[11.5px] text-danger">반려 사유: {latest.reviewNote}</p>
+            <p className="mt-2 text-[11.5px] text-danger-strong">반려 사유: {latest.reviewNote}</p>
           )}
         </div>
       )}
@@ -57,7 +57,7 @@ export default function AssignmentForm({
             placeholder="과제 내용을 입력하거나 링크를 붙여넣으세요"
             className="min-h-[100px] rounded-md border border-n-3 bg-n-1 p-2.5 text-[13px]"
           />
-          <button type="submit" className="h-10 self-start rounded-pill bg-pink px-4 text-[13px] font-semibold text-white">
+          <button type="submit" className="h-10 self-start rounded-pill bg-pink-deep px-4 text-[13px] font-semibold text-white">
             {latest ? '다시 제출하기' : '제출하기'}
           </button>
         </form>

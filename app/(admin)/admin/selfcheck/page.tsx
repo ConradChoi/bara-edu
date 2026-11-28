@@ -57,18 +57,18 @@ export default async function AdminDiagnosisResultsPage({
       <h1 className="text-[20px] font-semibold text-n-9">진단 결과 조회</h1>
 
       {page.ok && page.revealFailed && (
-        <div role="alert" className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger">
+        <div role="alert" className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger-strong">
           접속 기록을 남기지 못해 개인정보를 보여 드리지 않았어요. 잠시 후 다시 시도해 주세요.
         </div>
       )}
       {!page.ok && (
-        <div role="alert" className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger">
+        <div role="alert" className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger-strong">
           {page.reason === 'forbidden' ? '진단 결과를 볼 권한이 없어요.' : '진단 결과를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.'}
         </div>
       )}
 
       {revealFailed === '1' && (
-        <div className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger">
+        <div className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger-strong">
           개인정보 보기 처리 중 오류가 발생했어요. 잠시 후 다시 시도해 주세요. 계속되면 관리자에게 문의해 주세요.
         </div>
       )}
@@ -79,7 +79,7 @@ export default async function AdminDiagnosisResultsPage({
             key={f.value}
             href={filterHref(f.value, memberOnly)}
             className={`rounded-pill border px-3 py-1.5 text-[12px] font-medium ${
-              tier === f.value ? 'border-pink bg-pink/10 text-pink' : 'border-n-3 text-n-7'
+              tier === f.value ? 'border-pink bg-pink/10 text-pink-ink' : 'border-n-3 text-n-7'
             }`}
           >
             {f.label}
@@ -91,7 +91,7 @@ export default async function AdminDiagnosisResultsPage({
             key={f.value}
             href={filterHref(tier, f.value)}
             className={`rounded-pill border px-3 py-1.5 text-[12px] font-medium ${
-              memberOnly === f.value ? 'border-pink bg-pink/10 text-pink' : 'border-n-3 text-n-7'
+              memberOnly === f.value ? 'border-pink bg-pink/10 text-pink-ink' : 'border-n-3 text-n-7'
             }`}
           >
             {f.label}
@@ -133,7 +133,7 @@ export default async function AdminDiagnosisResultsPage({
                 <td>
                   <div className="flex flex-col gap-0.5">
                     <span>{r.phone}</span>
-                    <span className="text-n-5">{r.email}</span>
+                    <span className="text-n-6">{r.email}</span>
                   </div>
                 </td>
                 <td>{DIAGNOSIS_LEARNING_EXPERIENCE_LABELS[r.learningExperience] ?? r.learningExperience}</td>

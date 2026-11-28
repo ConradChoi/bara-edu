@@ -96,22 +96,22 @@ export default async function ClassroomLessonPage({
         <h1 className="text-[17px] font-semibold text-n-9">{currentLesson.title}</h1>
 
         {errorMessage && (
-          <div className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger">
+          <div className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger-strong">
             {errorMessage}
           </div>
         )}
         {search.completed && (
-          <div className="rounded-md border border-success bg-success/10 px-3.5 py-3 text-[13px] font-medium text-success">
+          <div className="rounded-md border border-success bg-success/10 px-3.5 py-3 text-[13px] font-medium text-success-strong">
             학습 완료로 표시했어요.
           </div>
         )}
         {search.assignmentSubmitted && (
-          <div className="rounded-md border border-success bg-success/10 px-3.5 py-3 text-[13px] font-medium text-success">
+          <div className="rounded-md border border-success bg-success/10 px-3.5 py-3 text-[13px] font-medium text-success-strong">
             과제를 제출했어요. 검토 후 결과가 반영돼요.
           </div>
         )}
         {search.certificateIssued && (
-          <div className="rounded-md border border-success bg-success/10 px-3.5 py-3 text-[13px] font-medium text-success">
+          <div className="rounded-md border border-success bg-success/10 px-3.5 py-3 text-[13px] font-medium text-success-strong">
             수료증이 발급됐어요! 마이페이지에서 확인하세요.
           </div>
         )}

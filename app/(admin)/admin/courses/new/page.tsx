@@ -19,7 +19,7 @@ export default async function NewCoursePage({ searchParams }: { searchParams: Pr
     <div className="flex max-w-[640px] flex-col gap-4">
       <h1 className="text-[20px] font-semibold text-n-9">강좌 등록</h1>
       {error && ERROR_MESSAGE[error] && (
-        <div className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger">
+        <div className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger-strong">
           {ERROR_MESSAGE[error]}
         </div>
       )}

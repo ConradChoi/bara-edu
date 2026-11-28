@@ -53,7 +53,7 @@ test('재설정 성공 배너(?reset=1): RP-SUCCESS 문구, 큰 글씨·n-9/n-8'
   expect(h).toContain('role="status"');
   expect(h).toContain('비밀번호가 변경됐어요.');
   expect(h).toContain('새 비밀번호로 로그인해 주세요. 다른 기기에서는 다시 로그인해야 해요.');
-  expect(h).not.toContain('text-success">비밀번호가');
+  expect(h).not.toContain('text-success-strong">비밀번호가');
   expect(await signIn()).not.toContain('비밀번호가 변경됐어요');
 });
 

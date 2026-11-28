@@ -54,9 +54,9 @@ const STATUS_LABEL: Record<EnrollmentStatus, string> = {
 };
 
 const STATUS_TONE: Record<EnrollmentStatus, string> = {
-  pending: 'bg-warning/15 text-warning',
-  approved: 'bg-success/15 text-success',
-  rejected: 'bg-danger/15 text-danger',
+  pending: 'bg-warning/15 text-warning-strong',
+  approved: 'bg-success/15 text-success-strong',
+  rejected: 'bg-danger/15 text-danger-strong',
   expired: 'bg-n-2 text-n-6',
 };
 
@@ -111,35 +111,35 @@ export default async function MyPage({
       {welcome === '1' && <PendingClaimRedirect />}
       {welcome === '1' && (
         <div className="mt-4 rounded-md border border-success bg-success/10 px-3.5 py-3">
-          <p className="text-[13px] font-semibold text-success">가입이 끝났어요. 바라 평생교육원에 오신 것을 환영해요.</p>
+          <p className="text-[13px] font-semibold text-success-strong">가입이 끝났어요. 바라 평생교육원에 오신 것을 환영해요.</p>
           <p className="mt-1 text-base text-n-8">다음부터는 이메일과 방금 입력한 비밀번호로 로그인해요.</p>
         </div>
       )}
       {withdrawError === 'active-enrollment' && (
         <div className="mt-4 rounded-md border border-warning bg-warning/10 px-3.5 py-3">
-          <p className="text-[13px] font-semibold text-warning">진행 중인 강좌가 있어 탈퇴할 수 없어요.</p>
+          <p className="text-[13px] font-semibold text-warning-strong">진행 중인 강좌가 있어 탈퇴할 수 없어요.</p>
           <p className="text-[12px] text-n-7">고객센터로 문의해 주세요.</p>
         </div>
       )}
       {withdrawError === 'failed' && (
         <div className="mt-4 rounded-md border border-danger bg-danger/10 px-3.5 py-3">
-          <p className="text-[13px] font-semibold text-danger">탈퇴 처리 중 문제가 발생했어요.</p>
+          <p className="text-[13px] font-semibold text-danger-strong">탈퇴 처리 중 문제가 발생했어요.</p>
           <p className="text-[12px] text-n-7">잠시 후 다시 시도하거나 고객센터로 문의해 주세요.</p>
         </div>
       )}
       {withdrawError === 'validation' && (
         <div className="mt-4 rounded-md border border-danger bg-danger/10 px-3.5 py-3">
-          <p className="text-[13px] font-semibold text-danger">탈퇴 사유를 선택해 주세요.</p>
+          <p className="text-[13px] font-semibold text-danger-strong">탈퇴 사유를 선택해 주세요.</p>
         </div>
       )}
       {settingsSuccess && SETTINGS_SUCCESS_MESSAGE[settingsSuccess] && (
         <div className="mt-4 rounded-md border border-success bg-success/10 px-3.5 py-3">
-          <p className="text-[13px] font-semibold text-success">{SETTINGS_SUCCESS_MESSAGE[settingsSuccess]}</p>
+          <p className="text-[13px] font-semibold text-success-strong">{SETTINGS_SUCCESS_MESSAGE[settingsSuccess]}</p>
         </div>
       )}
       {settingsError && (
         <div className="mt-4 rounded-md border border-danger bg-danger/10 px-3.5 py-3">
-          <p className="text-[13px] font-semibold text-danger">
+          <p className="text-[13px] font-semibold text-danger-strong">
             {SETTINGS_ERROR_MESSAGE[settingsError] ?? SETTINGS_ERROR_MESSAGE.failed}
           </p>
         </div>
@@ -154,7 +154,7 @@ export default async function MyPage({
             key={t.key}
             href={`/my?tab=${t.key}`}
             className={`shrink-0 px-4 py-2.5 text-[13px] font-medium ${
-              tab === t.key ? 'border-b-2 border-pink text-pink' : 'text-n-6'
+              tab === t.key ? 'border-b-2 border-pink text-pink-ink' : 'text-n-6'
             }`}
           >
             {t.label}
@@ -308,7 +308,7 @@ function DiagnosisSection({ results, deleted, deleteError }: { results: MyDiagno
       {results.length === 0 ? (
         <div className="flex flex-col items-center gap-3 py-10 text-center">
           <p className="text-[13px] text-n-6">{DELETE_RESULT_COPY.empty}</p>
-          <Link href="/selfcheck" className="rounded-pill bg-pink px-4 py-2 text-[13px] font-semibold text-white">
+          <Link href="/selfcheck" className="rounded-pill bg-pink-deep px-4 py-2 text-[13px] font-semibold text-white">
             {DELETE_RESULT_COPY.emptyBtn}
           </Link>
         </div>
@@ -336,7 +336,7 @@ function DiagnosisSection({ results, deleted, deleteError }: { results: MyDiagno
                     hasLead={d.hasLead}
                     triggerLabel={DELETE_RESULT_COPY.trigger}
                     triggerAriaLabel={fill(DELETE_RESULT_COPY.triggerSr, { date })}
-                    triggerClassName="flex min-h-12 w-full items-center justify-center rounded-pill border border-n-3 px-4 text-[14px] font-medium text-danger sm:w-auto"
+                    triggerClassName="flex min-h-12 w-full items-center justify-center rounded-pill border border-n-3 px-4 text-[14px] font-medium text-danger-strong sm:w-auto"
                   />
                 </div>
               </li>
@@ -379,7 +379,7 @@ function EditInfoSection({
             <dd className="text-n-9">{phone ?? '-'}</dd>
           </div>
         </dl>
-        <p className="text-[11.5px] text-n-5">
+        <p className="text-[11.5px] text-n-6">
           이름과 휴대전화를 바꾸려면 고객센터로 전화해 주세요. 가입한 이메일 주소를 말씀해 주시면 바로 도와 드려요. 전화{' '}
           <a href={`tel:${siteConfig.phone.replace(/[^0-9+]/g, '')}`} className="underline">
             {siteConfig.phone}
@@ -390,7 +390,7 @@ function EditInfoSection({
 
       <form action={updateContactInfo} encType="multipart/form-data" className="flex flex-col gap-4 rounded-lg border border-n-3 p-4">
         <p className="text-[13px] font-semibold text-n-9">신청 정보 수정</p>
-        <p className="text-[11.5px] text-n-5">수강신청 시 등록한 주소·자격증 발급용 사진이에요. 다음 신청부터 바로 반영돼요.</p>
+        <p className="text-[11.5px] text-n-6">수강신청 시 등록한 주소·자격증 발급용 사진이에요. 다음 신청부터 바로 반영돼요.</p>
         <label className="flex flex-col gap-1.5 text-[12.5px] text-n-7">
           주소
           <input
@@ -401,7 +401,7 @@ function EditInfoSection({
           />
         </label>
         <label className="flex flex-col gap-1.5 text-[12.5px] text-n-7">
-          자격증 발급용 사진 {hasPhoto && <span className="text-n-5">(이미 등록됨 — 새로 올리면 교체돼요)</span>}
+          자격증 발급용 사진 {hasPhoto && <span className="text-n-6">(이미 등록됨 — 새로 올리면 교체돼요)</span>}
           <input
             type="file"
             name="photo"
@@ -409,7 +409,7 @@ function EditInfoSection({
             className="text-[12.5px] text-n-7 file:mr-3 file:rounded-pill file:border file:border-n-3 file:bg-n-0 file:px-3 file:py-1.5 file:text-[12px] file:font-medium"
           />
         </label>
-        <button type="submit" className="h-10 self-start rounded-pill bg-pink px-5 text-[13px] font-semibold text-white">
+        <button type="submit" className="h-10 self-start rounded-pill bg-pink-deep px-5 text-[13px] font-semibold text-white">
           저장
         </button>
       </form>
@@ -451,7 +451,7 @@ function PasswordSection() {
           className="h-10 rounded-md border border-n-3 bg-n-1 px-2.5 text-[13px] text-n-9 outline-none focus:border-pink"
         />
       </label>
-      <button type="submit" className="h-10 self-start rounded-pill bg-pink px-5 text-[13px] font-semibold text-white">
+      <button type="submit" className="h-10 self-start rounded-pill bg-pink-deep px-5 text-[13px] font-semibold text-white">
         변경
       </button>
     </form>
@@ -487,7 +487,7 @@ function EnrollmentList({
               </Link>
               <span className="text-[12px] text-n-6">{e.fee.toLocaleString('ko-KR')}원</span>
               {e.status === 'rejected' && e.rejectionReason && (
-                <p className="text-[11.5px] text-danger">사유: {e.rejectionReason}</p>
+                <p className="text-[11.5px] text-danger-strong">사유: {e.rejectionReason}</p>
               )}
               {!showStatus && stat && <span className="text-[11.5px] text-n-6">진도 {ratio}%</span>}
             </div>
@@ -498,7 +498,7 @@ function EnrollmentList({
             ) : (
               <Link
                 href={`/learn/${e.courseId}`}
-                className="rounded-pill bg-pink px-3 py-1.5 text-[12px] font-medium text-white"
+                className="rounded-pill bg-pink-deep px-3 py-1.5 text-[12px] font-medium text-white"
               >
                 강의실 입장
               </Link>

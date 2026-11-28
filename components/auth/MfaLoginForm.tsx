@@ -30,7 +30,7 @@ export function MfaLoginScreen({ state, focus }: { state: Extract<NonNullable<Mf
     return (
       <MfaStatusScreen
         focus={focus}
-        icon={<AlertIcon className="size-7 text-danger" />}
+        icon={<AlertIcon className="size-7 text-danger-strong" />}
         title={state.lockScope === 'daily' ? C['MFA-LOGIN-ERR-LOCKED-DAILY'] : fill(C['MFA-LOGIN-ERR-LOCKED'], { m: state.minutes })}
         actions={
           <>
@@ -49,9 +49,9 @@ export function MfaLoginScreen({ state, focus }: { state: Extract<NonNullable<Mf
   }
   const [title, body, btn, icon] =
     state.screen === 'exhausted'
-      ? [C['MFA-LOGIN-ERR-EXHAUSTED-TITLE'], C['MFA-LOGIN-ERR-EXHAUSTED'], C['MFA-LOGIN-ERR-LOCKED-BTN1'], <AlertIcon key="i" className="size-7 text-danger" />]
+      ? [C['MFA-LOGIN-ERR-EXHAUSTED-TITLE'], C['MFA-LOGIN-ERR-EXHAUSTED'], C['MFA-LOGIN-ERR-LOCKED-BTN1'], <AlertIcon key="i" className="size-7 text-danger-strong" />]
       : state.screen === 'demoted'
-        ? [C['MFA-LOGIN-ERR-DEMOTED-TITLE'], C['MFA-LOGIN-ERR-DEMOTED'], C['MFA-LOGIN-ERR-EXPIRED-BTN'], <AlertIcon key="i" className="size-7 text-warning" />]
+        ? [C['MFA-LOGIN-ERR-DEMOTED-TITLE'], C['MFA-LOGIN-ERR-DEMOTED'], C['MFA-LOGIN-ERR-EXPIRED-BTN'], <AlertIcon key="i" className="size-7 text-warning-strong" />]
         : [C['MFA-LOGIN-ERR-EXPIRED-TITLE'], C['MFA-LOGIN-ERR-EXPIRED'], C['MFA-LOGIN-ERR-EXPIRED-BTN'], <ClockIcon key="i" className="size-7 text-n-7" />];
   return (
     <MfaStatusScreen
@@ -72,7 +72,7 @@ export function MfaLoginScreen({ state, focus }: { state: Extract<NonNullable<Mf
 export function NoticeAlert({ children }: { children: React.ReactNode }) {
   return (
     <div role="alert" className={NOTICE}>
-      <AlertIcon className="mt-0.5 size-6 shrink-0 text-danger" />
+      <AlertIcon className="mt-0.5 size-6 shrink-0 text-danger-strong" />
       <p>{children}</p>
     </div>
   );

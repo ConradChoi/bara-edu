@@ -75,7 +75,7 @@ export default async function AdminExamBankPage({
               key={category.id}
               href={`/admin/exam-bank?categoryId=${category.id}`}
               className={`rounded-pill border px-3.5 py-1.5 text-[12.5px] font-medium ${
-                category.id === categoryId ? 'border-pink bg-pink/10 text-pink' : 'border-n-3 text-n-7'
+                category.id === categoryId ? 'border-pink bg-pink/10 text-pink-ink' : 'border-n-3 text-n-7'
               }`}
             >
               {category.label}
@@ -85,12 +85,12 @@ export default async function AdminExamBankPage({
       )}
 
       {success && SUCCESS_MESSAGE[success] && (
-        <div className="rounded-md border border-success bg-success/10 px-3.5 py-3 text-[13px] font-medium text-success">
+        <div className="rounded-md border border-success bg-success/10 px-3.5 py-3 text-[13px] font-medium text-success-strong">
           {SUCCESS_MESSAGE[success]}
         </div>
       )}
       {error && ERROR_MESSAGE[error] && (
-        <div className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger">
+        <div className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger-strong">
           {ERROR_MESSAGE[error]}
         </div>
       )}
@@ -126,7 +126,7 @@ export default async function AdminExamBankPage({
                     />
                   </div>
                 ))}
-                <p className="text-[11.5px] text-n-5">더 필요하면 등록 후 목록의 &quot;보기 추가&quot;로 늘릴 수 있어요.</p>
+                <p className="text-[11.5px] text-n-6">더 필요하면 등록 후 목록의 &quot;보기 추가&quot;로 늘릴 수 있어요.</p>
               </div>
             </FormDialog>
             <FormDialog triggerLabel="주관식 문항 추가" title="주관식 문항 추가" action={addBankQuestion.bind(null, categoryId)}>
@@ -153,7 +153,7 @@ export default async function AdminExamBankPage({
           </div>
 
           {unresolvedCount > 0 && (
-            <div className="rounded-md border border-warning bg-warning/10 px-3.5 py-3 text-[13px] font-medium text-warning">
+            <div className="rounded-md border border-warning bg-warning/10 px-3.5 py-3 text-[13px] font-medium text-warning-strong">
               정답이 설정되지 않은 문항이 {unresolvedCount}개 있어요. 학습자 제출 시 해당 문항은 항상 오답으로 채점돼요.
             </div>
           )}
@@ -165,7 +165,7 @@ export default async function AdminExamBankPage({
               {questions.map((q, index) => (
                 <li key={q.id} className="rounded-lg border border-n-3 p-4">
                   <div className="flex items-start gap-2">
-                    <span className="mt-2 text-[12px] text-n-5">{index + 1}.</span>
+                    <span className="mt-2 text-[12px] text-n-6">{index + 1}.</span>
                     <form action={updateBankQuestion.bind(null, q.id, categoryId)} className="flex flex-1 items-center gap-2">
                       <input
                         name="question"
@@ -197,7 +197,7 @@ export default async function AdminExamBankPage({
                     </form>
                     <ConfirmDialog
                       triggerLabel="문항 삭제"
-                      triggerClassName="rounded-pill border border-danger px-2.5 py-1 text-[11.5px] text-danger"
+                      triggerClassName="rounded-pill border border-danger px-2.5 py-1 text-[11.5px] text-danger-strong"
                       title="문항을 삭제할까요?"
                       description="이 문항을 쓰던 모든 강좌의 시험에서도 함께 사라져요."
                       confirmLabel="삭제"
@@ -234,7 +234,7 @@ export default async function AdminExamBankPage({
                               </form>
                             )}
                             <form action={deleteBankOption.bind(null, option.id, q.id, categoryId)}>
-                              <button type="submit" className="rounded-pill border border-danger px-2 py-1 text-[11px] text-danger">
+                              <button type="submit" className="rounded-pill border border-danger px-2 py-1 text-[11px] text-danger-strong">
                                 삭제
                               </button>
                             </form>

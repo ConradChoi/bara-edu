@@ -25,7 +25,7 @@ export default function LessonPlayer({
             href={onlineMeetingUrl}
             target="_blank"
             rel="noreferrer"
-            className="rounded-pill bg-pink px-6 py-2.5 text-[14px] font-semibold text-white"
+            className="rounded-pill bg-pink-deep px-6 py-2.5 text-[14px] font-semibold text-white"
           >
             회의 참여하기
           </a>
@@ -76,7 +76,7 @@ export default function LessonPlayer({
   return (
     <div className="flex aspect-video flex-col items-center justify-center gap-2 rounded-lg bg-n-2 text-[13px] text-n-6">
       <span>이 영상은 여기서 바로 재생할 수 없어요</span>
-      <a href={embed.url} target="_blank" rel="noreferrer" className="font-medium text-pink underline">
+      <a href={embed.url} target="_blank" rel="noreferrer" className="font-medium text-pink-ink underline">
         새 창에서 보기
       </a>
     </div>

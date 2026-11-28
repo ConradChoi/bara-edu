@@ -59,7 +59,7 @@ export default function NoticeModal(props: NoticeModalProps) {
         {/* 상단 헤더: 배지 & 닫기(X) 버튼 */}
         <div className="flex items-center justify-between px-6 pt-5 pb-2">
           {badge ? (
-            <span className="inline-flex items-center rounded-pill bg-pink/10 px-2.5 py-1 text-[11.5px] font-semibold text-pink">
+            <span className="inline-flex items-center rounded-pill bg-pink/10 px-2.5 py-1 text-[11.5px] font-semibold text-pink-ink">
               {badge}
             </span>
           ) : (
@@ -69,7 +69,7 @@ export default function NoticeModal(props: NoticeModalProps) {
             type="button"
             onClick={handleClose}
             aria-label="닫기"
-            className="-mr-2 flex h-11 w-11 items-center justify-center rounded-full text-n-5 transition-colors hover:bg-n-2 hover:text-n-9 cursor-pointer"
+            className="-mr-2 flex h-11 w-11 items-center justify-center rounded-full text-n-6 transition-colors hover:bg-n-2 hover:text-n-9 cursor-pointer"
           >
             <svg
               className="h-4 w-4"
@@ -118,7 +118,7 @@ export default function NoticeModal(props: NoticeModalProps) {
                   onClick={handleClose}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex h-[46px] w-full items-center justify-center rounded-pill bg-pink text-[15px] font-semibold text-white shadow-sm transition-opacity hover:opacity-90"
+                  className="flex h-[46px] w-full items-center justify-center rounded-pill bg-pink-deep text-[15px] font-semibold text-white shadow-sm transition-opacity hover:opacity-90"
                 >
                   {link.text}
                 </a>
@@ -126,7 +126,7 @@ export default function NoticeModal(props: NoticeModalProps) {
                 <Link
                   href={link.href}
                   onClick={handleClose}
-                  className="flex h-[46px] w-full items-center justify-center rounded-pill bg-pink text-[15px] font-semibold text-white shadow-sm transition-opacity hover:opacity-90"
+                  className="flex h-[46px] w-full items-center justify-center rounded-pill bg-pink-deep text-[15px] font-semibold text-white shadow-sm transition-opacity hover:opacity-90"
                 >
                   {link.text}
                 </Link>

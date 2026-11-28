@@ -39,7 +39,7 @@ test('토큰 없음·형식 오류(배열·200자 초과): 링크 오류 화면,
     expect(h).toContain('로그인 화면으로');
     expect(filledButtons(h)).toBe(1);
     expect(h).not.toContain('type="password"');
-    expect(h).not.toContain('text-danger">링크가'); // 빨간 글씨 한 줄은 쓰지 않는다(P-2.1)
+    expect(h).not.toContain('text-danger-strong">링크가'); // 빨간 글씨 한 줄은 쓰지 않는다(P-2.1)
   }
   expect(resetPassword).not.toHaveBeenCalled();
 });

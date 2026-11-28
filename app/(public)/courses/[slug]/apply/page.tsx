@@ -68,7 +68,7 @@ export default async function ApplyConfirmPage({
         <BankAccountList />
       </div>
 
-      {error && ERROR_MESSAGE[error] && <p className="mt-3 text-[12.5px] text-danger">{ERROR_MESSAGE[error]}</p>}
+      {error && ERROR_MESSAGE[error] && <p className="mt-3 text-[12.5px] text-danger-strong">{ERROR_MESSAGE[error]}</p>}
 
       <form
         action={applyToCourse.bind(null, course.id, slug)}
@@ -121,7 +121,7 @@ export default async function ApplyConfirmPage({
           >
             취소
           </Link>
-          <button type="submit" className="h-[46px] flex-1 rounded-pill bg-pink text-[14px] font-semibold text-white">
+          <button type="submit" className="h-[46px] flex-1 rounded-pill bg-pink-deep text-[14px] font-semibold text-white">
             신청 확정
           </button>
         </div>

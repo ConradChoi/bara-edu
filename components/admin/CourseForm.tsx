@@ -224,7 +224,7 @@ export default function CourseForm({
         </fieldset>
       )}
 
-      <button type="submit" className="h-11 rounded-pill bg-pink text-[14px] font-semibold text-white">
+      <button type="submit" className="h-11 rounded-pill bg-pink-deep text-[14px] font-semibold text-white">
         {submitLabel}
       </button>
     </form>

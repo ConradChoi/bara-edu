@@ -35,13 +35,13 @@ export function ConfirmNote({ id, note }: { id: string; note: ConfirmNoteKind })
     <div aria-live="polite">
       {(note === 'mismatch' || note === 'empty') && (
         <p id={id} className="flex gap-2 text-base leading-[1.6] text-n-9 break-keep">
-          <AlertIcon className="mt-0.5 size-5 shrink-0 text-danger" />
+          <AlertIcon className="mt-0.5 size-5 shrink-0 text-danger-strong" />
           {note === 'empty' ? '비밀번호를 한 번 더 입력해 주세요' : MSG_PASSWORD_MISMATCH_CLIENT}
         </p>
       )}
       {note === 'match' && (
         <p className="flex gap-2 text-base leading-[1.6] text-n-8">
-          <CheckIcon className="mt-0.5 size-5 shrink-0 text-success" />
+          <CheckIcon className="mt-0.5 size-5 shrink-0 text-success-strong" />
           비밀번호가 같아요
         </p>
       )}

@@ -27,7 +27,7 @@ export default async function SignInPage({
       )}
       {redirect && !ended && (
         <div className="rounded-md border border-warning bg-warning/10 px-3.5 py-3">
-          <p className="text-[13px] font-semibold text-warning">세션이 만료되었어요</p>
+          <p className="text-[13px] font-semibold text-warning-strong">세션이 만료되었어요</p>
           <p className="text-[12px] text-n-7">다시 로그인하면 원래 페이지로 돌아가요.</p>
         </div>
       )}

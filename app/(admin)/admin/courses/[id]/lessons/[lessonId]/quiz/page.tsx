@@ -59,18 +59,18 @@ export default async function AdminLessonQuizPage({
 
       <p className="text-[12.5px] text-n-6">{QUIZ_HIDDEN_NOTICE}</p>
       {countHiddenQuestions(questions) > 0 && (
-        <div className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger" role="status">
+        <div className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger-strong" role="status">
           정답이 없는 문항이 {countHiddenQuestions(questions)}개 있어요. 보기 하나를 정답으로 지정해야 학습자에게 보여요.
         </div>
       )}
 
       {success && SUCCESS_MESSAGE[success] && (
-        <div className="rounded-md border border-success bg-success/10 px-3.5 py-3 text-[13px] font-medium text-success">
+        <div className="rounded-md border border-success bg-success/10 px-3.5 py-3 text-[13px] font-medium text-success-strong">
           {SUCCESS_MESSAGE[success]}
         </div>
       )}
       {error && ERROR_MESSAGE[error] && (
-        <div className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger">
+        <div className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger-strong">
           {ERROR_MESSAGE[error]}
         </div>
       )}
@@ -87,7 +87,7 @@ export default async function AdminLessonQuizPage({
                 </div>
               )}
               <div className="flex items-start gap-2">
-                <span className="mt-2 text-[12px] text-n-5">{index + 1}.</span>
+                <span className="mt-2 text-[12px] text-n-6">{index + 1}.</span>
                 <form action={updateQuestion.bind(null, q.id, lessonId, courseId)} className="flex flex-1 items-center gap-2">
                   <input
                     name="question"
@@ -100,7 +100,7 @@ export default async function AdminLessonQuizPage({
                 </form>
                 <ConfirmDialog
                   triggerLabel="문항 삭제"
-                  triggerClassName="rounded-pill border border-danger px-2.5 py-1 text-[11.5px] text-danger"
+                  triggerClassName="rounded-pill border border-danger px-2.5 py-1 text-[11.5px] text-danger-strong"
                   title="문항을 삭제할까요?"
                   description="보기도 함께 삭제돼요."
                   confirmLabel="삭제"
@@ -135,7 +135,7 @@ export default async function AdminLessonQuizPage({
                       </form>
                     )}
                     <form action={deleteOption.bind(null, option.id, q.id, lessonId, courseId)}>
-                      <button type="submit" className="rounded-pill border border-danger px-2 py-1 text-[11px] text-danger">
+                      <button type="submit" className="rounded-pill border border-danger px-2 py-1 text-[11px] text-danger-strong">
                         삭제
                       </button>
                     </form>
@@ -160,7 +160,7 @@ export default async function AdminLessonQuizPage({
 
       <form action={addQuestion.bind(null, lessonId, courseId)} className="flex items-center gap-2 rounded-lg border border-n-3 bg-n-1 p-3">
         <input name="question" placeholder="새 문항" className="h-9 flex-1 rounded-md border border-n-3 bg-n-0 px-2.5 text-[13px]" />
-        <button type="submit" className="rounded-pill bg-pink px-4 py-1.5 text-[12.5px] font-semibold text-white">
+        <button type="submit" className="rounded-pill bg-pink-deep px-4 py-1.5 text-[12.5px] font-semibold text-white">
           문항 추가
         </button>
       </form>

@@ -103,7 +103,7 @@ export default function SignupFinishForm({ token, email, requestedLabel, remaini
         {wrong && (
           <div id="confirm-password-error" role="alert" className={`${NOTICE} mb-3 flex-col`}>
             <div className="flex gap-3">
-              <AlertIcon className="mt-0.5 size-6 shrink-0 text-danger" />
+              <AlertIcon className="mt-0.5 size-6 shrink-0 text-danger-strong" />
               <p className="font-semibold">비밀번호가 맞지 않아요.</p>
             </div>
             <p className="flex flex-wrap items-center gap-x-3 gap-y-1 pl-9">
@@ -133,7 +133,7 @@ export default function SignupFinishForm({ token, email, requestedLabel, remaini
         )}
         {failKind && (
           <div role="alert" className={`${NOTICE} mb-3`}>
-            <AlertIcon className="mt-0.5 size-6 shrink-0 text-danger" />
+            <AlertIcon className="mt-0.5 size-6 shrink-0 text-danger-strong" />
             <p>
               {failKind === 'unavailable'
                 ? '지금 연결이 원활하지 않아요. 입력한 내용은 그대로예요. 잠시 후 다시 눌러 주세요.'
@@ -166,7 +166,7 @@ export default function SignupFinishForm({ token, email, requestedLabel, remaini
         />
         {showEmpty && (
           <p id="confirm-password-empty" className="mt-2 flex gap-2 text-base leading-[1.6] text-n-9">
-            <AlertIcon className="mt-0.5 size-5 shrink-0 text-danger" />
+            <AlertIcon className="mt-0.5 size-5 shrink-0 text-danger-strong" />
             비밀번호를 입력해 주세요
           </p>
         )}

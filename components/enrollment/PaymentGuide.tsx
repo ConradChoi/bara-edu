@@ -12,7 +12,7 @@ export default function PaymentGuide({ paymentDueAt }: { paymentDueAt: string })
 
   return (
     <div className="flex flex-col gap-3 rounded-lg border border-n-3 bg-n-1 p-5">
-      <span className="w-fit rounded-pill bg-warning/15 px-2.5 py-1 text-[11px] font-semibold text-warning">
+      <span className="w-fit rounded-pill bg-warning/15 px-2.5 py-1 text-[11px] font-semibold text-warning-strong">
         입금 대기 중
       </span>
 

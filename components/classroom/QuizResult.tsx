@@ -7,7 +7,7 @@ export default function QuizResult({ score, attemptNo }: { score: number; attemp
 
   return (
     <div className={`rounded-md border px-3.5 py-3 text-[13px] ${passed ? 'border-success bg-success/10' : 'border-warning bg-warning/10'}`}>
-      <p className={`font-semibold ${passed ? 'text-success' : 'text-warning'}`}>
+      <p className={`font-semibold ${passed ? 'text-success-strong' : 'text-warning-strong'}`}>
         {attemptNo}번째 응시 · {score}점 {passed ? '(합격)' : ''}
       </p>
       {!passed && <p className="mt-0.5 text-[12px] text-n-7">재응시는 몇 번이든 할 수 있어요.</p>}

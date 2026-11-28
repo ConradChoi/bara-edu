@@ -55,7 +55,7 @@ export default function RecoveryCodeList({ codes, issuedOn, name, size, hidden, 
       {lead}
       <p className={`${body} leading-[1.7] text-n-7 break-keep`}>{C['MFA-RC-WHAT']}</p>
       <div role="note" className={`flex gap-3 rounded-md border border-l-4 border-n-3 border-l-warning bg-n-1 px-4 py-3 ${body} leading-[1.6] text-n-9 break-keep`}>
-        <AlertIcon className="mt-0.5 size-5 shrink-0 text-warning" />
+        <AlertIcon className="mt-0.5 size-5 shrink-0 text-warning-strong" />
         <div className="flex flex-col gap-1">
           <p>{C['MFA-RC-ONCE-1']}</p>
           <p className="font-semibold">{C['MFA-RC-ONCE-2']}</p>

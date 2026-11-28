@@ -75,7 +75,7 @@ export default function SecurityPanel({ summary, initial }: { summary: SecurityS
           <>
             <dt className="text-n-6">복구 코드</dt>
             <dd className="flex items-center gap-2 text-n-9">
-              {low && <AlertIcon className="size-4 shrink-0 text-warning" />}
+              {low && <AlertIcon className="size-4 shrink-0 text-warning-strong" />}
               {(low ? C['MFA-SEC-RC-LOW'] : C['MFA-SEC-RC-COUNT']).replace('{n}', String(summary.recoveryCodesLeft))}
             </dd>
           </>

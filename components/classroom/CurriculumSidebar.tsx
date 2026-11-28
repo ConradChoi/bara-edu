@@ -80,7 +80,7 @@ export default function CurriculumSidebar({
             {materials.map((material) => (
               <li key={material.id} className="rounded-md bg-n-1 px-3 py-2 text-[12.5px]">
                 <div className="flex items-center gap-1.5">
-                  <span className="shrink-0 text-[11px] font-medium text-n-5">{material.kind === 'main' ? '주교재' : '보조교재'}</span>
+                  <span className="shrink-0 text-[11px] font-medium text-n-6">{material.kind === 'main' ? '주교재' : '보조교재'}</span>
                   <span className="flex-1 font-medium text-n-9">{material.title}</span>
                 </div>
                 {(material.publisher || material.purchaseUrl) && (
@@ -104,7 +104,7 @@ export default function CurriculumSidebar({
           <Link
             href={`/learn/${courseId}/exam`}
             className={`flex items-center justify-between rounded-md px-3 py-2 text-[13px] ${
-              examStatus === 'locked' ? 'text-n-5' : 'font-semibold text-indigo bg-indigo/10'
+              examStatus === 'locked' ? 'text-n-6' : 'font-semibold text-indigo bg-indigo/10'
             }`}
           >
             <span>시험 응시하기</span>

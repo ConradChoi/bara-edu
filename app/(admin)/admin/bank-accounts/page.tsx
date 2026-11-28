@@ -42,12 +42,12 @@ export default async function AdminBankAccountsPage({
       </div>
 
       {message && (
-        <div className="rounded-md border border-success bg-success/10 px-3.5 py-3 text-[13px] font-medium text-success">
+        <div className="rounded-md border border-success bg-success/10 px-3.5 py-3 text-[13px] font-medium text-success-strong">
           {SUCCESS_MESSAGE[message]}
         </div>
       )}
       {errorMessage && (
-        <div className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger">
+        <div className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger-strong">
           {errorMessage}
         </div>
       )}
@@ -91,7 +91,7 @@ export default async function AdminBankAccountsPage({
                   </button>
                   <ConfirmDialog
                     triggerLabel="삭제"
-                    triggerClassName="rounded-pill border border-danger px-2.5 py-1 text-[11.5px] text-danger"
+                    triggerClassName="rounded-pill border border-danger px-2.5 py-1 text-[11.5px] text-danger-strong"
                     title="계좌를 삭제할까요?"
                     description="삭제하면 신청 확인 화면에 더 이상 노출되지 않아요."
                     confirmLabel="삭제"
@@ -125,7 +125,7 @@ export default async function AdminBankAccountsPage({
           </div>
           <button
             type="submit"
-            className="mt-1 self-end rounded-pill bg-pink px-4 py-1.5 text-[12.5px] font-semibold text-white"
+            className="mt-1 self-end rounded-pill bg-pink-deep px-4 py-1.5 text-[12.5px] font-semibold text-white"
           >
             추가
           </button>

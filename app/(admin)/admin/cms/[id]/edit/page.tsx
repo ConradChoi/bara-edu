@@ -43,7 +43,7 @@ export default async function EditLegalDocumentPage({
         {doc.isPublished ? (
           <ConfirmDialog
             triggerLabel="게시중단"
-            triggerClassName="rounded-pill border border-danger px-3 py-1.5 text-[12px] font-medium text-danger"
+            triggerClassName="rounded-pill border border-danger px-3 py-1.5 text-[12px] font-medium text-danger-strong"
             title="게시를 중단할까요?"
             description="공개 페이지(/legal/...)에서 404로 표시돼요."
             confirmLabel="게시중단"
@@ -62,18 +62,18 @@ export default async function EditLegalDocumentPage({
       </div>
 
       {message && (
-        <div className="rounded-md border border-success bg-success/10 px-3.5 py-3 text-[13px] font-medium text-success">
+        <div className="rounded-md border border-success bg-success/10 px-3.5 py-3 text-[13px] font-medium text-success-strong">
           {SUCCESS_MESSAGE[message]}
         </div>
       )}
 
       {errorMessage && (
-        <div className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger">
+        <div className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger-strong">
           {errorMessage}
         </div>
       )}
 
-      <p className="text-[12px] text-n-5">
+      <p className="text-[12px] text-n-6">
         /legal/{doc.slug} · {doc.isPublished ? '게시중' : '미게시'} · 작성일 {new Date(doc.createdAt).toLocaleDateString('ko-KR')}
       </p>
 
@@ -102,7 +102,7 @@ export default async function EditLegalDocumentPage({
               className="min-h-[240px] rounded-md border border-n-3 bg-n-1 p-2.5 text-[13px]"
             />
           </label>
-          <button type="submit" className="h-11 self-start rounded-pill bg-pink px-5 text-[13px] font-semibold text-white">
+          <button type="submit" className="h-11 self-start rounded-pill bg-pink-deep px-5 text-[13px] font-semibold text-white">
             새 버전({formatDocVersion(doc.version + 1)}) 만들기
           </button>
         </form>
