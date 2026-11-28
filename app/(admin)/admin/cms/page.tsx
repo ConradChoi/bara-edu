@@ -20,13 +20,13 @@ export default async function AdminCmsPage({ searchParams }: { searchParams: Pro
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <h1 className="text-[20px] font-semibold text-n-9">약관·정책 CMS</h1>
-        <Link href="/admin/cms/new" className="rounded-pill bg-pink px-4 py-2 text-[13px] font-semibold text-white">
+        <Link href="/admin/cms/new" className="rounded-pill bg-pink-deep px-4 py-2 text-[13px] font-semibold text-white">
           새 문서 추가
         </Link>
       </div>
 
       {error && ERROR_MESSAGE[error] && (
-        <div className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger">
+        <div className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger-strong">
           {ERROR_MESSAGE[error]}
         </div>
       )}
@@ -40,7 +40,7 @@ export default async function AdminCmsPage({ searchParams }: { searchParams: Pro
               <div className="flex items-center justify-between">
                 <div className="flex flex-col">
                   <span className="text-[14px] font-semibold text-n-9">{g.title}</span>
-                  <span className="text-[11.5px] text-n-5">
+                  <span className="text-[11.5px] text-n-6">
                     /legal/{g.slug} · 최신 {formatDocVersion(g.latestVersion)}
                     {g.publishedVersion ? ` · 게시중 ${formatDocVersion(g.publishedVersion)}` : ' · 게시된 버전 없음'}
                   </span>
@@ -51,7 +51,7 @@ export default async function AdminCmsPage({ searchParams }: { searchParams: Pro
                   <li key={v.id} className="flex items-center justify-between rounded-md border border-n-2 px-3 py-2 text-[12.5px]">
                     <span>
                       {formatDocVersion(v.version)} · {new Date(v.createdAt).toLocaleDateString('ko-KR')}
-                      {v.isPublished && <span className="ml-2 rounded-pill bg-success/15 px-2 py-0.5 text-[11px] font-semibold text-success">게시중</span>}
+                      {v.isPublished && <span className="ml-2 rounded-pill bg-success/15 px-2 py-0.5 text-[11px] font-semibold text-success-strong">게시중</span>}
                     </span>
                     <div className="flex gap-1.5">
                       <Link href={`/admin/cms/${v.id}/edit`} className="rounded-pill border border-n-3 px-2.5 py-1 text-[11.5px] text-n-7">
@@ -60,7 +60,7 @@ export default async function AdminCmsPage({ searchParams }: { searchParams: Pro
                       {v.isPublished && (
                         <ConfirmDialog
                           triggerLabel="게시중단"
-                          triggerClassName="rounded-pill border border-danger px-2.5 py-1 text-[11.5px] text-danger"
+                          triggerClassName="rounded-pill border border-danger px-2.5 py-1 text-[11.5px] text-danger-strong"
                           title="게시를 중단할까요?"
                           description="공개 페이지(/legal/...)에서 404로 표시돼요."
                           confirmLabel="게시중단"

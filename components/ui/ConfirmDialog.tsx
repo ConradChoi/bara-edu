@@ -151,7 +151,7 @@ export default function ConfirmDialog({
               label={confirmLabel}
               pendingLabel={pendingLabel}
               className={`flex-1 rounded-pill font-semibold text-white ${size === 'lg' ? 'min-h-12 text-[15px]' : 'h-[38px] text-[13px]'} ${
-                tone === 'danger' ? 'bg-danger' : size === 'lg' ? 'bg-indigo' : 'bg-pink'
+                tone === 'danger' ? 'bg-danger' : size === 'lg' ? 'bg-indigo' : 'bg-pink-deep'
               }`}
             />
           </div>

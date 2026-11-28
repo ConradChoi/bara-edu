@@ -20,7 +20,7 @@ export default function ResendConfirmationForm({ defaultEmail, size = 'md' }: { 
     if (state && 'pendingConfirmation' in state) {
       return (
         <div ref={doneRef} tabIndex={-1} aria-live="polite" className="flex gap-3 rounded-md bg-n-1 px-4 py-3 text-base leading-[1.6] text-n-9 outline-none">
-          <CheckIcon className="mt-0.5 size-6 shrink-0 text-success" />
+          <CheckIcon className="mt-0.5 size-6 shrink-0 text-success-strong" />
           <div className="flex flex-col gap-2 break-keep">
             <p>
               <span className="break-all font-semibold">{state.email}</span>로 메일을 보냈어요. 몇 분 안에 오지 않으면 스팸메일함을 확인해 주세요.
@@ -52,7 +52,7 @@ export default function ResendConfirmationForm({ defaultEmail, size = 'md' }: { 
         </div>
         {err && (
           <p id="resend-email-error" className="flex gap-3 rounded-md border-l-4 border-danger bg-n-1 px-4 py-3 text-base leading-[1.6] text-n-9 break-keep">
-            <AlertIcon className="mt-0.5 size-6 shrink-0 text-danger" />
+            <AlertIcon className="mt-0.5 size-6 shrink-0 text-danger-strong" />
             {err}
           </p>
         )}
@@ -70,7 +70,7 @@ export default function ResendConfirmationForm({ defaultEmail, size = 'md' }: { 
 
   if (state && 'pendingConfirmation' in state) {
     return (
-      <p className="text-[12px] font-medium text-success">
+      <p className="text-[12px] font-medium text-success-strong">
         <span className="font-semibold">{state.email}</span>로 메일을 보냈어요. 몇 분 안에 오지 않으면 스팸메일함을 확인해 주세요.
       </p>
     );
@@ -85,7 +85,7 @@ export default function ResendConfirmationForm({ defaultEmail, size = 'md' }: { 
           required
           defaultValue={defaultEmail}
           placeholder="가입한 이메일 주소"
-          className="h-10 flex-1 rounded-md border border-n-3 bg-n-1 px-3 text-[13px] text-n-9 outline-none placeholder:text-n-5 focus:border-pink"
+          className="h-10 flex-1 rounded-md border border-n-3 bg-n-1 px-3 text-[13px] text-n-9 outline-none placeholder:text-n-6 focus:border-pink"
         />
         <button
           type="submit"
@@ -95,7 +95,7 @@ export default function ResendConfirmationForm({ defaultEmail, size = 'md' }: { 
           {pending ? '보내는 중이에요' : '메일 다시 받기'}
         </button>
       </div>
-      {state && 'error' in state && <p className="text-[12px] text-danger">{state.error}</p>}
+      {state && 'error' in state && <p className="text-[12px] text-danger-strong">{state.error}</p>}
     </form>
   );
 }

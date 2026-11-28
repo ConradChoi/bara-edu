@@ -50,12 +50,12 @@ export default async function AdminCourseExamPage({
       </div>
 
       {success && SUCCESS_MESSAGE[success] && (
-        <div className="rounded-md border border-success bg-success/10 px-3.5 py-3 text-[13px] font-medium text-success">
+        <div className="rounded-md border border-success bg-success/10 px-3.5 py-3 text-[13px] font-medium text-success-strong">
           {SUCCESS_MESSAGE[success]}
         </div>
       )}
       {error && ERROR_MESSAGE[error] && (
-        <div className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger">
+        <div className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger-strong">
           {ERROR_MESSAGE[error]}
         </div>
       )}
@@ -68,7 +68,7 @@ export default async function AdminCourseExamPage({
           </Link>
         </p>
       ) : (
-        <div className="rounded-md border border-warning bg-warning/10 px-3.5 py-3 text-[13px] font-medium text-warning">
+        <div className="rounded-md border border-warning bg-warning/10 px-3.5 py-3 text-[13px] font-medium text-warning-strong">
           이 강좌는 자격시험이 설정되어 있지 않아요. 강좌 수정 화면에서 먼저 켜주세요.{' '}
           <Link href={`/admin/courses/${courseId}`} className="underline">
             강좌 수정으로 이동
@@ -77,7 +77,7 @@ export default async function AdminCourseExamPage({
       )}
 
       {unresolvedCount > 0 && (
-        <div className="rounded-md border border-warning bg-warning/10 px-3.5 py-3 text-[13px] font-medium text-warning">
+        <div className="rounded-md border border-warning bg-warning/10 px-3.5 py-3 text-[13px] font-medium text-warning-strong">
           정답이 설정되지 않은 문항이 {unresolvedCount}개 있어요. 문제은행에서 정답을 먼저 설정해 주세요.
         </div>
       )}
@@ -100,7 +100,7 @@ export default async function AdminCourseExamPage({
           {links.map((link, index) => (
             <li key={link.linkId} className="rounded-lg border border-n-3 p-4">
               <div className="flex items-start gap-2">
-                <span className="mt-0.5 text-[12px] text-n-5">{index + 1}.</span>
+                <span className="mt-0.5 text-[12px] text-n-6">{index + 1}.</span>
                 <p className="flex-1 text-[13px] font-medium text-n-9">{link.question}</p>
                 <StatusBadge tone="neutral">{link.questionType === 'short_answer' ? '주관식' : '객관식'}</StatusBadge>
                 <form action={moveCourseExamLinkUp.bind(null, link.linkId, courseId)}>
@@ -115,7 +115,7 @@ export default async function AdminCourseExamPage({
                 </form>
                 <ConfirmDialog
                   triggerLabel="연결 해제"
-                  triggerClassName="rounded-pill border border-danger px-2.5 py-1 text-[11.5px] text-danger"
+                  triggerClassName="rounded-pill border border-danger px-2.5 py-1 text-[11.5px] text-danger-strong"
                   title="문항 연결을 해제할까요?"
                   description="문제은행의 문항 자체는 삭제되지 않아요. 이 강좌 시험에서만 빠져요."
                   confirmLabel="해제"
@@ -161,7 +161,7 @@ export default async function AdminCourseExamPage({
                 <span className="flex-1 text-[12.5px] text-n-8">{q.question}</span>
                 <StatusBadge tone="neutral">{q.questionType === 'short_answer' ? '주관식' : '객관식'}</StatusBadge>
                 <form action={linkBankQuestionToCourse.bind(null, courseId, q.id)}>
-                  <button type="submit" className="rounded-pill bg-pink px-3 py-1 text-[11.5px] font-semibold text-white">
+                  <button type="submit" className="rounded-pill bg-pink-deep px-3 py-1 text-[11.5px] font-semibold text-white">
                     추가
                   </button>
                 </form>

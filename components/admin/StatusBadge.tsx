@@ -2,10 +2,10 @@ type Tone = 'neutral' | 'info' | 'success' | 'warning' | 'danger';
 
 const TONE_CLASS: Record<Tone, string> = {
   neutral: 'bg-n-2 text-n-6',
-  info: 'bg-info/15 text-info', // 자격시험 "응시 가능" 배지용(2026-09-09 추가) — components/courses/Badge.tsx와 동일 토큰
-  success: 'bg-success/15 text-success',
-  warning: 'bg-warning/15 text-warning',
-  danger: 'bg-danger/15 text-danger',
+  info: 'bg-info/15 text-info-strong', // 자격시험 "응시 가능" 배지용(2026-09-09 추가) — components/courses/Badge.tsx와 동일 토큰
+  success: 'bg-success/15 text-success-strong',
+  warning: 'bg-warning/15 text-warning-strong',
+  danger: 'bg-danger/15 text-danger-strong',
 };
 
 // /my 페이지의 STATUS_TONE 배지 스타일을 Admin 화면(enrollments/courses/certificates)에서

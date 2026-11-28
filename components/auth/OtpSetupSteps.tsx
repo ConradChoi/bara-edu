@@ -87,7 +87,7 @@ export function noticeText(n: SetupNotice): string {
 function NoticeBox({ notice, size, extra, focusRef }: { notice: SetupNotice; size: Size; extra?: ReactNode; focusRef?: React.Ref<HTMLDivElement> }) {
   return (
     <div ref={focusRef} tabIndex={focusRef ? -1 : undefined} role="alert" className={`${NOTICE} ${size === 'admin' ? 'text-[14px]' : ''} outline-none`}>
-      <AlertIcon className={`mt-0.5 shrink-0 text-danger ${size === 'lg' ? 'size-6' : 'size-5'}`} />
+      <AlertIcon className={`mt-0.5 shrink-0 text-danger-strong ${size === 'lg' ? 'size-6' : 'size-5'}`} />
       <div className="flex flex-col gap-1">
         <p>{noticeText(notice)}</p>
         {extra}
@@ -156,7 +156,7 @@ export function SetupBody({ view, formAction, pending, size, carry, reset = fals
       return (
         <MfaStatusScreen
           focus={focus}
-          icon={<AlertIcon className="size-7 text-danger" />}
+          icon={<AlertIcon className="size-7 text-danger-strong" />}
           title={`${title}.`}
           actions={
             <Link href="/sign-in" className={SECONDARY_BTN}>
@@ -174,7 +174,7 @@ export function SetupBody({ view, formAction, pending, size, carry, reset = fals
       return (
         <MfaStatusScreen
           focus={focus}
-          icon={<CheckIcon className="size-7 text-success" />}
+          icon={<CheckIcon className="size-7 text-success-strong" />}
           title={`${title}.`}
           actions={
             <Link href="/admin" className={PRIMARY_BTN}>
@@ -475,7 +475,7 @@ export function SetupBody({ view, formAction, pending, size, carry, reset = fals
           {heading(C['MFA-QR-TITLE'])}
           {view.notice && <NoticeBox notice={view.notice} size={size} />}
           <div ref={alertRef} tabIndex={-1} role="alert" className={`${NOTICE} ${size === 'admin' ? 'text-[14px]' : ''} outline-none`}>
-            <AlertIcon className={`mt-0.5 shrink-0 text-danger ${size === 'lg' ? 'size-6' : 'size-5'}`} />
+            <AlertIcon className={`mt-0.5 shrink-0 text-danger-strong ${size === 'lg' ? 'size-6' : 'size-5'}`} />
             <p>{C['MFA-CONFIRM-ERR-EXPIRED']}</p>
           </div>
           <form action={formAction} className="flex flex-col gap-2">

@@ -71,26 +71,26 @@ export default async function CourseDetailPage({
 
       <dl className="mt-4 flex flex-wrap gap-x-6 gap-y-1 text-[13px] text-n-7">
         <div className="flex gap-1.5">
-          <dt className="text-n-5">강사</dt>
+          <dt className="text-n-6">강사</dt>
           <dd>{course.instructor}</dd>
         </div>
         <div className="flex gap-1.5">
-          <dt className="text-n-5">수강료</dt>
+          <dt className="text-n-6">수강료</dt>
           <dd className="font-semibold text-indigo">{course.fee.toLocaleString('ko-KR')}원</dd>
         </div>
         <div className="flex gap-1.5">
-          <dt className="text-n-5">정원</dt>
+          <dt className="text-n-6">정원</dt>
           <dd>{course.seats}명</dd>
         </div>
         {course.totalHours != null && (
           <div className="flex gap-1.5">
-            <dt className="text-n-5">총 강좌 시간</dt>
+            <dt className="text-n-6">총 강좌 시간</dt>
             <dd>{course.totalHours}시간</dd>
           </div>
         )}
         {formatDateRangeDisplay(course.startDate, course.endDate) && (
           <div className="flex gap-1.5">
-            <dt className="text-n-5">수강 기간</dt>
+            <dt className="text-n-6">수강 기간</dt>
             <dd>{formatDateRangeDisplay(course.startDate, course.endDate)}</dd>
           </div>
         )}
@@ -107,7 +107,7 @@ export default async function CourseDetailPage({
                 key={lesson.id}
                 className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-n-3 bg-n-0 p-3 text-[13px]"
               >
-                <span className="text-n-5">{index + 1}강</span>
+                <span className="text-n-6">{index + 1}강</span>
                 <span className="flex-1 font-medium text-n-9">{lesson.title}</span>
                 <Badge tone="neutral">{LESSON_MODE_LABEL[lesson.lessonMode]}</Badge>
                 {lesson.hasQuiz && <Badge tone="info">퀴즈</Badge>}
@@ -126,7 +126,7 @@ export default async function CourseDetailPage({
               <li className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-n-3 bg-n-0 p-3 text-[13px]">
                 <Badge tone="info">주교재</Badge>
                 <span className="flex-1 font-medium text-n-9">{mainMaterial.title}</span>
-                {mainMaterial.publisher && <span className="text-n-5">{mainMaterial.publisher}</span>}
+                {mainMaterial.publisher && <span className="text-n-6">{mainMaterial.publisher}</span>}
                 {mainMaterial.purchaseUrl && (
                   <a
                     href={mainMaterial.purchaseUrl}
@@ -146,7 +146,7 @@ export default async function CourseDetailPage({
               >
                 <Badge tone="neutral">보조교재</Badge>
                 <span className="flex-1 font-medium text-n-9">{material.title}</span>
-                {material.publisher && <span className="text-n-5">{material.publisher}</span>}
+                {material.publisher && <span className="text-n-6">{material.publisher}</span>}
                 {material.purchaseUrl && (
                   <a
                     href={material.purchaseUrl}
@@ -167,7 +167,7 @@ export default async function CourseDetailPage({
         {myEnrollment?.status === 'approved' ? (
           <Link
             href={`/learn/${course.id}`}
-            className="flex h-[46px] items-center justify-center rounded-pill bg-pink text-[14px] font-semibold text-white"
+            className="flex h-[46px] items-center justify-center rounded-pill bg-pink-deep text-[14px] font-semibold text-white"
           >
             강의실 입장
           </Link>
@@ -188,7 +188,7 @@ export default async function CourseDetailPage({
           <>
             <Link
               href={`/courses/${course.slug}/apply`}
-              className="flex h-[46px] items-center justify-center rounded-pill bg-pink text-[14px] font-semibold text-white"
+              className="flex h-[46px] items-center justify-center rounded-pill bg-pink-deep text-[14px] font-semibold text-white"
             >
               수강 신청하기
             </Link>
@@ -201,7 +201,7 @@ export default async function CourseDetailPage({
         ) : (
           <Link
             href={`/sign-in?redirect=/courses/${course.slug}`}
-            className="flex h-[46px] items-center justify-center rounded-pill bg-pink text-[14px] font-semibold text-white"
+            className="flex h-[46px] items-center justify-center rounded-pill bg-pink-deep text-[14px] font-semibold text-white"
           >
             로그인하고 신청하기
           </Link>

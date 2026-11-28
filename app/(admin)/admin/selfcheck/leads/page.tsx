@@ -48,18 +48,18 @@ export default async function AdminDiagnosisLeadsPage({
       <h1 className="text-[20px] font-semibold text-n-9">강사과정 관심 문의</h1>
 
       {success && SUCCESS_MESSAGE[success] && (
-        <div className="rounded-md border border-success bg-success/10 px-3.5 py-3 text-[13px] font-medium text-success">
+        <div className="rounded-md border border-success bg-success/10 px-3.5 py-3 text-[13px] font-medium text-success-strong">
           {SUCCESS_MESSAGE[success]}
         </div>
       )}
       {error && ERROR_MESSAGE[error] && (
-        <div className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger">
+        <div className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger-strong">
           {ERROR_MESSAGE[error]}
         </div>
       )}
 
       {page.ok && page.revealFailed && (
-        <div role="alert" className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger">
+        <div role="alert" className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger-strong">
           접속 기록을 남기지 못해 개인정보를 보여 드리지 않았어요. 잠시 후 다시 시도해 주세요.
         </div>
       )}
@@ -69,7 +69,7 @@ export default async function AdminDiagnosisLeadsPage({
         </div>
       )}
       {!page.ok && (
-        <div role="alert" className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger">
+        <div role="alert" className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger-strong">
           {page.reason === 'forbidden' ? '문의 목록을 볼 권한이 없어요.' : '문의 목록을 불러오지 못했어요. 잠시 후 다시 시도해 주세요.'}
         </div>
       )}
@@ -148,7 +148,7 @@ export default async function AdminDiagnosisLeadsPage({
                         />
                         <ConfirmDialog
                           triggerLabel="바로 종료"
-                          triggerClassName="rounded-pill border border-danger px-3 py-1.5 text-[12px] font-medium text-danger"
+                          triggerClassName="rounded-pill border border-danger px-3 py-1.5 text-[12px] font-medium text-danger-strong"
                           title="문의를 바로 종료할까요?"
                           description="종료 사유를 입력해 주세요."
                           confirmLabel="종료"
@@ -187,7 +187,7 @@ export default async function AdminDiagnosisLeadsPage({
         </tbody>
       </AdminTable>
 
-      <p className="text-[11.5px] text-n-5">
+      <p className="text-[11.5px] text-n-6">
         &quot;개인정보 보기&quot;를 누르면 그 문의의 이름·연락처·문의 내용 전문이 표시되고, 이 열람은 접속기록(admin_access_logs)에 남습니다.
       </p>
     </div>

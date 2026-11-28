@@ -127,7 +127,7 @@ export default function ForgotPasswordForm({ loggedIn = false }: { loggedIn?: bo
         <div className="mt-8 flex flex-col gap-3">
           {resendError && (
             <div role="alert" className={NOTICE}>
-              <AlertIcon className="mt-0.5 size-6 shrink-0 text-danger" />
+              <AlertIcon className="mt-0.5 size-6 shrink-0 text-danger-strong" />
               <p>{ERROR_COPY[isFieldError(resendError) ? 'failed' : resendError]}</p>
             </div>
           )}
@@ -217,7 +217,7 @@ export default function ForgotPasswordForm({ loggedIn = false }: { loggedIn?: bo
       >
         {noticeError && (
           <div role="alert" className={NOTICE}>
-            <AlertIcon className="mt-0.5 size-6 shrink-0 text-danger" />
+            <AlertIcon className="mt-0.5 size-6 shrink-0 text-danger-strong" />
             <p>{ERROR_COPY[noticeError]}</p>
           </div>
         )}
@@ -258,7 +258,7 @@ export default function ForgotPasswordForm({ loggedIn = false }: { loggedIn?: bo
           {/* role="alert": Enter로 제출하면 칸에 이미 포커스가 있어 aria-describedby만으로는 새 오류가 읽히지 않는다(P-5). */}
           {shownFieldError && (
             <p id="forgot-email-error" role="alert" className="mt-1 flex gap-2 text-base leading-[1.6] text-n-9 break-keep">
-              <AlertIcon className="mt-0.5 size-5 shrink-0 text-danger" />
+              <AlertIcon className="mt-0.5 size-5 shrink-0 text-danger-strong" />
               {ERROR_COPY[shownFieldError]}
             </p>
           )}

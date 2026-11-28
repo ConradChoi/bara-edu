@@ -8,7 +8,7 @@ export default function PrintButton() {
     <button
       type="button"
       onClick={() => window.print()}
-      className="print-hide h-11 w-full rounded-pill bg-pink text-[13px] font-semibold text-white"
+      className="print-hide h-11 w-full rounded-pill bg-pink-deep text-[13px] font-semibold text-white"
     >
       PDF로 저장
     </button>

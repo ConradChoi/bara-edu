@@ -13,7 +13,7 @@ export default function HeroBanner({ isLoggedIn }: { isLoggedIn: boolean }) {
         <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:gap-4">
           <Link
             href="/courses"
-            className="inline-flex h-[52px] w-full items-center justify-center rounded-pill bg-pink px-8 text-[18px] font-bold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white sm:w-auto"
+            className="inline-flex h-[52px] w-full items-center justify-center rounded-pill bg-pink-deep px-8 text-[18px] font-bold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white sm:w-auto"
           >
             강좌 둘러보기
           </Link>

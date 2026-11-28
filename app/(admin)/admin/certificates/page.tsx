@@ -58,19 +58,19 @@ export default async function AdminCertificatesPage({
       <h1 className="text-[20px] font-semibold text-n-9">수료 관리</h1>
 
       {success && SUCCESS_MESSAGE[success] && (
-        <div className="rounded-md border border-success bg-success/10 px-3.5 py-3 text-[13px] font-medium text-success">
+        <div className="rounded-md border border-success bg-success/10 px-3.5 py-3 text-[13px] font-medium text-success-strong">
           {SUCCESS_MESSAGE[success]}
         </div>
       )}
       {error && ERROR_MESSAGE[error] && (
-        <div className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger">
+        <div className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger-strong">
           {ERROR_MESSAGE[error]}
         </div>
       )}
 
       <section className="flex flex-col gap-2">
         <h2 className="text-[15px] font-semibold text-n-9">수료 조건 충족자</h2>
-        <p className="text-[12px] text-n-5">
+        <p className="text-[12px] text-n-6">
           진도 100% + 과제(있는 경우) 승인 완료 기준. 강의실(module-lms-5) 도입 전까지는 비어있는 게 정상이에요.
         </p>
         {eligible.length === 0 ? (
@@ -100,7 +100,7 @@ export default async function AdminCertificatesPage({
 
       <section className="flex flex-col gap-2">
         <h2 className="text-[15px] font-semibold text-n-9">수료 보류 학습자</h2>
-        <p className="text-[12px] text-n-5">진도·과제·자격시험 중 무엇이 부족해 아직 수료증을 받지 못했는지 보여줘요.</p>
+        <p className="text-[12px] text-n-6">진도·과제·자격시험 중 무엇이 부족해 아직 수료증을 받지 못했는지 보여줘요.</p>
         {pending.length === 0 ? (
           <p className="text-[13px] text-n-6">대상자가 없어요.</p>
         ) : (
@@ -180,7 +180,7 @@ export default async function AdminCertificatesPage({
                   <span>
                     <span className="font-medium text-n-9">{c.userName}</span> · {c.courseTitle}
                   </span>
-                  <span className="text-[11.5px] text-n-5">
+                  <span className="text-[11.5px] text-n-6">
                     {new Date(c.issuedAt).toLocaleDateString('ko-KR')}
                     {c.isManualOverride && ' · 수동 처리'}
                     {c.note && ` (${c.note})`}
@@ -201,7 +201,7 @@ export default async function AdminCertificatesPage({
 
       <section className="flex flex-col gap-2">
         <h2 className="text-[15px] font-semibold text-n-9">수동 수료 처리</h2>
-        <p className="text-[12px] text-n-5">오프라인 보강 등 예외 사유로 수료 조건과 무관하게 수료증을 발급합니다.</p>
+        <p className="text-[12px] text-n-6">오프라인 보강 등 예외 사유로 수료 조건과 무관하게 수료증을 발급합니다.</p>
         <form action={manualIssueCertificate} className="flex flex-col gap-2 rounded-lg border border-n-3 bg-n-1 p-3">
           <div className="grid grid-cols-2 gap-2">
             <select name="userId" required className="h-10 rounded-md border border-n-3 bg-n-0 px-2.5 text-[13px]">
@@ -227,7 +227,7 @@ export default async function AdminCertificatesPage({
             placeholder="사유를 입력해 주세요 (예: 오프라인 보강 인정)"
             className="min-h-[64px] rounded-md border border-n-3 bg-n-0 p-2.5 text-[13px]"
           />
-          <button type="submit" className="h-10 self-start rounded-pill bg-pink px-4 text-[13px] font-semibold text-white">
+          <button type="submit" className="h-10 self-start rounded-pill bg-pink-deep px-4 text-[13px] font-semibold text-white">
             수동 발급
           </button>
         </form>

@@ -16,7 +16,7 @@ export default async function NewLegalDocumentPage({ searchParams }: { searchPar
     <div className="flex max-w-[640px] flex-col gap-4">
       <h1 className="text-[20px] font-semibold text-n-9">새 문서 추가</h1>
       {error && ERROR_MESSAGE[error] && (
-        <div className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger">
+        <div className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger-strong">
           {ERROR_MESSAGE[error]}
         </div>
       )}
@@ -44,7 +44,7 @@ export default async function NewLegalDocumentPage({ searchParams }: { searchPar
           본문
           <textarea name="content" required className="min-h-[240px] rounded-md border border-n-3 bg-n-1 p-2.5 text-[13px]" />
         </label>
-        <button type="submit" className="h-11 rounded-pill bg-pink text-[14px] font-semibold text-white">
+        <button type="submit" className="h-11 rounded-pill bg-pink-deep text-[14px] font-semibold text-white">
           작성 (v1, 미게시)
         </button>
       </form>

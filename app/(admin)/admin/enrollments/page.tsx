@@ -56,12 +56,12 @@ export default async function AdminEnrollmentsPage({
       <h1 className="text-[20px] font-semibold text-n-9">신청·입금 관리</h1>
 
       {success && SUCCESS_MESSAGE[success] && (
-        <div className="rounded-md border border-success bg-success/10 px-3.5 py-3 text-[13px] font-medium text-success">
+        <div className="rounded-md border border-success bg-success/10 px-3.5 py-3 text-[13px] font-medium text-success-strong">
           {SUCCESS_MESSAGE[success]}
         </div>
       )}
       {error && ERROR_MESSAGE[error] && (
-        <div className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger">
+        <div className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger-strong">
           {ERROR_MESSAGE[error]}
         </div>
       )}
@@ -72,7 +72,7 @@ export default async function AdminEnrollmentsPage({
             key={f.key}
             href={f.key === 'all' ? '/admin/enrollments' : `/admin/enrollments?status=${f.key}`}
             className={`px-4 py-2.5 text-[13px] font-medium ${
-              filter === f.key ? 'border-b-2 border-pink text-pink' : 'text-n-6'
+              filter === f.key ? 'border-b-2 border-pink text-pink-ink' : 'text-n-6'
             }`}
           >
             {f.label}
@@ -104,7 +104,7 @@ export default async function AdminEnrollmentsPage({
                 <td>
                   <div className="flex flex-col">
                     <span className="font-medium text-n-9">{e.userName}</span>
-                    <span className="text-[11.5px] text-n-5">{e.userEmail}</span>
+                    <span className="text-[11.5px] text-n-6">{e.userEmail}</span>
                   </div>
                 </td>
                 <td>{e.courseTitle}</td>
@@ -113,7 +113,7 @@ export default async function AdminEnrollmentsPage({
                 <td>
                   <StatusBadge tone={STATUS_TONE[e.status]}>{STATUS_LABEL[e.status]}</StatusBadge>
                   {e.status === 'rejected' && e.rejectionReason && (
-                    <p className="mt-1 text-[11px] text-n-5">{e.rejectionReason}</p>
+                    <p className="mt-1 text-[11px] text-n-6">{e.rejectionReason}</p>
                   )}
                 </td>
                 <td>

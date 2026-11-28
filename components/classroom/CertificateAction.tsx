@@ -15,7 +15,7 @@ export default function CertificateAction({
 }) {
   if (eligibility.alreadyIssued) {
     return (
-      <Link href="/my?tab=certificates" className="text-[12.5px] font-medium text-pink underline">
+      <Link href="/my?tab=certificates" className="text-[12.5px] font-medium text-pink-ink underline">
         수료증 확인하기
       </Link>
     );
@@ -31,14 +31,14 @@ export default function CertificateAction({
         >
           수료증 발급받기
         </button>
-        <p className="text-[11.5px] text-n-5">
+        <p className="text-[11.5px] text-n-6">
           진도 {eligibility.completedLessons}/{eligibility.totalLessons}
           {eligibility.pendingAssignmentLessonTitles.length > 0 &&
             ` · 과제 승인 대기: ${eligibility.pendingAssignmentLessonTitles.join(', ')}`}
           {eligibility.examRequired && !eligibility.examPassed && (
             <>
               {' · 자격시험 합격 필요 '}
-              <Link href={`/learn/${courseId}/exam`} className="text-pink underline">
+              <Link href={`/learn/${courseId}/exam`} className="text-pink-ink underline">
                 시험 응시하기
               </Link>
             </>
@@ -50,7 +50,7 @@ export default function CertificateAction({
 
   return (
     <form action={issueCertificateSelf.bind(null, courseId, lessonId)}>
-      <button type="submit" className="rounded-pill bg-pink px-4 py-2 text-[13px] font-semibold text-white">
+      <button type="submit" className="rounded-pill bg-pink-deep px-4 py-2 text-[13px] font-semibold text-white">
         수료증 발급받기
       </button>
     </form>

@@ -116,10 +116,10 @@ export default async function AdminDiagnosisResultDetailPage({ params }: { param
         <p className="text-[11.5px] leading-relaxed text-n-6">
           {detail.answers.map((a) => `${a.itemCode}:${a.score}`).join('  ')}
         </p>
-        <p className="mt-2 text-[10.5px] text-n-5">관리자 전용 — 학습자 화면에는 노출되지 않아요.</p>
+        <p className="mt-2 text-[10.5px] text-n-6">관리자 전용 — 학습자 화면에는 노출되지 않아요.</p>
       </div>
 
-      <p className="text-[10.5px] text-n-5">이 화면 열람은 admin_access_logs에 기록됩니다.</p>
+      <p className="text-[10.5px] text-n-6">이 화면 열람은 admin_access_logs에 기록됩니다.</p>
     </div>
   );
 }

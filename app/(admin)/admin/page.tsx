@@ -60,7 +60,7 @@ export default async function AdminDashboardPage() {
       {securityEvents !== undefined && <SecurityEventsCard events={securityEvents} />}
 
       <section className="flex flex-col gap-2">
-        <p className="text-[12px] font-semibold uppercase tracking-wide text-n-5">신청·수료</p>
+        <p className="text-[12px] font-semibold uppercase tracking-wide text-n-6">신청·수료</p>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           {enrollmentCards.map((c) => (
             <Link key={c.label} href={c.href} className={CARD_LINK_CLASS}>
@@ -73,8 +73,8 @@ export default async function AdminDashboardPage() {
 
       <section className="flex flex-col gap-2">
         <div>
-          <p className="text-[12px] font-semibold uppercase tracking-wide text-n-5">회원 가입</p>
-          <p className="text-[11px] text-n-5">가입 시도 기준 · 이메일 미인증·탈퇴 회원 포함(아래 최근 가입자 목록은 탈퇴 회원 제외)</p>
+          <p className="text-[12px] font-semibold uppercase tracking-wide text-n-6">회원 가입</p>
+          <p className="text-[11px] text-n-6">가입 시도 기준 · 이메일 미인증·탈퇴 회원 포함(아래 최근 가입자 목록은 탈퇴 회원 제외)</p>
         </div>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <Link href="/admin/members" className={CARD_LINK_CLASS}>
@@ -84,12 +84,12 @@ export default async function AdminDashboardPage() {
           <Link href="/admin/members" className={CARD_LINK_CLASS}>
             <p className="text-[12px] text-n-6">이번주 신규가입</p>
             <p className="mt-1 text-[24px] font-semibold text-n-9">{signupSummary.weekCount}</p>
-            <p className="mt-0.5 text-[11px] text-n-5">{signupSummary.weekRangeLabel}</p>
+            <p className="mt-0.5 text-[11px] text-n-6">{signupSummary.weekRangeLabel}</p>
           </Link>
           <div className="rounded-lg border border-n-3 bg-n-0 p-4">
             <p className="text-[12px] text-n-6">이메일 미인증 회원</p>
             <p className="mt-1 text-[24px] font-semibold text-n-9">{unconfirmedFailed ? '-' : unconfirmed.total}</p>
-            <p className="mt-0.5 text-[11px] font-medium text-warning">
+            <p className="mt-0.5 text-[11px] font-medium text-warning-strong">
               {unconfirmedFailed
                 ? '일시적으로 확인할 수 없어요'
                 : `${unconfirmed.staleOver7Days > 0 ? `7일 초과 방치 ${unconfirmed.staleOver7Days}명 · ` : ''}개별 목록은 추후 제공 예정`}
@@ -112,7 +112,7 @@ export default async function AdminDashboardPage() {
                 />
               ))}
             </div>
-            <div className="mt-1.5 flex text-[10.5px] text-n-5">
+            <div className="mt-1.5 flex text-[10.5px] text-n-6">
               {signupTrend.map((p, i) => (
                 <span key={p.date} className="flex-1 text-center">
                   {i % 5 === 0 || i === signupTrend.length - 1 ? p.date.slice(5).replace('-', '/') : ''}
@@ -167,7 +167,7 @@ export default async function AdminDashboardPage() {
 
       {overCapacity.length > 0 && (
         <section className="rounded-lg border border-warning bg-warning/10 p-4">
-          <h2 className="text-[13px] font-semibold text-warning">정원 초과 강좌 {overCapacity.length}건</h2>
+          <h2 className="text-[13px] font-semibold text-warning-strong">정원 초과 강좌 {overCapacity.length}건</h2>
           <ul className="mt-2 flex flex-col gap-1 text-[12.5px] text-n-7">
             {overCapacity.map((c) => (
               <li key={c.courseId}>
@@ -183,7 +183,7 @@ export default async function AdminDashboardPage() {
 
       <section className="flex flex-col gap-2">
         <h2 className="text-[15px] font-semibold text-n-9">수료 임박 학습자</h2>
-        <p className="text-[12px] text-n-5">진도 80% 이상, 미발급 기준. 강의실(module-lms-5) 도입 전까지는 비어있는 게 정상이에요.</p>
+        <p className="text-[12px] text-n-6">진도 80% 이상, 미발급 기준. 강의실(module-lms-5) 도입 전까지는 비어있는 게 정상이에요.</p>
         {nearCompletion.length === 0 ? (
           <p className="text-[13px] text-n-6">대상자가 없어요.</p>
         ) : (

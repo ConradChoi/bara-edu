@@ -27,7 +27,7 @@ export default function LeadForm({
   if (leadSuccess) {
     return (
       <div className="flex flex-col gap-2 rounded-lg bg-n-1 p-4">
-        <p className="text-[12px] font-semibold text-pink">강사과정 사전 적합 후보</p>
+        <p className="text-[12px] font-semibold text-pink-ink">강사과정 사전 적합 후보</p>
         <p className="text-[13px] text-n-9">문의가 접수됐어요. 강사과정 소식이 준비되면 안내드릴게요.</p>
       </div>
     );
@@ -35,12 +35,12 @@ export default function LeadForm({
 
   return (
     <div className="flex flex-col gap-3 rounded-lg bg-n-1 p-4">
-      <p className="text-[12px] font-semibold text-pink">강사과정 사전 적합 후보</p>
+      <p className="text-[12px] font-semibold text-pink-ink">강사과정 사전 적합 후보</p>
       <p className="text-[15px] font-semibold text-n-9">강사과정이 열리면 안내받기</p>
       <p className="text-[12px] text-n-6">
         아직 강사과정은 별도 문의로만 안내드리고 있어요. 연락처를 남겨주시면 준비되는 대로 안내해드릴게요.
       </p>
-      {leadError && ERROR_MESSAGE[leadError] && <p className="text-[12px] text-danger">{ERROR_MESSAGE[leadError]}</p>}
+      {leadError && ERROR_MESSAGE[leadError] && <p className="text-[12px] text-danger-strong">{ERROR_MESSAGE[leadError]}</p>}
       <form action={submitDiagnosisLead.bind(null, token)} className="flex flex-col gap-3">
         <label className="flex flex-col gap-1.5 text-[12px] text-n-7">
           이름 *
@@ -74,7 +74,7 @@ export default function LeadForm({
           <input type="checkbox" name="consentContact" required className="h-4 w-4" />
           연락 수신에 동의합니다 (필수)
         </label>
-        <button type="submit" className="h-10 rounded-pill bg-pink text-[13px] font-semibold text-white">
+        <button type="submit" className="h-10 rounded-pill bg-pink-deep text-[13px] font-semibold text-white">
           안내받기 신청
         </button>
       </form>

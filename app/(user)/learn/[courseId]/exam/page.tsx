@@ -82,7 +82,7 @@ export default async function CourseExamPage({
         <h1 className="text-[20px] font-semibold text-n-9">자격시험</h1>
 
         {errorMessage && (
-          <div className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger">
+          <div className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger-strong">
             {errorMessage}
           </div>
         )}
@@ -97,7 +97,7 @@ export default async function CourseExamPage({
             >
               시험 응시하기
             </button>
-            <p className="mt-1 text-[11.5px] text-n-5">
+            <p className="mt-1 text-[11.5px] text-n-6">
               진도 {examState.completedLessons}/{examState.totalLessons}
               {examState.pendingAssignmentLessonTitles.length > 0 &&
                 ` · 과제 승인 대기: ${examState.pendingAssignmentLessonTitles.join(', ')}`}
@@ -134,7 +134,7 @@ export default async function CourseExamPage({
             </p>
             <Link
               href={lessons[0] ? `/learn/${courseId}/${lessons[0].id}` : `/my`}
-              className="mt-2 self-start text-[12.5px] font-medium text-pink underline"
+              className="mt-2 self-start text-[12.5px] font-medium text-pink-ink underline"
             >
               강의실로 돌아가 수료증 확인하기
             </Link>

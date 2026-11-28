@@ -10,7 +10,7 @@ export default function WithdrawForm({ action }: { action: (formData: FormData) 
   return (
     <FormDialog
       triggerLabel="회원 탈퇴"
-      triggerClassName="rounded-pill border border-danger px-3.5 py-1.5 text-[12.5px] font-medium text-danger"
+      triggerClassName="rounded-pill border border-danger px-3.5 py-1.5 text-[12.5px] font-medium text-danger-strong"
       title="정말 탈퇴하시겠어요?"
       submitLabel="탈퇴"
       tone="danger"

@@ -37,18 +37,18 @@ export default async function AdminCoursesPage({
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <h1 className="text-[20px] font-semibold text-n-9">강좌 관리</h1>
-        <Link href="/admin/courses/new" className="rounded-pill bg-pink px-4 py-2 text-[13px] font-semibold text-white">
+        <Link href="/admin/courses/new" className="rounded-pill bg-pink-deep px-4 py-2 text-[13px] font-semibold text-white">
           강좌 등록
         </Link>
       </div>
 
       {success && SUCCESS_MESSAGE[success] && (
-        <div className="rounded-md border border-success bg-success/10 px-3.5 py-3 text-[13px] font-medium text-success">
+        <div className="rounded-md border border-success bg-success/10 px-3.5 py-3 text-[13px] font-medium text-success-strong">
           {SUCCESS_MESSAGE[success]}
         </div>
       )}
       {error && ERROR_MESSAGE[error] && (
-        <div className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger">
+        <div className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger-strong">
           {ERROR_MESSAGE[error]}
         </div>
       )}
@@ -86,7 +86,7 @@ export default async function AdminCoursesPage({
                 <td>{c.fee.toLocaleString('ko-KR')}원</td>
                 <td>
                   {c.approvedCount}/{c.seats}
-                  {c.approvedCount > c.seats && <span className="ml-1 text-danger">초과</span>}
+                  {c.approvedCount > c.seats && <span className="ml-1 text-danger-strong">초과</span>}
                 </td>
                 <td>
                   <StatusBadge tone={STATUS_TONE[c.status]}>{STATUS_LABEL[c.status]}</StatusBadge>
@@ -122,7 +122,7 @@ export default async function AdminCoursesPage({
                     )}
                     <ConfirmDialog
                       triggerLabel="삭제"
-                      triggerClassName="rounded-pill border border-danger px-3 py-1.5 text-[12px] font-medium text-danger"
+                      triggerClassName="rounded-pill border border-danger px-3 py-1.5 text-[12px] font-medium text-danger-strong"
                       title="강좌를 삭제할까요?"
                       description="되돌릴 수 없어요."
                       confirmLabel="삭제"

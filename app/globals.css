@@ -22,6 +22,14 @@
   --color-danger: #e14b3c;
   --color-info: #4bc3f0;
 
+  /* 접근성(AA 4.5:1)용 파생 토큰 - 원본 토큰은 그대로 두고 "글자·흰 글자 배경" 용도만 분리 */
+  --color-pink-deep: #d91b81;
+  --color-pink-ink: #c4166f;
+  --color-info-strong: #0b6e99;
+  --color-warning-strong: #9a5a00;
+  --color-danger-strong: #b42318;
+  --color-success-strong: #11703f;
+
   --color-n-0: #ffffff;
   --color-n-1: #f7f7f9;
   --color-n-2: #eeeef2;

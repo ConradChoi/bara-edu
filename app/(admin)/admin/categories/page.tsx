@@ -52,12 +52,12 @@ export default async function AdminCategoriesPage({
       <h1 className="text-[20px] font-semibold text-n-9">카테고리 관리</h1>
 
       {success && SUCCESS_MESSAGE[success] && (
-        <div className="rounded-md border border-success bg-success/10 px-3.5 py-3 text-[13px] font-medium text-success">
+        <div className="rounded-md border border-success bg-success/10 px-3.5 py-3 text-[13px] font-medium text-success-strong">
           {SUCCESS_MESSAGE[success]}
         </div>
       )}
       {error && ERROR_MESSAGE[error] && (
-        <div className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger">
+        <div className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger-strong">
           {ERROR_MESSAGE[error]}
         </div>
       )}
@@ -81,7 +81,7 @@ export default async function AdminCategoriesPage({
               ))}
           </select>
         </label>
-        <button type="submit" className="h-10 shrink-0 rounded-pill bg-pink px-4 text-[13px] font-semibold text-white">
+        <button type="submit" className="h-10 shrink-0 rounded-pill bg-pink-deep px-4 text-[13px] font-semibold text-white">
           추가
         </button>
       </form>
@@ -126,7 +126,7 @@ function CategoryNode({
           </button>
         </form>
 
-        <span className="text-[11px] text-n-5">강좌 {usage}건</span>
+        <span className="text-[11px] text-n-6">강좌 {usage}건</span>
         {category.isCertification && <StatusBadge tone="info">자격증</StatusBadge>}
 
         <div className="flex gap-1">
@@ -156,7 +156,7 @@ function CategoryNode({
           </form>
           <ConfirmDialog
             triggerLabel="삭제"
-            triggerClassName="rounded-pill border border-danger px-2.5 py-1 text-[11.5px] text-danger"
+            triggerClassName="rounded-pill border border-danger px-2.5 py-1 text-[11.5px] text-danger-strong"
             title="카테고리를 삭제할까요?"
             description="되돌릴 수 없어요."
             confirmLabel="삭제"

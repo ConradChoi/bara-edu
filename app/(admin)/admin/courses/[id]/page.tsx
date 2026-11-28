@@ -66,12 +66,12 @@ export default async function AdminCourseDetailPage({
       <h1 className="text-[20px] font-semibold text-n-9">강좌 수정 — {course.title}</h1>
 
       {message && (
-        <div className="rounded-md border border-success bg-success/10 px-3.5 py-3 text-[13px] font-medium text-success">
+        <div className="rounded-md border border-success bg-success/10 px-3.5 py-3 text-[13px] font-medium text-success-strong">
           {SUCCESS_MESSAGE[message]}
         </div>
       )}
       {errorMessage && (
-        <div className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger">
+        <div className="rounded-md border border-danger bg-danger/10 px-3.5 py-3 text-[13px] font-medium text-danger-strong">
           {errorMessage}
         </div>
       )}
@@ -92,7 +92,7 @@ export default async function AdminCourseDetailPage({
                 </Link>
               </div>
               {examQuestionCount === 0 && (
-                <p className="text-[12px] text-warning">
+                <p className="text-[12px] text-warning-strong">
                   자격시험이 켜져 있지만 문항이 없어요. 이 상태에서는 학습자가 수료증을 받을 수 없어요.
                 </p>
               )}
@@ -137,7 +137,7 @@ export default async function AdminCourseDetailPage({
                   <div className="mt-2">
                     <ConfirmDialog
                       triggerLabel="삭제"
-                      triggerClassName="rounded-pill border border-danger px-2.5 py-1 text-[11.5px] text-danger"
+                      triggerClassName="rounded-pill border border-danger px-2.5 py-1 text-[11.5px] text-danger-strong"
                       title="주교재를 삭제할까요?"
                       description="삭제 후에는 강좌 상세/강의실에서 노출되지 않아요."
                       confirmLabel="삭제"
@@ -166,7 +166,7 @@ export default async function AdminCourseDetailPage({
                   </div>
                   <div className="flex items-center">
                     <div className="flex-1" />
-                    <button type="submit" className="rounded-pill bg-pink px-4 py-1.5 text-[12.5px] font-semibold text-white">
+                    <button type="submit" className="rounded-pill bg-pink-deep px-4 py-1.5 text-[12.5px] font-semibold text-white">
                       추가
                     </button>
                   </div>
@@ -212,7 +212,7 @@ export default async function AdminCourseDetailPage({
                       <div className="mt-2">
                         <ConfirmDialog
                           triggerLabel="삭제"
-                          triggerClassName="rounded-pill border border-danger px-2.5 py-1 text-[11.5px] text-danger"
+                          triggerClassName="rounded-pill border border-danger px-2.5 py-1 text-[11.5px] text-danger-strong"
                           title="보조교재를 삭제할까요?"
                           description="삭제 후에는 강좌 상세/강의실에서 노출되지 않아요."
                           confirmLabel="삭제"
@@ -249,7 +249,7 @@ export default async function AdminCourseDetailPage({
                 </div>
                 <div className="flex items-center">
                   <div className="flex-1" />
-                  <button type="submit" className="rounded-pill bg-pink px-4 py-1.5 text-[12.5px] font-semibold text-white">
+                  <button type="submit" className="rounded-pill bg-pink-deep px-4 py-1.5 text-[12.5px] font-semibold text-white">
                     추가
                   </button>
                 </div>
@@ -269,7 +269,7 @@ export default async function AdminCourseDetailPage({
               <li key={lesson.id} className="rounded-lg border border-n-3 p-3">
                 <form action={updateLesson.bind(null, lesson.id, id)} className="flex flex-col gap-2">
                   <div className="flex items-center gap-2">
-                    <span className="text-[12px] text-n-5">{index + 1}강</span>
+                    <span className="text-[12px] text-n-6">{index + 1}강</span>
                     <input
                       name="title"
                       defaultValue={lesson.title}
@@ -367,7 +367,7 @@ export default async function AdminCourseDetailPage({
                   </form>
                   <ConfirmDialog
                     triggerLabel="삭제"
-                    triggerClassName="rounded-pill border border-danger px-2.5 py-1 text-[11.5px] text-danger"
+                    triggerClassName="rounded-pill border border-danger px-2.5 py-1 text-[11.5px] text-danger-strong"
                     title="강의를 삭제할까요?"
                     description="학습자의 진도/퀴즈/과제 기록에 영향을 줄 수 있어요."
                     confirmLabel="삭제"
@@ -430,7 +430,7 @@ export default async function AdminCourseDetailPage({
               <input type="datetime-local" name="assignmentDueAt" className="h-8 rounded-md border border-n-3 bg-n-0 px-2 text-[12px]" />
             </label>
             <div className="flex-1" />
-            <button type="submit" className="rounded-pill bg-pink px-4 py-1.5 text-[12.5px] font-semibold text-white">
+            <button type="submit" className="rounded-pill bg-pink-deep px-4 py-1.5 text-[12.5px] font-semibold text-white">
               추가
             </button>
           </div>

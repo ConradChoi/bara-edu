@@ -60,7 +60,7 @@ const BTN = `inline-flex min-h-12 w-full items-center justify-center rounded-pil
 const BTN_PRIMARY = `${BTN} bg-indigo font-semibold text-white hover:bg-arc-1`;
 const BTN_SECONDARY = `${BTN} border border-n-3 bg-n-0 font-medium text-n-8 hover:bg-n-1`;
 const BTN_DISABLED = `${BTN} cursor-not-allowed border border-n-3 bg-n-2 font-medium text-n-6`;
-const INPUT = `h-12 w-full rounded-md border bg-n-0 px-3.5 text-[16px] text-n-9 placeholder:text-n-5 sm:text-[15px] focus:outline-none focus:border-indigo focus:ring-2 focus:ring-indigo/30`;
+const INPUT = `h-12 w-full rounded-md border bg-n-0 px-3.5 text-[16px] text-n-9 placeholder:text-n-6 sm:text-[15px] focus:outline-none focus:border-indigo focus:ring-2 focus:ring-indigo/30`;
 const LABEL = 'text-[14px] font-semibold text-n-8';
 const HELP = 'text-[14px] leading-[1.6] text-n-6';
 
@@ -68,7 +68,7 @@ function ErrorLine({ id, children }: { id: string; children?: string }) {
   if (!children) return null;
   return (
     <p id={id} role="alert" className="flex gap-1.5 text-[14px] font-medium text-n-9">
-      <svg className="mt-0.5 size-4 shrink-0 text-danger" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" aria-hidden="true" focusable="false">
+      <svg className="mt-0.5 size-4 shrink-0 text-danger-strong" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" aria-hidden="true" focusable="false">
         <circle cx="12" cy="12" r="10" />
         <path d="M12 8v5" />
         <path d="M12 16h.01" />
