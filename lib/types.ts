@@ -227,6 +227,8 @@ export interface SiteConfig {
   supportHours: string;
   email: string;
   address: string;
+  hostingProvider: string;
+  ftcBizInfoUrl: string;
   kakaoUrl?: string;
   instagramUrl?: string;
   openingDate?: string;

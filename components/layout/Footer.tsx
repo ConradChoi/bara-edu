@@ -1,3 +1,4 @@
+import { unstable_rethrow } from 'next/navigation';
 import FooterBody from './FooterBody';
 import { getLegalDocument } from '@/lib/supabase/queries';
 
@@ -13,6 +14,13 @@ const REFUND_POLICY_SLUG = 'refund-policy';
 // 한 줄뿐이었고 ComingSoon 화면에만 쓰여, 실제 서비스 화면(/courses, /my, /sign-in 등)
 // 어디에도 법정 표시사항이 노출된 적이 없었다(홈 화면 작업 중 발견, 2026-08-10).
 export default async function Footer() {
-  const refundPolicy = await getLegalDocument(REFUND_POLICY_SLUG);
-  return <FooterBody hasRefundPolicy={Boolean(refundPolicy)} />;
+  // 조회가 실패해도 푸터(법정 표시사항)는 그려야 한다. 환불정책 링크만 빼고 화면은 그대로 둔다(QA Major-1, 2026-11-28).
+  let hasRefundPolicy = false;
+  try {
+    hasRefundPolicy = Boolean(await getLegalDocument(REFUND_POLICY_SLUG));
+  } catch (err) {
+    unstable_rethrow(err);
+    console.error('[footer] refund-policy lookup failed', err);
+  }
+  return <FooterBody hasRefundPolicy={hasRefundPolicy} />;
 }

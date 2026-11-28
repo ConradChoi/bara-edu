@@ -15,6 +15,10 @@ export const siteConfig: SiteConfig = {
   supportHours: '평일 10:00~18:00(점심 11:30~13:00 제외)',
   email: 'info@ylia.io',
   address: '경기도 광명시 오리로 362 4층 (창업지원센터)',
+  // 전자상거래법 제10조·시행규칙 제7조 표시사항(개인정보 점검 Must, 2026-11-28). 호스팅은 처리방침 제5조 수탁자와 같아야 한다.
+  hostingProvider: 'Amazon Web Services, Inc.',
+  // 공정위 사업자정보 공개페이지. wrkr_no는 사업자등록번호 숫자만.
+  ftcBizInfoUrl: 'https://www.ftc.go.kr/bizCommPop.do?wrkr_no=8328603446',
   kakaoUrl: undefined,
   instagramUrl: undefined,
   openingDate: '2026년 하반기',

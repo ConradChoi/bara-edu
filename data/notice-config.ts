@@ -42,7 +42,8 @@ export interface NoticeConfig {
 
 export const defaultNoticeConfig: NoticeConfig = {
   id: 'notice-2026-service-migration-v4',
-  enabled: true,
+  // 11-27 정식 오픈 뒤 문구("작업이 끝나는 대로 열어 드릴게요")가 사실과 달라 조기 종료(대표 결정, 2026-11-28, QA Major-2).
+  enabled: false,
   endsAt: '2026-12-02T00:00:00+09:00',
   badge: '공지사항',
   title: '서비스 환경 이전 작업 안내',
